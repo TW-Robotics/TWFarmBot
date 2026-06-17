@@ -1,16 +1,16 @@
 [project]
-name = "twfarmbot-core"
+name = "twfarmbot-safety-service"
 version = "0.1.0"
-description = "Shared domain types, config, logging, and event primitives."
+description = "Gates every action that affects the real world."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "twfarmbot-safety-service",
-] 
+    "twfarmbot-core",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["twfarmbot_core"]
+packages = ["safety_service"]

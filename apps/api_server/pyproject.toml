@@ -6,7 +6,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "twfarmbot-core",
-]
+    "twfarmbot-safety-service",
+    "twfarmbot-watering-service",
+    "fastapi",
+    "uvicorn",
+] 
 
 [project.scripts]
 twfarmbot-api = "twfarmbot_api_server.__main__:main"

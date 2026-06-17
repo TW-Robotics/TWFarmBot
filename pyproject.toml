@@ -6,6 +6,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "twfarmbot-core",
+    "farmbot-client",
+    "twfarmbot-gateway",
+    "twfarmbot-safety-service",
+    "twfarmbot-watering-service",
     "twfarmbot-api-server",
     "twfarmbot-ui",
     "twfarmbot-worker",
@@ -13,6 +17,10 @@ dependencies = [
 
 [tool.uv.sources]
 twfarmbot-core = { workspace = true }
+farmbot-client = { workspace = true }
+twfarmbot-gateway = { workspace = true }
+twfarmbot-safety-service = { workspace = true }
+twfarmbot-watering-service = { workspace = true }
 twfarmbot-api-server = { workspace = true }
 twfarmbot-ui = { workspace = true }
 twfarmbot-worker = { workspace = true }
@@ -20,10 +28,14 @@ twfarmbot-worker = { workspace = true }
 [tool.uv.workspace]
 members = [
     "core",
+    "libs/farmbot_client",
+    "services/farmbot_gateway",
+    "services/safety_service",
+    "services/watering_service",
     "apps/ui",
     "apps/api_server",
     "apps/worker",
-]
+] 
 
 [build-system]
 requires = ["hatchling"]
@@ -32,7 +44,14 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=9.1.0",
-]
+    "httpx>=0.27",
+] 
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:The starlette.testclient module:RuntimeWarning",
+    "ignore:Using `httpx` with `starlette.testclient`:DeprecationWarning",
+] 
