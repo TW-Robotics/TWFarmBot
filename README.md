@@ -68,7 +68,7 @@ farmbot-research/
 | `projects/` | Self-contained student/research projects. A project can wire services together but **must not** modify shared code in `core/`, `services/`, or `libs/`. | Weed detection prototype, VLM planner prototype |
 | `experiments/` | Reproducible experiment definitions, harnesses, configs and result outputs. | `watering_strategy_eval/`, `vlm_grounding/` |
 | `libs/` | Reusable, framework-agnostic utilities. No business logic, no FarmBot specifics beyond `farmbot_client`. | Geometry helpers, ML helpers |
-| `docs/` | Design notes, ADRs, onboarding guides. | |
+| `docs/` | Design notes, ADRs, onboarding guides. See [`docs/architecture.md`](docs/architecture.md) for the source of truth on structure, the action flow, and how to add a new service / handler / action. | |
 | `tests/` | Cross-cutting / integration tests. Unit tests live next to the code they test. | |
 | `configs/` | YAML/JSON config files for environments, robots, sensors. | |
 

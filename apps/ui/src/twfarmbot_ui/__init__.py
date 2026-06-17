@@ -1,4 +1,3 @@
-"""FarmBot UI package."""
+from twfarmbot_ui.app import _request  # noqa: F401  (re-export for tests)
 
-__all__ = ["__version__"]
-__version__ = "0.1.0"
+__all__ = ["_request"]

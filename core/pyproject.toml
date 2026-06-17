@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Shared domain types, config, logging, and event primitives."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "twfarmbot-safety-service",
+] 
 
 [build-system]
 requires = ["hatchling"]

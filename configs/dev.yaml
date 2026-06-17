@@ -1,2 +1,26 @@
 env: dev
 log_level: INFO
+
+# FarmBot WiFi credentials are read from environment variables
+# (FARMBOT_HOST, FARMBOT_EMAIL, FARMBOT_PASSWORD, optional FARMBOT_TOKEN)
+# by services/farmbot_gateway. Host defaults to the cloud broker
+# "farmbot.farm.bot" — use "http://192.168.1.50" (or similar) for LAN.
+
+# Safety limits enforced before any real-world action runs.
+# Overridable via env: FARMBOT_MAX_WATER_SECONDS, FARMBOT_ALLOWED_BEDS=bed1,bed2
+safety:
+  max_water_seconds: 300
+  allowed_beds: []   # empty = allow all known beds
+  # Move axis bounds (mm). Anything outside is rejected by safety.
+  max_axis_mm:
+    x: 3000
+    y: 1500
+    z: 800
+
+# Pin map: bed_id → FarmBot peripheral pin controlling that bed's valve.
+# To add a new bed, add an entry here (or set FARMBOT_PIN_<bed>=<pin>).
+watering:
+  pins:
+    b1: 13
+    b2: 17
+    b3: 18
