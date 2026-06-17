@@ -1,7 +1,38 @@
 [project]
 name = "twfarmbot"
 version = "0.1.0"
-description = "Add your description here"
+description = "Implementation of the FarmBot at UAS Technikum Wien"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "twfarmbot-core",
+    "twfarmbot-api-server",
+    "twfarmbot-ui",
+    "twfarmbot-worker",
+]
+
+[tool.uv.sources]
+twfarmbot-core = { workspace = true }
+twfarmbot-api-server = { workspace = true }
+twfarmbot-ui = { workspace = true }
+twfarmbot-worker = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "core",
+    "apps/ui",
+    "apps/api_server",
+    "apps/worker",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
