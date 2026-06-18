@@ -71,3 +71,31 @@ def test_api_client_strips_trailing_slash() -> None:
 
     c = ApiClient("http://api/")
     assert c.base_url == "http://api"
+
+
+def test_huggingface_image_processor_calls_gradio_endpoint(
+    monkeypatch: "pytest.MonkeyPatch",
+) -> None:
+    from twfarmbot_ml_utils import huggingface as module
+
+    seen: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, space_id, verbose):
+            seen["space_id"] = space_id
+
+        def predict(self, **kwargs):
+            seen.update(kwargs)
+            return "/tmp/result.webp"
+
+    monkeypatch.setattr(module, "Client", FakeClient)
+    monkeypatch.setattr(module, "handle_file", lambda url: {"url": url})
+
+    processor = module.HuggingFaceImageProcessor("owner/space")
+    result = processor.process("https://example.test/photo.jpg", "green leaves")
+
+    assert str(result) == "/tmp/result.webp"
+    assert seen["space_id"] == "owner/space"
+    assert seen["image"] == {"url": "https://example.test/photo.jpg"}
+    assert seen["prompt"] == "green leaves"
+    assert seen["api_name"] == "/run_similarity"

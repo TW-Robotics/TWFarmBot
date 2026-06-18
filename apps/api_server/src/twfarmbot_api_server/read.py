@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 from fastapi import APIRouter, HTTPException
 
+from spatial_service import get_snapshot
 from watering_service.backends import farmbot
 from watering_service import _load_yaml_config
 
@@ -80,3 +81,12 @@ def get_pins() -> dict[str, Any]:
 def get_positions() -> dict[str, Any]:
     """Preset gantry positions for the UI Move widget."""
     return {"positions": _load_yaml_config().get("positions", []) or []}
+
+
+@router.get("/garden")
+def get_garden() -> dict[str, Any]:
+    """Configured world model composed with the latest cached robot position."""
+    try:
+        return get_snapshot(farmbot.backend.get_xyz())
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"garden read failed: {err}") from err

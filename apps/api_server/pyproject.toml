@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "twfarmbot-core",
+    "twfarmbot-spatial-service",
     "twfarmbot-safety-service",
     "twfarmbot-watering-service",
     "fastapi",

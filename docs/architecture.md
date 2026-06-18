@@ -26,7 +26,8 @@ TWFarmBot/
 │   ├── watering_service/       # irrigation (FarmBotBackend only — see backends/farmbot.py)
 │   ├── sensor_service/         # soil / temp / light
 │   ├── vision_service/         # camera + models
-│   └── planning_service/       # LLM / VLM task planning
+│   ├── planning_service/       # LLM / VLM task planning
+│   └── spatial_service/        # garden coordinates + persistent world model
 │
 ├── libs/                       # pure, reusable utilities
 │   └── farmbot_client/         # wraps farmbot-py; reusable client
@@ -218,6 +219,7 @@ imports `farmbot-py` directly:
 | `GET /pin/{pin}?mode=digital|analog` | `{pin, mode, value}` |
 | `GET /messages` | `{last_messages: [...]}` |
 | `GET /images?limit=10` | `{images: [{attachment_url, created_at, meta, ...}]}` |
+| `GET /garden` | bed bounds, camera pose, entities, zones, and cached robot pose |
 
 ## 8. How to add …
 

@@ -1,0 +1,16 @@
+[project]
+name = "twfarmbot-ml-utils"
+version = "0.1.0"
+description = "Pure machine-learning integration helpers."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "gradio-client>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/twfarmbot_ml_utils"]

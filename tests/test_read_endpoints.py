@@ -124,3 +124,12 @@ def test_get_positions(client: TestClient) -> None:
         assert "label" in first
         for axis in ("x", "y", "z"):
             assert axis in first
+
+
+def test_get_garden(client: TestClient) -> None:
+    r = client.get("/garden")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["bounds"]["width"] > 0
+    assert body["robot"] == {"x": 100.0, "y": 200.0, "z": 50.0}
+    assert any(item["kind"] == "plant" for item in body["entities"])

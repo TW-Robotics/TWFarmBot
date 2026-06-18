@@ -1,0 +1,17 @@
+[project]
+name = "twfarmbot-spatial-service"
+version = "0.1.0"
+description = "Garden coordinate and world-model service."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "twfarmbot-core",
+    "pyyaml>=6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["spatial_service"]
