@@ -12,13 +12,13 @@ from typing import Any
 def test_api_client_returns_ok_on_2xx(monkeypatch: "pytest.MonkeyPatch") -> None:
     import httpx
 
-    def fake_request(method, url, **kwargs):
+    def fake_request(self, method, url, **kwargs):
         return httpx.Response(
             200,
             json={"status": "ok", "actions": ["water"], "farmbot": "connected"},
         )
 
-    monkeypatch.setattr(httpx, "request", fake_request)
+    monkeypatch.setattr(httpx.Client, "request", fake_request)
     from twfarmbot_ui import ApiClient
 
     c = ApiClient("http://api")
@@ -34,10 +34,10 @@ def test_api_client_returns_not_ok_on_connection_failure(
 ) -> None:
     import httpx
 
-    def fake_request(method, url, **kwargs):
+    def fake_request(self, method, url, **kwargs):
         raise httpx.ConnectError("refused")
 
-    monkeypatch.setattr(httpx, "request", fake_request)
+    monkeypatch.setattr(httpx.Client, "request", fake_request)
     from twfarmbot_ui import ApiClient
 
     c = ApiClient("http://api")
@@ -52,11 +52,11 @@ def test_api_client_passes_query_params(monkeypatch: "pytest.MonkeyPatch") -> No
 
     seen: list[dict[str, Any]] = []
 
-    def fake_request(method, url, **kwargs):
+    def fake_request(self, method, url, **kwargs):
         seen.append({"method": method, "url": str(url), "kwargs": kwargs})
         return httpx.Response(200, json={"pin": 13, "mode": "analog", "value": 1})
 
-    monkeypatch.setattr(httpx, "request", fake_request)
+    monkeypatch.setattr(httpx.Client, "request", fake_request)
     from twfarmbot_ui import ApiClient
 
     c = ApiClient("http://api")

@@ -50,6 +50,23 @@ class FarmBotLink:
             log.info("FarmBot reconnected")
         return self._fb
 
+    def cached_xyz(self) -> dict[str, float]:
+        """Return the last MQTT position without reconnecting or issuing a read."""
+        try:
+            statuses = self._fb.state.last_messages.get("status", [])
+            position = statuses[-1]["content"]["location_data"]["position"]
+        except (AttributeError, IndexError, KeyError, TypeError):
+            return {}
+        return {
+            axis: float(position[axis])
+            for axis in ("x", "y", "z")
+            if position.get(axis) is not None
+        }
+
+    def cached_last_messages(self):
+        """Return the last MQTT messages without triggering reconnection."""
+        return getattr(self._fb.state, "last_messages", None)
+
     def __getattr__(self, name: str):
         # __getattr__ only fires when normal lookup fails, so `self._fb`
         # access above is safe (it lives on the instance, not via getattr).

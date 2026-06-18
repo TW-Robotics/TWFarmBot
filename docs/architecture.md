@@ -197,6 +197,7 @@ The api_server registers these action kinds via
 | `dismount_tool` | — | `farmbot_backend.dismount_tool()` | — |
 | `send_message` | `message`, optional `type`/`channels` | `farmbot_backend.send_message()` | — |
 | `e_stop` | — | `farmbot_backend.e_stop()` | — |
+| `take_photo` | — | `farmbot_backend.take_photo()` | — |
 
 `farmbot_backend` lives at
 `services/watering_service/watering_service/backends/farmbot.py` and is
@@ -216,6 +217,7 @@ imports `farmbot-py` directly:
 | `GET /status?path=<optional>` | `{path, state}` |
 | `GET /pin/{pin}?mode=digital|analog` | `{pin, mode, value}` |
 | `GET /messages` | `{last_messages: [...]}` |
+| `GET /images?limit=10` | `{images: [{attachment_url, created_at, meta, ...}]}` |
 
 ## 8. How to add …
 

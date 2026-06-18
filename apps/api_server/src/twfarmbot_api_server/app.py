@@ -12,13 +12,15 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Thread
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from farmbot_client import FarmBotConnectionError
-from safety_service import UnsafeActionError
+from safety_service import UnsafeActionError, validate
 from twfarmbot_api_server.handlers import register_default_handlers
 from twfarmbot_core.actions import (
     ActionRegistry,
@@ -41,10 +43,34 @@ class ActionPayload(BaseModel):
 def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     app = FastAPI(title="TWFarmBot API", version="0.4.0")
     app.state.registry = registry or _default_registry()
+    # FarmBot commands are blocking and must not overlap. Queue them through a
+    # single worker so HTTP clients can receive an acknowledgement immediately.
+    app.state.action_executor = ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="farmbot-actions"
+    )
+    app.state.position_poll_stop = Event()
+    app.state.position_poll_thread = None
+    app.state.position_poll_future = None
     app.state.farmbot_status = "unknown"  # updated by main() at boot
 
     from twfarmbot_api_server.read import router as read_router
     app.include_router(read_router)
+
+    @app.on_event("startup")
+    def start_position_polling() -> None:
+        if app.state.farmbot_status != "connected":
+            return
+        app.state.position_poll_thread = Thread(
+            target=_position_poll_loop,
+            args=(app,),
+            name="farmbot-position-poll",
+            daemon=True,
+        )
+        app.state.position_poll_thread.start()
+
+    @app.on_event("shutdown")
+    def stop_position_polling() -> None:
+        app.state.position_poll_stop.set()
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -55,9 +81,21 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         }
 
     @app.post("/actions")
-    def post_action(payload: ActionPayload) -> dict[str, Any]:
+    def post_action(payload: ActionPayload, wait: bool = True) -> dict[str, Any]:
         action = payload.to_action()
         log.info("POST /actions kind=%s params=%s", action.kind, action.params)
+        if not wait:
+            if action.kind not in app.state.registry.kinds():
+                raise HTTPException(status_code=404, detail=f"unknown action kind: {action.kind}")
+            try:
+                validate(action)
+            except UnsafeActionError as err:
+                raise HTTPException(status_code=400, detail=str(err)) from err
+            app.state.action_executor.submit(_dispatch_queued, app.state.registry, action)
+            return {
+                "status": "queued",
+                "action": {"kind": action.kind, "params": action.params},
+            }
         try:
             executed = app.state.registry.dispatch(action)
         except UnknownActionError as err:
@@ -70,6 +108,36 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         }
 
     return app
+
+
+def _dispatch_queued(registry: ActionRegistry, action: Action) -> None:
+    try:
+        registry.dispatch(action)
+    except Exception:  # noqa: BLE001
+        log.exception("queued action failed kind=%s params=%s", action.kind, action.params)
+    finally:
+        if action.kind in {"move", "find_home"}:
+            _refresh_position()
+
+
+def _refresh_position() -> None:
+    from watering_service.backends import farmbot
+
+    try:
+        farmbot.backend.refresh_xyz()
+    except Exception:  # noqa: BLE001
+        log.warning("background position refresh failed", exc_info=True)
+
+
+def _position_poll_loop(app: FastAPI) -> None:
+    """Keep one position refresh queued, never overlapping robot actions."""
+    while not app.state.position_poll_stop.is_set():
+        future = app.state.position_poll_future
+        if future is None or future.done():
+            app.state.position_poll_future = app.state.action_executor.submit(
+                _refresh_position
+            )
+        app.state.position_poll_stop.wait(2.0)
 
 
 def _default_registry() -> ActionRegistry:

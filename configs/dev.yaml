@@ -22,5 +22,27 @@ safety:
 watering:
   pins:
     b1: 13
-    b2: 17
-    b3: 18
+    b2: 11
+    b3: 9
+
+# Named pins for the UI: label → {pin, mode, kind, group}.
+#   kind: "valve" | "servo" | "sensor" | "io"
+#   group: shown as a column header in the pin grid
+# Every pin number must be unique; a single GPIO can't drive a valve and
+# read a sensor at the same time.
+pins:
+  - {label: "Valve b1",     pin: 13, mode: digital, kind: valve,  group: "Water"}
+  - {label: "Valve b2",     pin: 11, mode: digital, kind: valve,  group: "Water"}
+  - {label: "Valve b3",     pin: 9,  mode: digital, kind: valve,  group: "Water"}
+  - {label: "Tool servo",   pin: 10, mode: digital, kind: servo,  group: "Tools"}
+  - {label: "Light",        pin: 8,  mode: digital, kind: io,     group: "Tools"}
+  - {label: "Soil sensor",  pin: 14, mode: analog,  kind: sensor, group: "Sensors"}
+  - {label: "Light sensor", pin: 15, mode: analog,  kind: sensor, group: "Sensors"}
+
+# Preset gantry positions for the UI Move widget. Coordinates in mm.
+positions:
+  - {label: "Home",       x: 0,    y: 0,   z: 0}
+  - {label: "Bed 1",      x: 100,  y: 200, z: 0}
+  - {label: "Bed 2",      x: 500,  y: 200, z: 0}
+  - {label: "Bed 3",      x: 900,  y: 200, z: 0}
+  - {label: "Camera top", x: 0,    y: 0,   z: 400}

@@ -11,9 +11,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import yaml
 from fastapi import APIRouter, HTTPException
 
 from watering_service.backends import farmbot
+from watering_service import _load_yaml_config
 
 log = logging.getLogger("twfarmbot.api_server.read")
 
@@ -55,3 +57,26 @@ def get_messages() -> dict[str, Any]:
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"farmbot read failed: {err}") from err
     return {"last_messages": last}
+
+
+@router.get("/images")
+def get_images(limit: int = 10) -> dict[str, Any]:
+    """Newest photos uploaded by the FarmBot camera."""
+    limit = max(1, min(limit, 50))
+    try:
+        images = farmbot.backend.get_images(limit)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"farmbot image read failed: {err}") from err
+    return {"images": images}
+
+
+@router.get("/pins")
+def get_pins() -> dict[str, Any]:
+    """Named pins from ``configs/dev.yaml`` for the UI pin grid."""
+    return {"pins": _load_yaml_config().get("pins", []) or []}
+
+
+@router.get("/positions")
+def get_positions() -> dict[str, Any]:
+    """Preset gantry positions for the UI Move widget."""
+    return {"positions": _load_yaml_config().get("positions", []) or []}

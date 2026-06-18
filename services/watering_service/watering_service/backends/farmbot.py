@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+from threading import Lock
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -24,7 +25,9 @@ class FarmBotBackend:
     def __init__(self) -> None:
         # Do not capture get_farmbot — resolve lazily so tests can monkeypatch
         # farmbot_gateway.get_farmbot and have it take effect immediately.
-        pass
+        self._images_cache: list[dict[str, Any]] = []
+        self._images_cached_at = 0.0
+        self._images_lock = Lock()
 
     @property
     def pins(self) -> dict[str, int]:
@@ -109,15 +112,60 @@ class FarmBotBackend:
     # -------- Sensors / inspection ---------------------------------------
 
     def get_xyz(self) -> Any:
-        return self._bot().get_xyz()
+        bot = self._bot()
+        cached_xyz = getattr(bot, "cached_xyz", None)
+        return cached_xyz() if callable(cached_xyz) else bot.get_xyz()
+
+    def refresh_xyz(self) -> Any:
+        """Ask FarmBot for a fresh status tree, updating its local MQTT cache."""
+        bot = self._bot()
+        state = getattr(getattr(bot, "_fb", bot), "state", None)
+        old_verbosity = getattr(state, "verbosity", None)
+        old_json_printing = getattr(state, "json_printing", None)
+        try:
+            if state is not None:
+                state.verbosity = 0
+                state.json_printing = False
+            return bot.get_xyz()
+        finally:
+            if state is not None:
+                state.verbosity = old_verbosity
+                state.json_printing = old_json_printing
 
     def get_last_messages(self) -> Any:
         """Return the FarmBot's ``state.last_messages`` (or ``None``)."""
-        return getattr(self._bot().state, "last_messages", None)
+        bot = self._bot()
+        cached_messages = getattr(bot, "cached_last_messages", None)
+        return cached_messages() if callable(cached_messages) else getattr(bot.state, "last_messages", None)
 
     def take_photo(self) -> None:
         log.info("farmbot: take_photo")
         self._bot().take_photo()
+
+    def get_images(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Return newest image records, caching the expensive cloud API call."""
+        with self._images_lock:
+            if self._images_cache and time.monotonic() - self._images_cached_at < 60:
+                return self._images_cache[:limit]
+
+            bot = self._bot()
+            api_get = getattr(getattr(bot, "info", None), "api_get", None)
+            images = (
+                api_get("images", data_print=False)
+                if callable(api_get)
+                else bot.api_get("images")
+            )
+            if not isinstance(images, list):
+                log.warning("farmbot image API unavailable; serving cached gallery")
+                return self._images_cache[:limit]
+
+            self._images_cache = sorted(
+                (image for image in images if isinstance(image, dict)),
+                key=lambda image: image.get("created_at", ""),
+                reverse=True,
+            )
+            self._images_cached_at = time.monotonic()
+            return self._images_cache[:limit]
 
     def measure_soil_height(self) -> Any:
         log.info("farmbot: measure_soil_height")

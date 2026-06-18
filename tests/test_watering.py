@@ -101,6 +101,16 @@ def test_api_actions_dispatches_water() -> None:
     assert r.json()["action"]["kind"] == "water"
 
 
+def test_api_actions_can_queue_without_waiting() -> None:
+    client = TestClient(app)
+    r = client.post(
+        "/actions?wait=false",
+        json={"kind": "water", "params": {"bed_id": "b1", "seconds": 0.01}},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "queued"
+
+
 def test_api_actions_rejects_unknown_kind() -> None:
     client = TestClient(app)
     r = client.post("/actions", json={"kind": "teleport", "params": {}})
