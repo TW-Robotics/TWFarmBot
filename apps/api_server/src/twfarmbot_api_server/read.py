@@ -60,11 +60,11 @@ def get_messages() -> dict[str, Any]:
 
 
 @router.get("/images")
-def get_images(limit: int = 10) -> dict[str, Any]:
+def get_images(limit: int = 10, refresh: bool = False) -> dict[str, Any]:
     """Newest photos uploaded by the FarmBot camera."""
     limit = max(1, min(limit, 50))
     try:
-        images = farmbot.backend.get_images(limit)
+        images = farmbot.backend.get_images(limit, refresh=refresh)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"farmbot image read failed: {err}") from err
     return {"images": images}

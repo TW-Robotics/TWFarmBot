@@ -24,7 +24,7 @@ class _StubBackend:
     def get_last_messages(self):
         return ["msg1", "msg2"]
 
-    def get_images(self, limit=10):
+    def get_images(self, limit=10, refresh=False):
         return [{
             "id": 1,
             "created_at": "2026-06-18T10:36:51.909Z",
@@ -81,7 +81,7 @@ def test_get_messages(client: TestClient) -> None:
 
 
 def test_get_images(client: TestClient) -> None:
-    r = client.get("/images", params={"limit": 1})
+    r = client.get("/images", params={"limit": 1, "refresh": "true"})
     assert r.status_code == 200
     assert r.json()["images"][0]["attachment_url"] == "https://example.test/photo.jpg"
 

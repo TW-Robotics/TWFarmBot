@@ -142,10 +142,13 @@ class FarmBotBackend:
         log.info("farmbot: take_photo")
         self._bot().take_photo()
 
-    def get_images(self, limit: int = 10) -> list[dict[str, Any]]:
-        """Return newest image records, caching the expensive cloud API call."""
+    def get_images(
+        self, limit: int = 10, *, refresh: bool = False
+    ) -> list[dict[str, Any]]:
+        """Return cached images and merge newly uploaded records on refresh."""
         with self._images_lock:
-            if self._images_cache and time.monotonic() - self._images_cached_at < 60:
+            age = time.monotonic() - self._images_cached_at
+            if self._images_cache and (not refresh or age < 10):
                 return self._images_cache[:limit]
 
             bot = self._bot()
@@ -159,8 +162,18 @@ class FarmBotBackend:
                 log.warning("farmbot image API unavailable; serving cached gallery")
                 return self._images_cache[:limit]
 
+            cached_by_id = {
+                image.get("id"): image
+                for image in self._images_cache
+                if image.get("id") is not None
+            }
+            cached_by_id.update({
+                image.get("id"): image
+                for image in images
+                if isinstance(image, dict) and image.get("id") is not None
+            })
             self._images_cache = sorted(
-                (image for image in images if isinstance(image, dict)),
+                cached_by_id.values(),
                 key=lambda image: image.get("created_at", ""),
                 reverse=True,
             )
