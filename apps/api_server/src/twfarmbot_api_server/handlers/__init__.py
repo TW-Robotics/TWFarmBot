@@ -15,6 +15,8 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     from .mount_tool import handle_mount_tool, handle_dismount_tool
     from .pin import handle_read_pin, handle_write_pin
     from .feedback import handle_send_message, handle_e_stop
+    from .find_home import handle_find_home
+    from .camera import handle_take_photo
 
     registry.register("water", handle_water)
     registry.register("move", handle_move)
@@ -24,3 +26,5 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     registry.register("write_pin", handle_write_pin)
     registry.register("send_message", handle_send_message)
     registry.register("e_stop", handle_e_stop)
+    registry.register("find_home", handle_find_home)
+    registry.register("take_photo", handle_take_photo)

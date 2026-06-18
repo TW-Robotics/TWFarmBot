@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from twfarmbot_core.domain import Action
+from watering_service.backends import farmbot
 
 
 # ---------- helpers --------------------------------------------------------
@@ -93,6 +94,34 @@ def test_backend_e_stop(fake_bot, monkeypatch):
     assert any(m == "e_stop" for m, _ in fake_bot.calls)
 
 
+def test_backend_take_photo(fake_bot, monkeypatch):
+    backend = _new_backend(monkeypatch, {})
+    backend.take_photo()
+    assert any(m == "take_photo" for m, _ in fake_bot.calls)
+
+
+def test_backend_images_are_cached(monkeypatch):
+    calls = []
+
+    class _Info:
+        def api_get(self, endpoint, data_print=False):
+            calls.append(endpoint)
+            return [
+                {"id": 1, "created_at": "2026-01-01", "attachment_url": "old"},
+                {"id": 2, "created_at": "2026-01-02", "attachment_url": "new"},
+            ]
+
+    class _Bot:
+        info = _Info()
+
+    monkeypatch.setattr("farmbot_gateway.get_farmbot", lambda: _Bot())
+    backend = farmbot.FarmBotBackend()
+
+    assert backend.get_images(1)[0]["id"] == 2
+    assert backend.get_images(1)[0]["id"] == 2
+    assert calls == ["images"]
+
+
 # ---------- handlers -------------------------------------------------------
 
 def test_handler_water_translates_args(monkeypatch):
@@ -159,7 +188,8 @@ def test_handler_send_message_translates(monkeypatch):
 
 def test_handler_e_stop_calls_backend(monkeypatch):
     from twfarmbot_api_server.handlers import feedback as h
-    from watering_service.backends import farmbot
+    importlib = __import__("importlib")
+    importlib.reload(h)
 
     called = []
 
@@ -170,6 +200,37 @@ def test_handler_e_stop_calls_backend(monkeypatch):
     monkeypatch.setattr(farmbot, "backend", _StubBackend())
 
     h.handle_e_stop(Action(kind="e_stop", params={}))
+    assert called == [True]
+
+
+def test_handler_find_home_calls_backend(monkeypatch):
+    from twfarmbot_api_server.handlers import find_home as h
+    importlib = __import__("importlib")
+    importlib.reload(h)
+
+    called = []
+
+    class _StubBackend:
+        def find_home(self):
+            called.append(True)
+
+    monkeypatch.setattr(farmbot, "backend", _StubBackend())
+
+    h.handle_find_home(Action(kind="find_home", params={}))
+    assert called == [True]
+
+
+def test_handler_take_photo_calls_backend(monkeypatch):
+    from twfarmbot_api_server.handlers import camera as h
+
+    called = []
+
+    class _StubBackend:
+        def take_photo(self):
+            called.append(True)
+
+    monkeypatch.setattr(farmbot, "backend", _StubBackend())
+    h.handle_take_photo(Action(kind="take_photo", params={}))
     assert called == [True]
 
 
