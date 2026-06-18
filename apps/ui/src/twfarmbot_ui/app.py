@@ -11,18 +11,26 @@ import json
 import os
 from typing import Any
 
+import altair as alt
 import streamlit as st
+from twfarmbot_ml_utils import HuggingFaceImageProcessor
 
 from twfarmbot_ui.client import ApiClient
 
 # ── config ────────────────────────────────────────────────────────────────────
 
 API_URL = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
+AI_SPACE_ID = os.getenv("TWFB_AI_SPACE_ID", "DavidSeyserHF/Eupe-Lang")
 
 
 @st.cache_resource
 def _client(base_url: str) -> ApiClient:
     return ApiClient(base_url)
+
+
+@st.cache_resource
+def _image_processor(space_id: str) -> HuggingFaceImageProcessor:
+    return HuggingFaceImageProcessor(space_id)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -152,6 +160,14 @@ st.markdown("""
   .pill.ok { background: #d1fae5; color: #065f46; }
   .pill.warn { background: #fef3c7; color: #92400e; }
   .pill.bad { background: #fee2e2; color: #991b1b; }
+  .st-key-analysis_source img,
+  .st-key-analysis_processed img {
+    width: 100% !important;
+    height: 320px !important;
+    object-fit: contain !important;
+    background: var(--secondary-background-color);
+    border-radius: 9px;
+  }
   @media (max-width: 760px) {
     section[data-testid="stSidebar"] { width: 14rem !important; min-width: 14rem !important; }
     .stMain { margin-left: 14rem !important; }
@@ -172,7 +188,8 @@ with st.sidebar:
     st.markdown('<div class="sidebar-kicker">Field robotics</div>'
                 '<div class="sidebar-brand">TWFarmBot</div>', unsafe_allow_html=True)
     tab = st.radio("Navigation",
-                    ["Overview", "Motion", "Camera", "Sensors", "Operations", "Diagnostics", "Settings"],
+                    ["Overview", "Garden", "Motion", "Camera", "Sensors", "Operations",
+                     "Diagnostics", "Settings"],
                     label_visibility="collapsed")
 
     st.divider()
@@ -219,6 +236,105 @@ def _render_overview() -> None:
             st.code("\n".join(msgs[-10:]), language="text")
         else:
             st.caption("No events recorded.")
+
+
+def _render_garden() -> None:
+    st.markdown('<div class="eyebrow">Spatial model · configured world state</div>', unsafe_allow_html=True)
+    st.markdown("# Garden map")
+
+    result = client.request("GET", "/garden")
+    if not result.ok or not isinstance(result.body, dict):
+        st.error(f"Garden model unavailable: {result.body}")
+        return
+
+    world = result.body
+    bounds = world.get("bounds", {})
+    camera = world.get("camera", {})
+    robot = world.get("robot", {})
+    entities = world.get("entities", [])
+    zones = world.get("zones", [])
+
+    metrics = st.columns(4)
+    metrics[0].metric("Garden X", f"{_num(bounds.get('width'))} mm")
+    metrics[1].metric("Garden Y", f"{_num(bounds.get('height'))} mm")
+    metrics[2].metric("Known objects", len(entities))
+    metrics[3].metric("Mapped zones", len(zones))
+
+    zone_rows = [{
+        **zone["bounds"],
+        "x2": zone["bounds"]["x"] + zone["bounds"]["width"],
+        "y2": zone["bounds"]["y"] + zone["bounds"]["height"],
+        "kind": zone["kind"],
+        "name": zone["name"],
+    } for zone in zones]
+    point_rows = [{
+        "x": entity["position"]["x"],
+        "y": entity["position"]["y"],
+        "kind": entity["kind"],
+        "name": entity["name"],
+        "radius_mm": entity["radius_mm"],
+    } for entity in entities]
+    point_rows.extend([
+        {"x": robot.get("x", 0), "y": robot.get("y", 0), "kind": "robot",
+         "name": "FarmBot", "radius_mm": 35},
+        {"x": camera.get("position", {}).get("x", 0),
+         "y": camera.get("position", {}).get("y", 0), "kind": "camera",
+         "name": "Camera", "radius_mm": 25},
+    ])
+
+    x_domain = [bounds.get("x", 0), bounds.get("x", 0) + bounds.get("width", 1)]
+    y_domain = [bounds.get("y", 0) + bounds.get("height", 1), bounds.get("y", 0)]
+    zones_chart = alt.Chart(alt.Data(values=zone_rows)).mark_rect(
+        opacity=0.18, strokeWidth=2
+    ).encode(
+        x=alt.X("x:Q", scale=alt.Scale(domain=x_domain), title="X · mm"),
+        x2="x2:Q",
+        y=alt.Y("y:Q", scale=alt.Scale(domain=y_domain), title="Y · mm"),
+        y2="y2:Q",
+        color=alt.Color("kind:N", title="Layer"),
+        stroke=alt.Stroke("kind:N", legend=None),
+        tooltip=["name:N", "kind:N", "x:Q", "y:Q", "width:Q", "height:Q"],
+    )
+    points_chart = alt.Chart(alt.Data(values=point_rows)).mark_point(
+        filled=True, stroke="white", strokeWidth=1
+    ).encode(
+        x=alt.X("x:Q", scale=alt.Scale(domain=x_domain)),
+        y=alt.Y("y:Q", scale=alt.Scale(domain=y_domain)),
+        color=alt.Color("kind:N", title="Object"),
+        shape=alt.Shape("kind:N", title="Object"),
+        size=alt.Size("radius_mm:Q", scale=alt.Scale(range=[90, 500]), legend=None),
+        tooltip=["name:N", "kind:N", "x:Q", "y:Q"],
+    )
+
+    map_col, details = st.columns([2.3, 1])
+    with map_col:
+        st.altair_chart(
+            (zones_chart + points_chart).properties(height=520).interactive(),
+            width="stretch",
+        )
+    with details:
+        st.markdown("**Live pose**")
+        pose = st.columns(3)
+        pose[0].metric("X", _num(robot.get("x")))
+        pose[1].metric("Y", _num(robot.get("y")))
+        pose[2].metric("Z", _num(robot.get("z")))
+        st.markdown("**Camera pose**")
+        st.caption(
+            f"X {_num(camera.get('position', {}).get('x'))} · "
+            f"Y {_num(camera.get('position', {}).get('y'))} · "
+            f"Z {_num(camera.get('position', {}).get('z'))} mm"
+        )
+        st.caption(
+            f"Yaw {_num(camera.get('yaw_deg'))}° · "
+            f"Pitch {_num(camera.get('pitch_deg'))}° · "
+            f"Roll {_num(camera.get('roll_deg'))}°"
+        )
+        st.markdown("**Mapped objects**")
+        st.dataframe(
+            [{"name": item["name"], "kind": item["kind"]} for item in entities],
+            hide_index=True,
+            width="stretch",
+        )
 
 
 def _render_motion() -> None:
@@ -331,19 +447,72 @@ def _render_camera() -> None:
         st.info("Refresh the gallery to load FarmBot photos.")
         return
 
-    latest = images[0]
-    meta = latest.get("meta") or {}
+    selected = st.selectbox(
+        "Research image",
+        images,
+        format_func=lambda image: (
+            f"{image.get('created_at', 'Unknown time')} · "
+            f"image {image.get('id', '—')}"
+        ),
+    )
+    meta = selected.get("meta") or {}
     photo, details = st.columns([1.55, 1])
     with photo:
-        st.image(latest.get("attachment_url"), use_container_width=True)
+        st.image(selected.get("attachment_url"), use_container_width=True)
     with details:
-        st.markdown("**Latest capture**")
-        st.caption(latest.get("created_at", "Unknown time"))
+        st.markdown("**Selected capture**")
+        st.caption(selected.get("created_at", "Unknown time"))
         xyz = st.columns(3)
         xyz[0].metric("X", meta.get("x", "—"))
         xyz[1].metric("Y", meta.get("y", "—"))
         xyz[2].metric("Z", meta.get("z", "—"))
-        st.caption(f"Image ID {latest.get('id', '—')}")
+        st.caption(f"Image ID {selected.get('id', '—')}")
+
+        st.markdown("**AI analysis**")
+        prompt = st.text_input(
+            "Target",
+            placeholder="e.g. green leaves, dry soil, red marker",
+            key=f"ai_prompt_{selected.get('id', 'unknown')}",
+        )
+        if st.button(
+            "Analyze selected image",
+            type="primary",
+            use_container_width=True,
+            disabled=not prompt.strip(),
+        ):
+            try:
+                with st.spinner("Processing image…"):
+                    result_path = _image_processor(AI_SPACE_ID).process(
+                        selected["attachment_url"],
+                        prompt.strip(),
+                    )
+                st.session_state["ai_result"] = {
+                    "image_id": selected.get("id"),
+                    "source_url": selected.get("attachment_url"),
+                    "path": str(result_path),
+                    "prompt": prompt.strip(),
+                }
+            except Exception as exc:
+                st.error(f"AI processing failed: {exc}")
+
+    result = st.session_state.get("ai_result")
+    if result:
+        st.markdown("### Analysis result")
+        source, processed = st.columns(2)
+        with source:
+            with st.container(key="analysis_source"):
+                st.image(
+                    result["source_url"],
+                    caption="Source image",
+                    width="stretch",
+                )
+        with processed:
+            with st.container(key="analysis_processed"):
+                st.image(
+                    result["path"],
+                    caption=f"Similarity map · {result['prompt']}",
+                    width="stretch",
+                )
 
     if len(images) > 1:
         st.markdown("**Recent captures**")
@@ -490,6 +659,7 @@ def _render_settings() -> None:
 
 renderers = {
     "Overview":     _render_overview,
+    "Garden":       _render_garden,
     "Motion":       _render_motion,
     "Camera":       _render_camera,
     "Sensors":      _render_sensors,

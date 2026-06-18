@@ -35,6 +35,7 @@ farmbot-research/
 │   ├── watering_service/       # irrigation logic
 │   ├── vision_service/         # camera + pure vision models
 │   ├── planning_service/       # LLM/VLM task planning
+│   ├── spatial_service/        # garden coordinates + persistent world model
 │   └── safety_service/         # validates actions before execution
 │
 ├── projects/                   # student / research projects living in the repo

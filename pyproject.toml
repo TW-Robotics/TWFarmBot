@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "twfarmbot-core",
+    "twfarmbot-ml-utils",
+    "twfarmbot-spatial-service",
     "farmbot-client",
     "twfarmbot-gateway",
     "twfarmbot-safety-service",
@@ -17,6 +19,8 @@ dependencies = [
 
 [tool.uv.sources]
 twfarmbot-core = { workspace = true }
+twfarmbot-ml-utils = { workspace = true }
+twfarmbot-spatial-service = { workspace = true }
 farmbot-client = { workspace = true }
 twfarmbot-gateway = { workspace = true }
 twfarmbot-safety-service = { workspace = true }
@@ -29,6 +33,8 @@ twfarmbot-worker = { workspace = true }
 members = [
     "core",
     "libs/farmbot_client",
+    "libs/ml_utils",
+    "services/spatial_service",
     "services/farmbot_gateway",
     "services/safety_service",
     "services/watering_service",
