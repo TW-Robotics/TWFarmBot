@@ -122,6 +122,27 @@ def test_backend_images_are_cached(monkeypatch):
     assert calls == ["images"]
 
 
+def test_backend_image_refresh_merges_new_records(monkeypatch):
+    responses = [
+        [{"id": 1, "created_at": "2026-01-01", "attachment_url": "old"}],
+        [{"id": 2, "created_at": "2026-01-02", "attachment_url": "new"}],
+    ]
+
+    class _Info:
+        def api_get(self, endpoint, data_print=False):
+            return responses.pop(0)
+
+    class _Bot:
+        info = _Info()
+
+    monkeypatch.setattr("farmbot_gateway.get_farmbot", lambda: _Bot())
+    backend = farmbot.FarmBotBackend()
+    assert [image["id"] for image in backend.get_images()] == [1]
+
+    backend._images_cached_at -= 11
+    assert [image["id"] for image in backend.get_images(refresh=True)] == [2, 1]
+
+
 # ---------- handlers -------------------------------------------------------
 
 def test_handler_water_translates_args(monkeypatch):

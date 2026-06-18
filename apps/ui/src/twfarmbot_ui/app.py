@@ -1,15 +1,8 @@
-"""Minimal UI for TWFarmBot.
+"""TWFarmBot Research UI.
 
-A single-page Streamlit app that proxies HTTP calls to the api_server.
-No business logic — every read hits a ``GET /...`` route, every write
-hits ``POST /actions``. The API is the only thing that talks to the
-FarmBot.
-
-Run:
-    # terminal 1
-    uv run twfarmbot-api
-    # terminal 2
-    uv run twfarmbot-ui
+Sidebar navigation with a clean main canvas.  Each tab renders a focused,
+compact card-based view.  Zero business logic — every read and write is
+proxied through the api_server.
 """
 
 from __future__ import annotations
@@ -20,560 +13,488 @@ from typing import Any
 
 import streamlit as st
 
-from twfarmbot_ui.client import ApiClient, ApiResult
+from twfarmbot_ui.client import ApiClient
+
+# ── config ────────────────────────────────────────────────────────────────────
 
 API_URL = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
 
-
-# ---------- API client -----------------------------------------------------
 
 @st.cache_resource
 def _client(base_url: str) -> ApiClient:
     return ApiClient(base_url)
 
 
-# ---------- Action helpers -------------------------------------------------
+# ── helpers ───────────────────────────────────────────────────────────────────
 
-def _do_pin_write(client: ApiClient, selected: dict, value: int) -> None:
-    r = client.request(
-        "POST", "/actions",
-        json={
-            "kind": "write_pin",
-            "params": {
-                "pin": int(selected["pin"]),
-                "value": value,
-                "mode": selected.get("mode", "digital"),
-            },
-        },
-    )
-    if r.ok:
-        st.toast(f"pin {selected['pin']} = {value}", icon="✏️")
-        st.session_state["pin"] = client.request(
-            "GET", f"/pin/{int(selected['pin'])}",
-            params={"mode": selected.get("mode", "digital")},
-        )
-    else:
-        st.error(f"HTTP {r.code}: {r.body}")
+def _num(value: Any) -> str:
+    try:    return f"{float(value):.1f}"
+    except (TypeError, ValueError):  return "—"
 
 
-def _do_move(client: ApiClient, x: float, y: float, z: float, label: str = "") -> None:
-    r = client.request(
-        "POST", "/actions",
-        json={"kind": "move", "params": {"x": x, "y": y, "z": z}},
-    )
-    if r.ok:
-        msg = f"→ {label}" if label else f"→ ({x:.0f}, {y:.0f}, {z:.0f})"
-        st.toast(msg, icon="➡️")
-        # Keep the UI responsive. The explicit telemetry refresh reconciles
-        # these optimistic values with the robot when the user asks for it.
-        st.session_state["pos_x"] = _as_num(x)
-        st.session_state["pos_y"] = _as_num(y)
-        st.session_state["pos_z"] = _as_num(z)
-    else:
-        st.error(f"HTTP {r.code}: {r.body}")
+def _float(value: Any, default: float = 0.0) -> float:
+    try:    return float(value)
+    except (TypeError, ValueError):  return default
 
 
-# ---------- Telemetry helpers ---------------------------------------------
-
-def _as_num(value: Any) -> str:
-    try:
-        return f"{float(value):.1f}"
-    except (TypeError, ValueError):
-        return "—"
-
-
-def _as_float(value: Any, default: float = 0.0) -> float:
-    """Convert cached telemetry to a coordinate without crashing on placeholders."""
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+def _refresh_position(client: ApiClient) -> None:
+    r = client.request("GET", "/position")
+    if r.ok and isinstance(r.body, dict):
+        xyz = (r.body.get("xyz") or {}) if r.ok else {}
+        st.session_state["pos_x"] = _num(xyz.get("x"))
+        st.session_state["pos_y"] = _num(xyz.get("y"))
+        st.session_state["pos_z"] = _num(xyz.get("z"))
 
 
-def refresh_position(client: ApiClient) -> None:
-    """Refresh the small position snapshot without probing full robot state."""
-    pos = client.request("GET", "/position")
-    if pos.ok and isinstance(pos.body, dict):
-        xyz = pos.body.get("xyz") or {}
-        st.session_state["pos_x"] = _as_num(xyz.get("x"))
-        st.session_state["pos_y"] = _as_num(xyz.get("y"))
-        st.session_state["pos_z"] = _as_num(xyz.get("z"))
-    else:
-        st.session_state["pos_x"] = "—"
-        st.session_state["pos_y"] = "—"
-        st.session_state["pos_z"] = "—"
+def _refresh_health(client: ApiClient) -> None:
+    r = client.request("GET", "/health")
+    if r.ok and isinstance(r.body, dict):
+        st.session_state["farmbot_status"] = r.body.get("farmbot", "?")
+        st.session_state["actions"] = r.body.get("actions", [])
 
 
-@st.fragment(run_every="1s")
-def live_position(client: ApiClient) -> None:
-    """Render and continuously reconcile the cached MQTT position."""
-    pos = client.request("GET", "/position")
-    if pos.ok and isinstance(pos.body, dict):
-        xyz = pos.body.get("xyz") or {}
-        if xyz:
-            st.session_state["pos_x"] = _as_num(xyz.get("x"))
-            st.session_state["pos_y"] = _as_num(xyz.get("y"))
-            st.session_state["pos_z"] = _as_num(xyz.get("z"))
-
-    cur_cols = st.columns(3)
-    cur_cols[0].metric("X (mm)", st.session_state.get("pos_x", "—"))
-    cur_cols[1].metric("Y (mm)", st.session_state.get("pos_y", "—"))
-    cur_cols[2].metric("Z (mm)", st.session_state.get("pos_z", "—"))
-    if not pos.ok:
-        st.caption("Position temporarily unavailable; retaining the last reading.")
-
-
-def refresh_messages(client: ApiClient) -> None:
-    msgs = client.request("GET", "/messages")
-    if msgs.ok and isinstance(msgs.body, dict):
-        raw = msgs.body.get("last_messages")
+def _refresh_messages(client: ApiClient) -> None:
+    r = client.request("GET", "/messages")
+    if r.ok and isinstance(r.body, dict):
+        raw = r.body.get("last_messages")
         if isinstance(raw, list):
             st.session_state["messages"] = [str(m) for m in raw[-20:]]
         else:
-            # FarmBot sometimes returns its entire status tree here. That is
-            # diagnostic state, not a human-readable message feed.
             st.session_state["messages"] = []
+
+
+def _refresh_telemetry(client: ApiClient) -> None:
+    _refresh_position(client)
+    _refresh_health(client)
+    _refresh_messages(client)
+
+
+def _do_move(client: ApiClient, x: float, y: float, z: float, label: str = "") -> None:
+    r = client.request("POST", "/actions", json={"kind": "move", "params": {"x": x, "y": y, "z": z}})
+    if r.ok:
+        msg = f"→ {label}" if label else f"→ ({x:.0f}, {y:.0f}, {z:.0f})"
+        st.toast(msg, icon="➡️")
+        _refresh_position(client)
     else:
-        st.session_state["messages"] = []
+        st.error(f"HTTP {r.code}: {r.body}")
 
 
-def refresh_health(client: ApiClient) -> None:
-    health = client.request("GET", "/health")
-    if health.ok and isinstance(health.body, dict):
-        st.session_state["actions"] = health.body.get("actions", [])
-        st.session_state["farmbot_status"] = health.body.get("farmbot", "?")
+def _do_pin_write(client: ApiClient, pin: int, value: int, mode: str = "digital") -> None:
+    r = client.request("POST", "/actions", json={
+        "kind": "write_pin", "params": {"pin": pin, "value": value, "mode": mode},
+    })
+    if r.ok:
+        st.toast(f"pin {pin} = {value}", icon="✏️")
     else:
-        st.session_state["actions"] = []
-        st.session_state["farmbot_status"] = "unreachable"
+        st.error(f"HTTP {r.code}: {r.body}")
 
 
-def refresh_telemetry(client: ApiClient) -> None:
-    """Explicit full refresh initiated by the user."""
-    refresh_health(client)
-    refresh_position(client)
-    refresh_messages(client)
+# ── page shell ────────────────────────────────────────────────────────────────
 
+st.set_page_config(page_title="TWFarmBot Research", page_icon="🌾", layout="wide",
+                   initial_sidebar_state="expanded")
 
-# ---------- Page setup -----------------------------------------------------
+st.markdown("""
+<style>
+  header[data-testid="stHeader"], [data-testid="stToolbar"],
+  [data-testid="stDecoration"] { display:none !important; }
+  section[data-testid="stSidebar"] {
+    display: block !important;
+    visibility: visible !important;
+    transform: none !important;
+    position: fixed !important;
+    inset: 0 auto 0 0 !important;
+    width: 18rem !important;
+    min-width: 18rem !important;
+    z-index: 999 !important;
+    border-right: 1px solid rgba(128,128,128,0.15);
+    background: var(--secondary-background-color);
+  }
+  section[data-testid="stSidebar"] > div {
+    display: block !important;
+    visibility: visible !important;
+  }
+  [data-testid="stSidebarCollapsedControl"],
+  [data-testid="stSidebarCollapseButton"] { display:none !important; }
+  .stMain { margin-left: 18rem !important; }
+  .block-container { max-width: 1300px; padding-top: 1.25rem; }
+  h1 { font-size: 1.6rem; letter-spacing: -0.03em; }
+  .eyebrow { color: #3f8f64; font-size: .66rem; font-weight: 750;
+             letter-spacing: .14em; text-transform: uppercase; }
+  .card {
+    background: var(--secondary-background-color);
+    border: 1px solid rgba(128,128,128,0.12);
+    border-radius: 10px; padding: .8rem 1rem; min-height: 5rem;
+  }
+  .card-label { font-size: .66rem; font-weight: 700; letter-spacing: .09em;
+                text-transform: uppercase; opacity: .5; }
+  .card-value { font-size: 1.3rem; font-weight: 650; margin-top: .4rem; }
+  .empty { opacity: .4; font-size: .8rem; }
+  div[data-testid="stMetric"] {
+    background: var(--secondary-background-color);
+    border: 1px solid rgba(128,128,128,0.10);
+    border-radius: 9px; padding: .7rem .9rem;
+  }
+  div[data-testid="stRadio"] label {
+    border-radius: 7px; padding: .52rem .6rem; margin: .04rem 0;
+  }
+  div[data-testid="stRadio"] label:hover,
+  div[data-testid="stRadio"] label:has(input:checked) {
+    background: var(--secondary-background-color);
+  }
+  div[data-testid="stRadio"] label:has(input:checked) { color: #3f8f64; font-weight: 700; }
+  div[data-testid="stRadio"] [data-baseweb="radio"] > div:first-child { display:none; }
+  .sidebar-brand { font-size: 1.05rem; font-weight: 750; letter-spacing: -.02em; }
+  .sidebar-kicker { font-size: .63rem; color: #3f8f64; font-weight: 750;
+                    letter-spacing: .1em; text-transform: uppercase; }
+  .pill { display: inline-block; padding: .1rem .55rem; border-radius: 999px;
+          font-size: .72rem; font-weight: 650; }
+  .pill.ok { background: #d1fae5; color: #065f46; }
+  .pill.warn { background: #fef3c7; color: #92400e; }
+  .pill.bad { background: #fee2e2; color: #991b1b; }
+  @media (max-width: 760px) {
+    section[data-testid="stSidebar"] { width: 14rem !important; min-width: 14rem !important; }
+    .stMain { margin-left: 14rem !important; }
+  }
+</style>
+""", unsafe_allow_html=True)
 
-st.set_page_config(
-    page_title="TWFarmBot",
-    page_icon="\U0001F33E",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-st.markdown(
-    """
-    <style>
-      .block-container { padding-top: 1.5rem; padding-bottom: 4rem; }
-      h1 { font-weight: 600; letter-spacing: -0.02em; font-size: 1.8rem; }
-      .stat-card {
-        background: #f9fafb;
-        border-radius: 0.5rem;
-        padding: 0.8rem 1rem;
-        margin-bottom: 0.5rem;
-      }
-      .stat-label { color: #6b7280; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
-      .stat-value { font-size: 1.3rem; font-weight: 600; }
-      .pill {
-        display: inline-block; padding: 0.15rem 0.6rem;
-        border-radius: 999px; font-size: 0.75rem; font-weight: 600;
-      }
-      .pill.ok      { background: #d1fae5; color: #065f46; }
-      .pill.warn    { background: #fef3c7; color: #92400e; }
-      .pill.bad     { background: #fee2e2; color: #991b1b; }
-      .pill.idle    { background: #e5e7eb; color: #374151; }
-      .log-line { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; color: #374151; padding: 0.1rem 0; border-bottom: 1px solid #f3f4f6; }
-      .log-empty { color: #9ca3af; font-style: italic; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-def status_pill(text: str, kind: str = "idle") -> None:
-    st.markdown(f'<span class="pill {kind}">{text}</span>', unsafe_allow_html=True)
-
-
-# ---------- Sidebar --------------------------------------------------------
-
-api_url = st.sidebar.text_input("API URL", value=API_URL)
-client = _client(api_url or API_URL)
-
-# On first load, probe health and load the API's cached position snapshot.
-# This does not reconnect to FarmBot or issue a robot command.
+api_url = st.session_state.setdefault("api_url", API_URL)
+client = _client(api_url)
 if "farmbot_status" not in st.session_state:
-    refresh_health(client)
-    refresh_position(client)
+    _refresh_health(client)
+    _refresh_position(client)
     st.session_state.setdefault("messages", [])
 
-fb_status = st.session_state.get("farmbot_status", "unknown")
-if fb_status == "connected":
-    status_pill("● FarmBot connected", "ok")
-elif fb_status == "skipped":
-    status_pill("○ FarmBot skipped", "warn")
-elif str(fb_status).startswith("failed"):
-    status_pill(f"✕ {fb_status}", "bad")
-else:
-    status_pill(f"○ {fb_status}", "warn")
+# ── sidebar  ──────────────────────────────────────────────────────────────────
 
-st.sidebar.divider()
-st.sidebar.markdown("**Telemetry**")
-if st.sidebar.button("↻ Refresh", use_container_width=True):
-    refresh_telemetry(client)
-    st.rerun()
-
-st.sidebar.markdown(
-    f"""
-    <div class="stat-card">
-      <div class="stat-label">Position (mm)</div>
-      <div class="stat-value">X {st.session_state.get('pos_x', '—')}  ·  Y {st.session_state.get('pos_y', '—')}  ·  Z {st.session_state.get('pos_z', '—')}</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.sidebar.markdown("**Recent messages**")
-messages = st.session_state.get("messages", [])
-if messages:
-    for line in messages[-8:]:
-        st.sidebar.markdown(f'<div class="log-line">{line}</div>', unsafe_allow_html=True)
-else:
-    st.sidebar.markdown('<div class="log-empty">No messages yet</div>', unsafe_allow_html=True)
-
-actions = st.session_state.get("actions", [])
-if actions:
-    st.sidebar.divider()
-    st.sidebar.caption(f"Actions: {', '.join(actions)}")
-
-
-# ---------- Main header ---------------------------------------------------
-
-st.markdown("# \U0001F33E TWFarmBot")
-st.caption("Control panel for the FarmBot at UAS Technikum Wien.")
-st.divider()
-
-
-# ---------- Tabs ----------------------------------------------------------
-
-tab_dashboard, tab_move, tab_camera, tab_pins, tab_actions = st.tabs(
-    ["Dashboard", "Move", "Camera", "Pins", "Actions"]
-)
-
-
-# ---------- Dashboard -----------------------------------------------------
-
-with tab_dashboard:
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown(
-            f"""
-            <div class="stat-card">
-              <div class="stat-label">X position</div>
-              <div class="stat-value">{st.session_state.get('pos_x', '—')} mm</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c2:
-        st.markdown(
-            f"""
-            <div class="stat-card">
-              <div class="stat-label">Y position</div>
-              <div class="stat-value">{st.session_state.get('pos_y', '—')} mm</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c3:
-        st.markdown(
-            f"""
-            <div class="stat-card">
-              <div class="stat-label">Z position</div>
-              <div class="stat-value">{st.session_state.get('pos_z', '—')} mm</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.markdown("**Messages**")
-        if messages:
-            st.code("\n".join(messages[-20:]), language="text")
-        else:
-            st.info("No messages from the FarmBot yet.")
-
-    with col_right:
-        st.markdown("**Status**")
-        if st.button("Load diagnostic status", use_container_width=True):
-            st.session_state["diagnostic_status"] = client.request("GET", "/status")
-        status_resp = st.session_state.get("diagnostic_status")
-        if status_resp and status_resp.ok:
-            st.json(status_resp.body)
-        elif status_resp:
-            st.error(f"status: http {status_resp.code} — {status_resp.body}")
-        else:
-            st.caption("Not loaded. Full robot status is fetched only on demand.")
-
-
-# ---------- Move ----------------------------------------------------------
-
-with tab_move:
-    st.markdown("**Current position**")
-    live_position(client)
+with st.sidebar:
+    st.markdown('<div class="sidebar-kicker">Field robotics</div>'
+                '<div class="sidebar-brand">TWFarmBot</div>', unsafe_allow_html=True)
+    tab = st.radio("Navigation",
+                    ["Overview", "Motion", "Camera", "Sensors", "Operations", "Diagnostics", "Settings"],
+                    label_visibility="collapsed")
 
     st.divider()
-    st.markdown("**Jog**")
-
-    step = float(st.radio("Step", options=["1", "10", "50", "100"], index=1, horizontal=True))
-
-    cur_x = _as_float(st.session_state.get("pos_x"))
-    cur_y = _as_float(st.session_state.get("pos_y"))
-    cur_z = _as_float(st.session_state.get("pos_z"))
-
-    pad = st.columns([1, 1, 1, 1, 1])
-    if pad[1].button("▲ Y+", use_container_width=True):
-        _do_move(client, cur_x, cur_y + step, cur_z, f"Y+{step:.0f}")
-    if pad[2].button("🏠 Home", use_container_width=True):
-        _do_move(client, 0.0, 0.0, 0.0, "Home")
-    if pad[3].button("▲ Y-", use_container_width=True):
-        _do_move(client, cur_x, cur_y - step, cur_z, f"Y-{step:.0f}")
-    if pad[0].button("◀ X-", use_container_width=True):
-        _do_move(client, cur_x - step, cur_y, cur_z, f"X-{step:.0f}")
-    if pad[4].button("X+ ▶", use_container_width=True):
-        _do_move(client, cur_x + step, cur_y, cur_z, f"X+{step:.0f}")
-
-    zrow = st.columns([1, 1, 1])
-    if zrow[0].button("⬆ Z+", use_container_width=True):
-        _do_move(client, cur_x, cur_y, cur_z + step, f"Z+{step:.0f}")
-    if zrow[1].button("🔍 Find home", use_container_width=True):
-        r = client.request("POST", "/actions", json={"kind": "find_home", "params": {}})
-        if r.ok:
-            st.toast("Find home sequence sent", icon="🏠")
-            st.session_state["pos_x"] = "0.0"
-            st.session_state["pos_y"] = "0.0"
-            st.session_state["pos_z"] = "0.0"
-        else:
-            st.error(f"find_home failed: HTTP {r.code} {r.body}")
-    if zrow[2].button("⬇ Z-", use_container_width=True):
-        _do_move(client, cur_x, cur_y, cur_z - step, f"Z-{step:.0f}")
+    fb = st.session_state.get("farmbot_status", "?")
+    pill_css = "ok" if fb == "connected" else ("warn" if fb == "skipped" else "bad")
+    st.markdown(f'<span class="pill {pill_css}">● {fb}</span>', unsafe_allow_html=True)
+    st.caption(f"X {st.session_state.get('pos_x', '—')} · "
+               f"Y {st.session_state.get('pos_y', '—')} · "
+               f"Z {st.session_state.get('pos_z', '—')} mm")
+    if st.button("↻ Refresh", use_container_width=True):
+        _refresh_telemetry(client)
+        st.rerun()
 
     st.divider()
-    st.markdown("**Presets**")
-    if "presets" not in st.session_state:
-        preset_resp = client.request("GET", "/positions")
-        st.session_state["presets"] = preset_resp.body.get("positions", []) if preset_resp.ok else []
-    presets = st.session_state.get("presets", [])
-    if presets:
-        pcols = st.columns(min(len(presets), 6))
-        for i, p in enumerate(presets):
-            if pcols[i].button(
-                f"📍 {p.get('label', '?')}",
-                key=f"preset_{i}",
-                use_container_width=True,
-                help=f"x={p.get('x')}, y={p.get('y')}, z={p.get('z')}",
-            ):
-                _do_move(
-                    client,
-                    float(p.get("x", 0)), float(p.get("y", 0)), float(p.get("z", 0)),
-                    p.get("label", "preset"),
-                )
-
-    with st.expander("Go to absolute coordinates"):
-        gx, gy, gz = st.columns(3)
-        gtx = gx.number_input("X", value=cur_x, step=10.0)
-        gty = gy.number_input("Y", value=cur_y, step=10.0)
-        gtz = gz.number_input("Z", value=cur_z, step=10.0)
-        if st.button("🎯 Go", type="primary"):
-            _do_move(client, float(gtx), float(gty), float(gtz), f"({gtx:.0f}, {gty:.0f}, {gtz:.0f})")
-
-
-# ---------- Pins ----------------------------------------------------------
-
-with tab_camera:
-    camera_actions = st.columns([1, 1, 4])
-    if camera_actions[0].button("📷 Take photo", type="primary", use_container_width=True):
-        result = client.request(
-            "POST", "/actions", json={"kind": "take_photo", "params": {}}
-        )
-        if result.ok:
-            st.toast("Photo capture queued", icon="📷")
-            st.info("FarmBot is capturing and uploading the image. Refresh photos in a few seconds.")
-        else:
-            st.error(f"take_photo failed: HTTP {result.code} {result.body}")
-
-    if camera_actions[1].button("↻ Refresh photos", use_container_width=True):
-        st.session_state["images"] = client.request("GET", "/images", timeout=10.0)
-        st.session_state["images_loaded"] = True
-
-    image_result = st.session_state.get("images")
-    if image_result and image_result.ok and isinstance(image_result.body, dict):
-        images = image_result.body.get("images", [])
-        if images:
-            latest = images[0]
-            meta = latest.get("meta") or {}
-            st.image(
-                latest.get("attachment_url"),
-                caption=(
-                    f"{latest.get('created_at', 'Unknown time')} · "
-                    f"X {meta.get('x', '—')} · Y {meta.get('y', '—')} · Z {meta.get('z', '—')} mm"
-                ),
-                use_container_width=True,
-            )
-            with st.expander(f"Earlier photos ({max(0, len(images) - 1)})"):
-                for image in images[1:]:
-                    image_meta = image.get("meta") or {}
-                    st.image(
-                        image.get("attachment_url"),
-                        caption=(
-                            f"{image.get('created_at', 'Unknown time')} · "
-                            f"X {image_meta.get('x', '—')} · Y {image_meta.get('y', '—')}"
-                        ),
-                        width=420,
-                    )
-        else:
-            st.info("No uploaded FarmBot photos found.")
-    elif image_result:
-        st.error(f"images: HTTP {image_result.code} — {image_result.body}")
-    else:
-        st.caption("Photos load on request and are cached for one minute to protect the FarmBot API.")
-
-
-# ---------- Pins ----------------------------------------------------------
-
-with tab_pins:
-    if "named_pins" not in st.session_state:
-        pin_resp = client.request("GET", "/pins")
-        st.session_state["named_pins"] = pin_resp.body.get("pins", []) if pin_resp.ok else []
-    named_pins = st.session_state.get("named_pins", [])
-
-    if named_pins:
-        seen_pins: set[int] = set()
-        dups: set[int] = set()
-        for p in named_pins:
-            pin_num = p.get("pin")
-            if isinstance(pin_num, int):
-                if pin_num in seen_pins:
-                    dups.add(pin_num)
-                seen_pins.add(pin_num)
-        if dups:
-            st.warning(
-                f"Duplicate pin numbers in configs/dev.yaml: {sorted(dups)}. "
-                "A GPIO can only have one function — fix the config."
-            )
-
-        groups: dict[str, list[dict]] = {}
-        for p in named_pins:
-            groups.setdefault(p.get("group", "Other"), []).append(p)
-
-        for group, items in groups.items():
-            st.markdown(f"**{group}**")
-            grid = st.columns(min(4, len(items)))
-            for i, p in enumerate(items):
-                col = grid[i % len(grid)]
-                kind = p.get("kind", "io")
-                icon = {"valve": "💧", "servo": "⚙️", "sensor": "📈", "io": "🔌"}.get(kind, "•")
-                label = f"{icon} {p.get('label', '?')}"
-                if col.button(label, key=f"pinbtn_{group}_{i}", use_container_width=True):
-                    st.session_state["pin_preselect"] = p
-
-    selected = st.session_state.get("pin_preselect")
-    if selected is None and named_pins:
-        selected = named_pins[0]
-        st.session_state["pin_preselect"] = selected
-
-    if selected:
-        st.divider()
-        head = st.columns([4, 1])
-        head[0].markdown(
-            f"**{selected.get('label', '?')}** — pin {selected.get('pin')} · "
-            f"{selected.get('mode', 'digital')} · `{selected.get('kind', 'io')}`"
-        )
-        if head[1].button("↻ Read", key="pin_read", use_container_width=True):
-            r = client.request(
-                "GET", f"/pin/{int(selected['pin'])}",
-                params={"mode": selected.get("mode", "digital")},
-            )
-            st.session_state["pin"] = r
-
-        pin_result = st.session_state.get("pin")
-        if pin_result and pin_result.ok and isinstance(pin_result.body, dict):
-            v = pin_result.body.get("value")
-            kind = selected.get("kind", "io")
-            if kind == "sensor":
-                st.metric("Reading", value=v)
-            else:
-                st.metric("State", value="HIGH" if v else "LOW")
-        elif pin_result and not pin_result.ok:
-            st.error(f"http {pin_result.code}: {pin_result.body}")
-
-        if selected.get("kind") != "sensor":
-            st.markdown("**Write**")
-            wcols = st.columns([1, 1, 1])
-            label_key = selected.get("label", f"pin{selected.get('pin')}")
-            if wcols[0].button("Set 0", key=f"w0_{label_key}", use_container_width=True):
-                _do_pin_write(client, selected, 0)
-            if wcols[1].button("Set 1", key=f"w1_{label_key}", use_container_width=True):
-                _do_pin_write(client, selected, 1)
-            if wcols[2].button("Toggle", key=f"wt_{label_key}", use_container_width=True):
-                current_val = (
-                    pin_result.body.get("value")
-                    if pin_result and pin_result.ok and isinstance(pin_result.body, dict)
-                    else None
-                )
-                if current_val is None:
-                    st.warning("Read the pin first to know its current value.")
-                else:
-                    _do_pin_write(client, selected, 0 if current_val else 1)
-
-
-# ---------- Actions -------------------------------------------------------
-
-with tab_actions:
-    st.markdown("**Water a bed**")
-    with st.form("water_form", clear_on_submit=False):
-        cols = st.columns([1, 1, 1])
-        bed_id = cols[0].text_input("Bed ID", value="b1")
-        seconds = cols[1].number_input("Seconds", min_value=0.1, max_value=300.0, value=2.0, step=0.5)
-        go = cols[2].form_submit_button("💧 Water", use_container_width=True, type="primary")
-        if go:
-            r = client.request(
-                "POST", "/actions",
-                json={"kind": "water", "params": {"bed_id": bed_id, "seconds": seconds}},
-            )
-            if r.ok:
-                st.success(f"Watered {bed_id} for {seconds}s")
-            else:
-                st.error(f"HTTP {r.code}: {r.body}")
-
-    st.divider()
-    st.markdown("**Raw action**")
-    with st.form("raw_form"):
-        kind = st.text_input("Kind", value="water")
-        params_json = st.text_area(
-            "Params (JSON)", value='{"bed_id": "b1", "seconds": 1.0}', height=120
-        )
-        go = st.form_submit_button("Dispatch")
-        if go:
-            try:
-                params = json.loads(params_json) if params_json.strip() else {}
-            except json.JSONDecodeError as err:
-                st.error(f"Bad JSON: {err}")
-                params = None
-            if params is not None:
-                r = client.request("POST", "/actions", json={"kind": kind, "params": params})
-                if r.ok:
-                    st.success("OK")
-                    st.json(r.body)
-                else:
-                    st.error(f"HTTP {r.code}: {r.body}")
-
-    st.divider()
-    if st.button("🛑 Emergency stop", type="primary", use_container_width=True):
+    if st.button("🛑 ESTOP", type="primary", use_container_width=True):
         r = client.request("POST", "/actions", json={"kind": "e_stop", "params": {}})
         if r.ok:
-            st.toast("Emergency stop sent", icon="🛑")
+            st.toast("ESTOP sent", icon="🛑")
         else:
-            st.error(f"e_stop failed: HTTP {r.code} {r.body}")
+            st.error(str(r.body))
+
+# ── tab content ───────────────────────────────────────────────────────────────
+
+def _render_overview() -> None:
+    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown("# Research overview")
+
+    row = st.columns(3)
+    row[0].metric("X · mm", st.session_state.get("pos_x", "—"))
+    row[1].metric("Y · mm", st.session_state.get("pos_y", "—"))
+    row[2].metric("Z · mm", st.session_state.get("pos_z", "—"))
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Experiment**")
+        st.text_input("Run", key="run", placeholder="e.g. soil-map-07", label_visibility="collapsed")
+        st.text_input("Operator", key="op", placeholder="initials", label_visibility="collapsed")
+        st.text_area("Notes", key="notes", placeholder="Conditions, observations…", height=90, label_visibility="collapsed")
+
+    with c2:
+        st.markdown("**Recent events**")
+        msgs = st.session_state.get("messages", [])
+        if msgs:
+            st.code("\n".join(msgs[-10:]), language="text")
+        else:
+            st.caption("No events recorded.")
+
+
+def _render_motion() -> None:
+    cur_x = _float(st.session_state.get("pos_x"))
+    cur_y = _float(st.session_state.get("pos_y"))
+    cur_z = _float(st.session_state.get("pos_z"))
+
+    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown("# Motion workspace")
+
+    row = st.columns(3)
+    row[0].metric("X · mm", st.session_state.get("pos_x", "—"))
+    row[1].metric("Y · mm", st.session_state.get("pos_y", "—"))
+    row[2].metric("Z · mm", st.session_state.get("pos_z", "—"))
+
+    step = float(st.segmented_control("Jog step · mm", [1, 10, 50, 100], default=10))
+
+    # D-pad
+    _, u, _ = st.columns(3)
+    if u.button("▲ Y+", use_container_width=True): _do_move(client, cur_x, cur_y + step, cur_z, f"Y+{step:.0f}")
+    l, m, r = st.columns(3)
+    if l.button("◀ X−", use_container_width=True): _do_move(client, cur_x - step, cur_y, cur_z, f"X-{step:.0f}")
+    if m.button("🏠 Home", use_container_width=True): _do_move(client, 0, 0, 0, "Home")
+    if r.button("X+ ▶", use_container_width=True): _do_move(client, cur_x + step, cur_y, cur_z, f"X+{step:.0f}")
+    _, d, _ = st.columns(3)
+    if d.button("▼ Y−", use_container_width=True): _do_move(client, cur_x, cur_y - step, cur_z, f"Y-{step:.0f}")
+
+    zl, zr = st.columns(2)
+    if zl.button("⬆ Z+", use_container_width=True): _do_move(client, cur_x, cur_y, cur_z + step, f"Z+{step:.0f}")
+    if zr.button("⬇ Z−", use_container_width=True): _do_move(client, cur_x, cur_y, cur_z - step, f"Z-{step:.0f}")
+
+    st.divider()
+    with st.form("absolute"):
+        tx, ty, tz = st.columns(3)
+        gx = tx.number_input("X", value=cur_x, step=10.0)
+        gy = ty.number_input("Y", value=cur_y, step=10.0)
+        gz = tz.number_input("Z", value=cur_z, step=10.0)
+        if st.form_submit_button("Go to", use_container_width=True):
+            _do_move(client, float(gx), float(gy), float(gz))
+
+    if st.button("Find home"):
+        r = client.request("POST", "/actions", json={"kind": "find_home", "params": {}})
+        if r.ok:
+            st.toast("Homing queued")
+        else:
+            st.error(str(r.body))
+
+    # Presets
+    if "presets" not in st.session_state:
+        r = client.request("GET", "/positions")
+        st.session_state["presets"] = r.body.get("positions", []) if r.ok else []
+    presets = st.session_state["presets"]
+    if presets:
+        st.markdown("**Locations**")
+        cols = st.columns(min(5, len(presets)))
+        for i, p in enumerate(presets):
+            if cols[i].button(p.get("label", "?"), key=f"preset_{i}", use_container_width=True):
+                _do_move(client, float(p["x"]), float(p["y"]), float(p["z"]), p["label"])
+
+
+def _render_sensors() -> None:
+    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown("# Sensor workspace")
+
+    if "named_pins" not in st.session_state:
+        r = client.request("GET", "/pins")
+        st.session_state["named_pins"] = r.body.get("pins", []) if r.ok else []
+    named = st.session_state["named_pins"]
+
+    if not named:
+        st.info("No pins configured.")
+        return
+
+    sensors = [p for p in named if p.get("kind") == "sensor"]
+    if sensors:
+        st.markdown("**Instruments**")
+        cols = st.columns(min(3, len(sensors)))
+        for i, s in enumerate(sensors):
+            with cols[i]:
+                st.caption(f"{s['label']} · pin {s['pin']} · {s.get('mode', 'analog')}")
+                if st.button("Read", key=f"sensor_{i}", use_container_width=True):
+                    r = client.request("GET", f"/pin/{s['pin']}", params={"mode": s.get("mode", "analog")})
+                    st.session_state[f"sv_{s['pin']}"] = r.body.get("value") if r.ok else "—"
+                st.metric("Value", st.session_state.get(f"sv_{s['pin']}", "—"))
+
+
+def _render_camera() -> None:
+    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown("# Camera")
+
+    capture, refresh, _ = st.columns([1, 1, 4])
+    if capture.button("📷 Take photo", type="primary", use_container_width=True):
+        r = client.request("POST", "/actions", json={"kind": "take_photo", "params": {}})
+        if r.ok:
+            st.toast("Capture queued", icon="📷")
+        else:
+            st.error(str(r.body))
+    if refresh.button("↻ Refresh gallery", use_container_width=True):
+        st.session_state["images"] = client.request(
+            "GET", "/images", params={"refresh": "true"}, timeout=10.0
+        )
+
+    result = st.session_state.get("images")
+    images = (
+        result.body.get("images", [])
+        if result and result.ok and isinstance(result.body, dict)
+        else []
+    )
+    if not images:
+        st.info("Refresh the gallery to load FarmBot photos.")
+        return
+
+    latest = images[0]
+    meta = latest.get("meta") or {}
+    photo, details = st.columns([1.55, 1])
+    with photo:
+        st.image(latest.get("attachment_url"), use_container_width=True)
+    with details:
+        st.markdown("**Latest capture**")
+        st.caption(latest.get("created_at", "Unknown time"))
+        xyz = st.columns(3)
+        xyz[0].metric("X", meta.get("x", "—"))
+        xyz[1].metric("Y", meta.get("y", "—"))
+        xyz[2].metric("Z", meta.get("z", "—"))
+        st.caption(f"Image ID {latest.get('id', '—')}")
+
+    if len(images) > 1:
+        st.markdown("**Recent captures**")
+        gallery = st.columns(3)
+        for index, image in enumerate(images[1:7]):
+            image_meta = image.get("meta") or {}
+            gallery[index % 3].image(
+                image.get("attachment_url"),
+                caption=f"X {image_meta.get('x', '—')} · Y {image_meta.get('y', '—')}",
+                use_container_width=True,
+            )
+
+
+def _render_operations() -> None:
+    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown("# Operations")
+
+    a, b = st.columns(2)
+    with a:
+        st.markdown("**Irrigation**")
+        with st.form("water"):
+            bed = st.selectbox("Bed", ["b1", "b2", "b3"])
+            secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5)
+            if st.form_submit_button("Water", use_container_width=True):
+                r = client.request("POST", "/actions",
+                                   json={"kind": "water", "params": {"bed_id": bed, "seconds": secs}})
+                if r.ok:
+                    st.success("Queued")
+                else:
+                    st.error(str(r.body))
+
+    with b:
+        st.markdown("**Peripheral control**")
+        if "named_pins" not in st.session_state:
+            r = client.request("GET", "/pins")
+            st.session_state["named_pins"] = r.body.get("pins", []) if r.ok else []
+        outputs = [p for p in st.session_state["named_pins"] if p.get("kind") != "sensor"]
+        sel = st.selectbox("Output", outputs,
+                           format_func=lambda p: f"{p['label']} · pin {p['pin']}")
+        if sel:
+            off, on = st.columns(2)
+            if off.button("Set LOW", use_container_width=True):
+                _do_pin_write(client, sel["pin"], 0, sel.get("mode", "digital"))
+            if on.button("Set HIGH", use_container_width=True):
+                _do_pin_write(client, sel["pin"], 1, sel.get("mode", "digital"))
+
+
+def _render_diagnostics() -> None:
+    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown("# Diagnostics")
+
+    if st.button("Load /status"):
+        d = client.request("GET", "/status")
+        if d.ok and isinstance(d.body, dict):
+            st.session_state["diag"] = d.body.get("state", {})
+        else:
+            st.error(f"Read failed: {d.body}")
+
+    payload = st.session_state.get("diag", {}) or {}
+    info = payload.get("informational_settings", {}) or {}
+    loc = payload.get("location_data", {}) or {}
+    axes = loc.get("axis_states", {}) or {}
+    pins = payload.get("pins", {}) or {}
+    jobs = payload.get("jobs", {}) or {}
+
+    if not info and not axes and not pins and not jobs:
+        st.info("Click 'Load /status' to fetch diagnostic state.")
+        return
+
+    top = st.columns(4)
+    top[0].metric("Controller", info.get("controller_version", "—"))
+    top[1].metric("Firmware", info.get("firmware_version", "—"))
+    top[2].metric("Wi-Fi", f"{info.get('wifi_level_percent', '—')}%")
+    top[3].metric("Uptime", f"{info.get('uptime', '—')} s")
+
+    res = st.columns(3)
+    with res[0]:
+        st.markdown(
+            f'<div class="card"><div class="card-label">Resources</div>'
+            f'<div class="card-value">CPU {info.get("cpu_usage", "—")}%</div>'
+            f'<div>Memory {info.get("memory_usage", "—")}% · Disk {info.get("disk_usage", "—")}%</div>'
+            f'<div>SoC {info.get("soc_temp", "—")} °C</div></div>',
+            unsafe_allow_html=True,
+        )
+    with res[1]:
+        st.markdown(
+            f'<div class="card"><div class="card-label">Axis state</div>'
+            f'<div class="card-value">X {axes.get("x", "—")}</div>'
+            f'<div>Y {axes.get("y", "—")} · Z {axes.get("z", "—")}</div>'
+            f'<div>Busy: {info.get("busy", "—")}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with res[2]:
+        st.markdown(
+            f'<div class="card"><div class="card-label">Network</div>'
+            f'<div class="card-value">{info.get("wifi_level", "—")} dBm</div>'
+            f'<div>{info.get("private_ip", "—")}</div>'
+            f'<div>Sync: {info.get("sync_status", "—")}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    if pins:
+        st.markdown("**Pin snapshot**")
+        st.dataframe(
+            [{"pin": pn, "value": pd.get("value"), "mode": pd.get("mode")} for pn, pd in pins.items()],
+            use_container_width=True, hide_index=True,
+        )
+
+
+def _render_settings() -> None:
+    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown("# Settings")
+
+    st.markdown("**Connection**")
+    url = st.text_input("API URL", value=api_url)
+    if url != st.session_state["api_url"]:
+        st.session_state["api_url"] = url
+        st.cache_resource.clear()
+        st.rerun()
+
+    if st.button("Health check"):
+        _refresh_health(client)
+        st.rerun()
+
+    st.json({"farmbot": st.session_state.get("farmbot_status", "?"),
+             "api": st.session_state["api_url"],
+             "actions": st.session_state.get("actions", [])})
+
+    with st.expander("Raw action"):
+        with st.form("raw"):
+            kind = st.text_input("Kind", "send_message")
+            raw = st.text_area("Params (JSON)", '{"message":"hello"}', height=100)
+            if st.form_submit_button("Fire"):
+                try:
+                    p = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    st.error(f"Bad JSON: {e}")
+                else:
+                    r = client.request("POST", "/actions", json={"kind": kind, "params": p})
+                    st.json(r.body)
+
+
+# ── dispatch ──────────────────────────────────────────────────────────────────
+
+renderers = {
+    "Overview":     _render_overview,
+    "Motion":       _render_motion,
+    "Camera":       _render_camera,
+    "Sensors":      _render_sensors,
+    "Operations":   _render_operations,
+    "Diagnostics":  _render_diagnostics,
+    "Settings":     _render_settings,
+}
+renderers[tab]()
