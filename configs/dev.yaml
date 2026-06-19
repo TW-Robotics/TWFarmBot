@@ -18,24 +18,18 @@ planning:
 # "farmbot.farm.bot" — use "http://192.168.1.50" (or similar) for LAN.
 
 # Safety limits enforced before any real-world action runs.
-# Overridable via env: FARMBOT_MAX_WATER_SECONDS, FARMBOT_ALLOWED_BEDS=bed1,bed2
+# Overridable via env: FARMBOT_MAX_WATER_SECONDS.
 safety:
   max_water_seconds: 300
-  allowed_beds: []   # empty = allow all known beds
   # Move axis bounds (mm). Anything outside is rejected by safety.
   max_axis_mm:
     x: 1900
     y: 700
     z: 500
 
-# Pin map: bed_id → FarmBot peripheral pin controlling that bed's valve.
-# The real FarmBot has the pump on pin 7, so every bed is wired to that
-# single pump. Override per bed with FARMBOT_PIN_<bed>=<pin> if needed.
+# Single pump configuration. The water action turns this pin on for N seconds.
 watering:
-  pins:
-    b1: 7
-    b2: 7
-    b3: 7
+  pump_pin: 7
 
 # Named pins for the UI: label → {pin, mode, kind, group}.
 #   kind: "valve" | "servo" | "sensor" | "io"
@@ -43,19 +37,17 @@ watering:
 # Every pin number must be unique; a single GPIO can't drive a valve and
 # read a sensor at the same time.
 pins:
-  - {label: "Pump",            pin: 7,  mode: digital, kind: valve,  group: "Water"}
-  - {label: "Water solenoid",  pin: 8,  mode: digital, kind: valve,  group: "Water"}
-  - {label: "Tool servo",      pin: 10, mode: digital, kind: servo,  group: "Tools"}
-  - {label: "Soil sensor",     pin: 14, mode: analog,  kind: sensor, group: "Sensors"}
-  - {label: "Light sensor",    pin: 15, mode: analog,  kind: sensor, group: "Sensors"}
+- {label: "Pump", pin: 7, mode: digital, kind: valve, group: "Water"}
+- {label: "Water solenoid", pin: 8, mode: digital, kind: valve, group: "Water"}
+- {label: "Tool servo", pin: 10, mode: digital, kind: servo, group: "Tools"}
+- {label: "Soil sensor", pin: 14, mode: analog, kind: sensor, group: "Sensors"}
+- {label: "Light sensor", pin: 15, mode: analog, kind: sensor, group: "Sensors"}
 
 # Preset gantry positions for the UI Move widget. Coordinates in mm.
 positions:
-  - {label: "Home",       x: 0,    y: 0,   z: 0}
-  - {label: "Bed 1",      x: 100,  y: 200, z: 0}
-  - {label: "Bed 2",      x: 500,  y: 200, z: 0}
-  - {label: "Bed 3",      x: 900,  y: 200, z: 0}
-  - {label: "Camera top", x: 0,    y: 0,   z: 400}
+- {label: "Home", x: 0, y: 0, z: 0}
+- {label: "Bed", x: 100, y: 200, z: 0}
+- {label: "Camera top", x: 0, y: 0, z: 400}
 
 # Persistent garden coordinate model. The UI renders the origin at the
 # bottom-left; X grows to the right and Y grows up the bed. Store coordinates
@@ -66,30 +58,189 @@ spatial:
   camera: {yaw_deg: 0, pitch_deg: 90, roll_deg: 0}
 
   zones:
-    - id: tomato
-      kind: tomato
-      name: "Tomato Zone"
-      x: 1100
-      y: 100
-      width: 800
-      height: 300
-      metadata: {soil_type: loam, valve_pin: 13}
+  - id: tomato
+    kind: tomato
+    name: "Tomato Zone"
+    x: 1100
+    y: 100
+    width: 800
+    height: 300
+    metadata: {soil_type: loam}
 
-    - id: herbs
-      kind: herbs
-      name: "Herbs Zone"
-      x: 100
-      y: 100
-      width: 1000
-      height: 300
-      metadata: {soil_type: sandy, valve_pin: 11}
+  - id: herbs
+    kind: herbs
+    name: "Herbs Zone"
+    x: 100
+    y: 100
+    width: 1000
+    height: 300
+    metadata: {soil_type: sandy}
 
   entities:
-    - id: herbs
-      kind: plant
-      name: "Herbs"
-      x: 120
-      y: 180
-      z: 0
-      radius_mm: 80
-      metadata: {species: herbs, planted: "2026-05-01", bed: bed1}
+  - id: herbs
+    kind: plant
+    name: "Herbs"
+    x: 120
+    y: 180
+    z: 0
+    radius_mm: 80
+    metadata: {species: herbs, planted: "2026-05-01"}
+  - id: seeder
+    kind: tool
+    name: "Seeder"
+    x: 300
+    y: 400
+    z: 0
+    radius_mm: 40
+  - id: tomato
+    kind: plant
+    name: tomato
+    x: 1150.0
+    y: 150.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato
+    kind: plant
+    name: tomato
+    x: 1250.0
+    y: 150.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_1
+    kind: plant
+    name: herbs-1
+    x: 850.0
+    y: 225.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_2
+    kind: plant
+    name: herbs-2
+    x: 950.0
+    y: 225.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_3
+    kind: plant
+    name: herbs-3
+    x: 1050.0
+    y: 225.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_4
+    kind: plant
+    name: herbs-4
+    x: 1050.0
+    y: 175.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_5
+    kind: plant
+    name: herbs-5
+    x: 875.0
+    y: 175.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_6
+    kind: plant
+    name: herbs-6
+    x: 950.0
+    y: 175.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_7
+    kind: plant
+    name: herbs-7
+    x: 950.0
+    y: 125.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_8
+    kind: plant
+    name: herbs-8
+    x: 825.0
+    y: 125.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: herbs_9
+    kind: plant
+    name: herbs-9
+    x: 1025.0
+    y: 125.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato_1
+    kind: plant
+    name: tomato-1
+    x: 1550.0
+    y: 275.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato_2
+    kind: plant
+    name: tomato-2
+    x: 1575.0
+    y: 225.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato_3
+    kind: plant
+    name: tomato-3
+    x: 1575.0
+    y: 175.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato_4
+    kind: plant
+    name: tomato-4
+    x: 1550.0
+    y: 125.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato_5
+    kind: plant
+    name: tomato-5
+    x: 1650.0
+    y: 125.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato_6
+    kind: plant
+    name: tomato-6
+    x: 1650.0
+    y: 175.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato_7
+    kind: plant
+    name: tomato-7
+    x: 1650.0
+    y: 225.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}
+  - id: tomato_8
+    kind: plant
+    name: tomato-8
+    x: 1650.0
+    y: 275.0
+    z: 0.0
+    radius_mm: 50
+    metadata: {}

@@ -15,7 +15,7 @@ TWFarmBot/
 │
 ├── core/                       # cross-cutting primitives
 │   └── twfarmbot_core/
-│       ├── domain/             # Action, Bed, Plant, SensorReading
+│       ├── domain/             # Action, Point3D, Rectangle, GardenEntity, GardenWorld
 │       ├── config/             # env-based settings (load_settings())
 │       ├── logging/            # configure_logging, get_logger
 │       └── events/             # internal event bus
@@ -63,7 +63,7 @@ These are non-negotiable. They are the reason this repo is split the way it is.
    - `libs/` contains pure utilities, no I/O, no global state.
 
 4. **`core/` defines the shared vocabulary.**
-   - `Action`, `Bed`, `Plant`, `SensorReading` live in `core/twfarmbot_core/domain/`.
+   - `Action`, `Point3D`, `Rectangle`, `GardenEntity`, `GardenWorld` live in `core/twfarmbot_core/domain/`.
    - Do not redefine equivalent types inside a service or project.
 
 5. **Configuration is data, not code.**
@@ -176,9 +176,8 @@ Set these env vars (or use `.env` with `uv run --env-file=.env …`):
 | `FARMBOT_TOKEN` | optional pre-fetched token JSON | — |
 | `WATERING_BACKEND` | backend module name (default `farmbot`) | `farmbot` |
 | `FARMBOT_MAX_WATER_SECONDS` | safety cap | `300` |
-| `FARMBOT_ALLOWED_BEDS` | comma-separated bed allowlist | empty (allow all) |
+| `FARMBOT_PUMP_PIN` | pump pin override | `7` |
 | `FARMBOT_MAX_AXIS_{X,Y,Z}` | move action bounds in mm | `3000`/`1500`/`800` |
-| `FARMBOT_PIN_<bed>` | valve pin override per bed (e.g. `FARMBOT_PIN_b1=13`) | from `configs/dev.yaml` |
 | `FARMBOT_REQUIRED` | if `0`, api_server boots without a live bot (UI-only mode) | `1` |
 
 Test the link: `uv run --env-file=.env python scripts/test_farmbot_connect.py`.
@@ -190,7 +189,7 @@ The api_server registers these action kinds via
 
 | Kind | Params | Backend call | Safety rule |
 |---|---|---|---|
-| `water` | `bed_id`, `seconds` | `farmbot_backend.water()` (valve on/off) | seconds ≤ `FARMBOT_MAX_WATER_SECONDS`, bed in allowlist |
+| `water` | `seconds` | `farmbot_backend.water()` (pump on/off) | seconds ≤ `FARMBOT_MAX_WATER_SECONDS` |
 | `move` | `x`, `y`, `z`, optional `speed` | `farmbot_backend.move()` | each axis within `FARMBOT_MAX_AXIS_{X,Y,Z}` |
 | `read_pin` | `pin`, optional `mode` | `farmbot_backend.read_pin()` | — |
 | `write_pin` | `pin`, `value`, optional `mode` | `farmbot_backend.write_pin()` | — |
@@ -219,7 +218,7 @@ imports `farmbot-py` directly:
 | `GET /pin/{pin}?mode=digital|analog` | `{pin, mode, value}` |
 | `GET /messages` | `{last_messages: [...]}` |
 | `GET /images?limit=10` | `{images: [{attachment_url, created_at, meta, ...}]}` |
-| `GET /garden` | bed bounds, camera pose, entities, zones, and cached robot pose |
+| `GET /garden` | bounds, camera pose, entities, zones, and cached robot pose |
 
 ## 8. How to add …
 
@@ -251,10 +250,10 @@ registry dispatch already exist. Tests in `tests/test_farmbot_backend.py`.
 6. Never import the FarmBot library directly — go through
    `farmbot_gateway.get_farmbot()` (or the `FarmBotBackend`).
 
-### a new valve / new bed
+### a new pump pin
 
-Add an entry to `configs/dev.yaml` under `watering.pins`, or set
-`FARMBOT_PIN_<bed_id>=<pin>` in `.env`. No code change.
+Set `FARMBOT_PUMP_PIN=<pin>` in `.env` or change `watering.pump_pin` in
+`configs/dev.yaml`. No code change.
 
 ### a new shared type (e.g. "FertilizerDose")
 
@@ -263,7 +262,7 @@ Add it to `core/twfarmbot_core/domain/<name>.py` and re-export from
 
 ### a new config key
 
-Add to `configs/dev.yaml` and read via `watering_service._load_yaml_config()`,
+Add to `configs/dev.yaml` and read via `twfarmbot_core.config.load_yaml_config()`,
 or env-only via `os.getenv(...)`.
 
 ## 9. UI

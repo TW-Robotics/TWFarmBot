@@ -74,8 +74,6 @@ depends on live state, not the static world model.
 - ``list_zones`` — every zone with its bounds and pre-computed
   `center`. Call this when the user names a location; the centre is
   the right coordinate to move to.
-- ``list_beds`` — every bed and the zones it waters. Use this to map
-  zone names to bed_ids for `water` actions.
 - ``list_endpoints`` — every HTTP endpoint the API exposes. Use this
   to discover what reads/writes are available before planning.
 - ``get_garden`` — full world model (bounds, zones, entities, camera
@@ -83,7 +81,7 @@ depends on live state, not the static world model.
 - ``read_pin`` / ``get_status`` / ``get_messages`` — per-pin values,
   full status tree, recent MQTT traffic.
 - ``get_pins`` / ``get_positions`` — named GPIO pins and gantry
-  presets (Home, Bed 1, …).
+  presets (Home, Bed, …).
 - ``get_images`` — recent camera images.
 
 When the user names a location, prefer calling ``list_zones`` over
@@ -104,9 +102,7 @@ Grounding names to coordinates:
 
 Constraints:
 - `move` params: `x`, `y`, `z` in millimetres (floats). All three required.
-- `water` params: `bed_id` (string, MUST be one of the values listed
-  under `Available bed_ids` in the user message; e.g. "b1"), `seconds`
-  (positive float, max 300).
+- `water` params: `seconds` (positive float, max 300).
 - `find_home` params: optional `axis` ("x" | "y" | "z" | "all"), `speed` (1..100).
 - `read_pin` params: `pin` (int), `mode` ("digital" | "analog").
 - `write_pin` params: `pin` (int), `value` (0|1), `mode` ("digital" | "analog").
@@ -114,9 +110,6 @@ Constraints:
 - `send_message` params: `message` (string), `message_type` ("info" | "success" | "warn" | "error").
 - `mount_tool` params: `tool_name` (string). `dismount_tool` params: none.
 - `e_stop` params: none.
-- If a zone is named in the world model but its id does NOT appear in
-  the `Available bed_ids` list, you cannot water it directly — emit an
-  empty plan and explain in `rationale`.
 - If the request is ambiguous, prefer the smallest safe plan and add a note in `rationale`.
 - If the request is unsafe or impossible, return `actions: []` and explain in `rationale`.
 """
@@ -140,28 +133,34 @@ Read-only tools (use these to answer questions):
 - `get_status` — full status tree (use only when detailed state is needed).
 - `get_garden` — configured world model (bounds, zones, entities, camera).
 - `list_zones` — every zone with bounds and centre coordinates.
-- `list_beds` — every bed and the zones it waters.
 - `get_pins` — named GPIO pins.
-- `get_positions` — named gantry presets (Home, Bed 1, …).
+- `get_positions` — named gantry presets (Home, Bed, …).
 - `get_images` — recent camera images.
+- `analyze_image` — run AI image analysis (Resireg-Mini) on the latest camera image. Provide a prompt like "plants", "weeds", or "dry soil"; the result image is shown in chat.
 - `get_messages` — recent MQTT messages.
 
 Execution tools (use these to change the robot state):
-- `move` — move the gantry to absolute X/Y/Z mm.
-- `water` — open a bed valve for N seconds.
-- `take_photo` — capture a photo with the FarmBot camera.
-- `find_home` — run the end-stop homing sequence.
-- `read_pin` / `write_pin` — read or set a GPIO pin.
-- `send_message` — show a message on the FarmBot.
-- `mount_tool` / `dismount_tool` — change the mounted tool.
-- `e_stop` — emergency stop.
+- `move` — move the gantry to absolute X/Y/Z mm. **Requires user approval.**
+- `water` — turn the pump on for N seconds. **Requires user approval.**
+- `take_photo` — capture a photo with the FarmBot camera. Executes immediately.
+- `find_home` — run the end-stop homing sequence. **Requires user approval.**
+- `read_pin` / `write_pin` — read or set a GPIO pin. `write_pin` requires approval.
+- `send_message` — show a message on the FarmBot. Executes immediately.
+- `mount_tool` / `dismount_tool` — change the mounted tool. **Requires user approval.**
+- `e_stop` — emergency stop. Executes immediately.
 
 Guidelines:
 - Before moving to a named zone, call `list_zones` to get its centre.
-- Before watering, call `list_beds` to confirm the correct `bed_id`.
 - Keep answers short and actionable. Confirm what you did and any relevant
   sensor/position readings.
 - If a request is unsafe or impossible, refuse and explain why.
+- When you call `analyze_image`, you cannot see the returned analysis image
+  yourself. Do not claim that something was or was not detected in it. Just
+  state that the analysis image is shown to the user and, if helpful, repeat
+  the prompt that was used.
+- Some actions execute immediately (take_photo, read_pin, send_message, e_stop);
+  the rest are proposed for user approval. Respond accordingly: say the photo was
+  taken when `take_photo` returns ok, but say a move/water proposal needs approval.
 """
 
 
@@ -192,23 +191,9 @@ def build_user_prompt(
     request: str,
     *,
     world_context: str | None = None,
-    bed_ids: list[str] | None = None,
-    bed_to_zones: dict[str, list[str]] | None = None,
 ) -> str:
     parts: list[str] = []
     if world_context:
         parts.append("Current world model:\n" + world_context)
-    if bed_to_zones:
-        lines = ["Bed -> zones it waters (resolved from the config):"]
-        for bed, zones in bed_to_zones.items():
-            zone_list = ", ".join(zones)
-            lines.append(f"- {bed} -> {zone_list}")
-        parts.append("\n".join(lines))
-    if bed_ids:
-        bed_id_list = ", ".join(bed_ids)
-        parts.append(
-            "Available bed_ids (use EXACTLY one of these for the "
-            f"`water` action's `bed_id` param): {bed_id_list}"
-        )
     parts.append(f"Request: {request}")
     return "\n\n".join(parts)

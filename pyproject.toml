@@ -16,6 +16,7 @@ dependencies = [
     "twfarmbot-api-server",
     "twfarmbot-ui",
     "twfarmbot-worker",
+    "ruamel-yaml>=0.19.1",
 ]
 
 [tool.uv.sources]

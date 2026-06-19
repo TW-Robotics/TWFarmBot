@@ -38,10 +38,10 @@ def fake_bot(monkeypatch: pytest.MonkeyPatch) -> _FakeBot:
     return bot
 
 
-def _new_backend(monkeypatch: pytest.MonkeyPatch, pins: dict[str, int]) -> Any:
-    """Create a fresh FarmBotBackend wired to fake_bot + given pins."""
-    for bed, pin in pins.items():
-        monkeypatch.setenv(f"FARMBOT_PIN_{bed}", str(pin))
+def _new_backend(monkeypatch: pytest.MonkeyPatch, pump_pin: int | None = None) -> Any:
+    """Create a fresh FarmBotBackend wired to fake_bot + given pump pin."""
+    if pump_pin is not None:
+        monkeypatch.setenv("FARMBOT_PUMP_PIN", str(pump_pin))
     from watering_service.backends import farmbot
     # Force a fresh instance so the singleton doesn't shadow test pins
     fb = farmbot.FarmBotBackend()
@@ -51,20 +51,14 @@ def _new_backend(monkeypatch: pytest.MonkeyPatch, pins: dict[str, int]) -> Any:
 # ---------- backend: water -------------------------------------------------
 
 def test_backend_water_opens_then_closes_pin(fake_bot, monkeypatch):
-    backend = _new_backend(monkeypatch, {"b1": 13})
-    backend.water("b1", 0.01)
+    backend = _new_backend(monkeypatch, pump_pin=13)
+    backend.water(0.01)
     methods = [m for m, _ in fake_bot.calls]
-    assert methods[0] == "control_peripheral"
-    assert fake_bot.calls[0][1]["peripheral_name"] == "13"
+    assert methods[0] == "write_pin"
+    assert fake_bot.calls[0][1]["pin_number"] == 13
     assert fake_bot.calls[0][1]["value"] == 1
-    assert methods[-1] == "control_peripheral"
+    assert methods[-1] == "write_pin"
     assert fake_bot.calls[-1][1]["value"] == 0
-
-
-def test_backend_water_unknown_bed_raises(fake_bot, monkeypatch):
-    backend = _new_backend(monkeypatch, {"b1": 13})
-    with pytest.raises(ValueError, match="no valve pin configured for bed 'b99'"):
-        backend.water("b99", 0.01)
 
 
 # ---------- backend: primitives -------------------------------------------
@@ -149,11 +143,11 @@ def test_handler_water_translates_args(monkeypatch):
     from twfarmbot_api_server.handlers import watering as h
 
     seen = []
-    monkeypatch.setattr("watering_service.water_bed",
-                        lambda bed_id, seconds: seen.append((bed_id, seconds)))
+    monkeypatch.setattr("watering_service.water",
+                        lambda seconds: seen.append(seconds))
 
-    out = h.handle_water(Action(kind="water", params={"bed_id": "b1", "seconds": 7}))
-    assert seen == [("b1", 7.0)]
+    out = h.handle_water(Action(kind="water", params={"seconds": 7}))
+    assert seen == [7.0]
     assert out.kind == "water"
 
 

@@ -6,8 +6,9 @@ Streamlit.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 import httpx
 
@@ -46,3 +47,49 @@ class ApiClient:
             return ApiResult(ok=r.is_success, code=r.status_code, body=body)
         except httpx.HTTPError as err:
             return ApiResult(ok=False, code=0, body={"error": f"{type(err).__name__}: {err}"})
+
+    def stream(
+        self,
+        method: str,
+        path: str,
+        **kwargs: Any,
+    ) -> Iterator[dict[str, Any]]:
+        """Stream server-sent events from the API.
+
+        Yields parsed ``data:`` payloads as dicts. Raises on HTTP errors so
+        the caller can fall back to a non-streaming request.
+        """
+        per_request_timeout = kwargs.pop("timeout", None)
+        if per_request_timeout is not None:
+            kwargs["timeout"] = httpx.Timeout(
+                per_request_timeout, connect=min(per_request_timeout, 1.0)
+            )
+        with self._client.stream(method, path, **kwargs) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                yield json.loads(line[6:])
+
+    # ---- Refresh helpers ------------------------------------------------
+
+    def get_position(self) -> dict[str, Any] | None:
+        r = self.request("GET", "/position")
+        if r.ok and isinstance(r.body, dict):
+            return r.body.get("xyz") or {}
+        return None
+
+    def get_health(self) -> dict[str, Any] | None:
+        r = self.request("GET", "/health")
+        if r.ok and isinstance(r.body, dict):
+            return r.body
+        return None
+
+    def get_messages(self) -> list[str]:
+        r = self.request("GET", "/messages")
+        if not r.ok or not isinstance(r.body, dict):
+            return []
+        raw = r.body.get("last_messages")
+        if isinstance(raw, list):
+            return [str(m) for m in raw[-20:]]
+        return []

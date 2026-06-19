@@ -10,12 +10,17 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import altair as alt
-import httpx
 import streamlit as st
+from ruamel.yaml import YAML
 from twfarmbot_ml_utils import HuggingFaceImageProcessor
+
+from twfarmbot_core.actions import summarize_action
 
 from twfarmbot_ui.client import ApiClient
 
@@ -72,42 +77,48 @@ def _parse_number(value: Any, default: float = 0.0) -> float | None:
 
 def _action_summary(action: dict[str, Any]) -> str:
     """Return a compact, human-readable summary of an action."""
-    kind = action.get("kind", "action")
-    params = action.get("params") or {}
-    if kind == "move":
-        return (
-            f"🛠️ **move** → "
-            f"({_num(params.get('x'))}, {_num(params.get('y'))}, {_num(params.get('z'))})"
-        )
-    if kind == "water":
-        return f"🌊 **water** bed **{params.get('bed_id', '—')}** for {_num(params.get('seconds'))} s"
-    if kind == "find_home":
-        return f"🏠 **find_home** (axis={params.get('axis', 'all')}, speed={params.get('speed', '—')})"
-    if kind == "take_photo":
-        return "📷 **take_photo**"
-    if kind == "read_pin":
-        return f"📖 **read_pin** {params.get('pin', '—')} ({params.get('mode', 'digital')})"
-    if kind == "write_pin":
-        return f"✏️ **write_pin** {params.get('pin', '—')} = {params.get('value', '—')}"
-    if kind == "send_message":
-        msg = str(params.get("message", ""))[:40]
-        return f"💬 **send_message**: {msg}"
-    if kind == "mount_tool":
-        return f"🔧 **mount_tool** {params.get('tool_name', '—')}"
-    if kind == "dismount_tool":
-        return "🔧 **dismount_tool**"
-    if kind == "e_stop":
-        return "🛑 **e_stop**"
-    return f"🛠️ **{kind}**"
+    return summarize_action(action)
 
 
-def _render_action_cards(actions: list[dict[str, Any]]) -> None:
-    """Render proposed actions as compact cards with collapsible details."""
-    for action in actions:
-        with st.container(border=True):
-            st.markdown(_action_summary(action))
-            with st.expander("Details"):
-                st.json(action.get("params", {}))
+def _render_tool_call(name: str, args: Any, result: Any, *, show_image: bool = True) -> None:
+    """Render a compact tool call; shows AI-analysis images inline if present."""
+    label = f"🔧 {name}"
+    if name == "analyze_image" and isinstance(args, dict) and args.get("prompt"):
+        label += f" · '{args['prompt']}'"
+    elif name == "get_images" and isinstance(args, dict) and args.get("limit"):
+        label += f" · limit={args['limit']}"
+
+    with st.expander(label, expanded=False):
+        st.json({"args": args, "result": result})
+
+    if show_image and name == "analyze_image" and isinstance(result, dict) and result.get("image_url"):
+        st.image(result["image_url"], use_container_width=True)
+
+
+def _render_proposed_actions_inline(
+    message: dict[str, Any], actions: list[dict[str, Any]], idx: int
+) -> None:
+    """Render proposed actions as compact inline chat-style approval."""
+    with st.container(key=f"proposal_{idx}"):
+        st.markdown("*I can do this:*")
+        for action in actions:
+            st.markdown(f"• {_action_summary(action)}")
+        approve_col, reject_col = st.columns([1, 1])
+        if approve_col.button(
+            "✓ Approve", key=f"approve_{idx}", use_container_width=True
+        ):
+            _execute_proposed_actions(actions, message)
+            message["approved"] = True
+            message["content"] += (
+                f"\n\n✅ Approved and queued {len(actions)} action(s)."
+            )
+            st.rerun()
+        if reject_col.button(
+            "✕ Reject", key=f"reject_{idx}", use_container_width=True
+        ):
+            message["rejected"] = True
+            message["content"] += "\n\n❌ Cancelled."
+            st.rerun()
 
 
 _APPROVAL_WORDS = {
@@ -128,30 +139,93 @@ def _is_rejection(text: str) -> bool:
     return text.strip("!.? ").lower() in _REJECTION_WORDS
 
 
+_CONFIG_PATH = Path(os.getenv("TWFB_CONFIG", "configs/dev.yaml"))
+
+
+def _load_config_yaml() -> tuple[YAML, Any, Path]:
+    """Load the project YAML while preserving comments and formatting."""
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.default_flow_style = False
+    path = Path(_CONFIG_PATH)
+    with path.open() as fh:
+        data = yaml.load(fh)
+    return yaml, data, path
+
+
+def _entity_id(name: str) -> str:
+    base = re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_")
+    return base or "entity"
+
+
+def _add_garden_entity(x: float, y: float, kind: str, name: str) -> None:
+    """Append a new entity to ``configs/dev.yaml`` and reload the world model."""
+    yaml, data, path = _load_config_yaml()
+    spatial = data.setdefault("spatial", {})
+    entities = spatial.setdefault("entities", [])
+    entity = {
+        "id": _entity_id(name),
+        "kind": kind,
+        "name": name,
+        "x": float(x),
+        "y": float(y),
+        "z": 0.0,
+        "radius_mm": 50,
+        "metadata": {},
+    }
+    entities.append(entity)
+    with path.open("w") as fh:
+        yaml.dump(data, fh)
+
+
+def _selected_garden_points(event: Any) -> list[tuple[float, float]]:
+    """Extract all selected grid coordinates from an Altair on_select event."""
+    if not event:
+        return []
+    selection = event.get("selection") if isinstance(event, dict) else None
+    if not isinstance(selection, dict):
+        selection = event if isinstance(event, dict) else {}
+    points: list[tuple[float, float]] = []
+    for value in selection.values():
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    points.append((float(item.get("x", 0)), float(item.get("y", 0))))
+    return points
+
+
+def _garden_grid(bounds: dict[str, float], step: float = 100.0) -> list[dict[str, float]]:
+    x0 = bounds.get("x", 0)
+    y0 = bounds.get("y", 0)
+    width = bounds.get("width", 0)
+    height = bounds.get("height", 0)
+    rows: list[dict[str, float]] = []
+    xi = x0
+    while xi <= x0 + width:
+        yi = y0
+        while yi <= y0 + height:
+            rows.append({"x": round(xi, 1), "y": round(yi, 1)})
+            yi += step
+        xi += step
+    return rows
+
+
 def _refresh_position(client: ApiClient) -> None:
-    r = client.request("GET", "/position")
-    if r.ok and isinstance(r.body, dict):
-        xyz = (r.body.get("xyz") or {}) if r.ok else {}
-        st.session_state["pos_x"] = _num(xyz.get("x"))
-        st.session_state["pos_y"] = _num(xyz.get("y"))
-        st.session_state["pos_z"] = _num(xyz.get("z"))
+    xyz = client.get_position() or {}
+    st.session_state["pos_x"] = _num(xyz.get("x"))
+    st.session_state["pos_y"] = _num(xyz.get("y"))
+    st.session_state["pos_z"] = _num(xyz.get("z"))
 
 
 def _refresh_health(client: ApiClient) -> None:
-    r = client.request("GET", "/health")
-    if r.ok and isinstance(r.body, dict):
-        st.session_state["farmbot_status"] = r.body.get("farmbot", "?")
-        st.session_state["actions"] = r.body.get("actions", [])
+    health = client.get_health()
+    if health is not None:
+        st.session_state["farmbot_status"] = health.get("farmbot", "?")
+        st.session_state["actions"] = health.get("actions", [])
 
 
 def _refresh_messages(client: ApiClient) -> None:
-    r = client.request("GET", "/messages")
-    if r.ok and isinstance(r.body, dict):
-        raw = r.body.get("last_messages")
-        if isinstance(raw, list):
-            st.session_state["messages"] = [str(m) for m in raw[-20:]]
-        else:
-            st.session_state["messages"] = []
+    st.session_state["messages"] = client.get_messages()
 
 
 def _refresh_telemetry(client: ApiClient) -> None:
@@ -161,7 +235,7 @@ def _refresh_telemetry(client: ApiClient) -> None:
 
 
 TABS = [
-    "Overview", "Garden", "Motion", "Camera", "Sensors", "Operations",
+    "Overview", "Garden", "Motion", "Camera", "I/O",
     "Assistant", "Diagnostics", "Settings",
 ]
 
@@ -177,6 +251,9 @@ def _qp_tab() -> str:
 def _tab_from_key(key: str) -> str:
     """Map a URL-safe tab key back to the display name."""
     low = key.lower()
+    # Legacy routes from the old Sensors / Operations tabs now live under I/O.
+    if low in {"sensors", "operations"}:
+        return "I/O"
     for tab in TABS:
         if tab.lower() == low:
             return tab
@@ -210,6 +287,17 @@ def _do_pin_write(client: ApiClient, pin: int, value: int, mode: str = "digital"
         st.error(f"HTTP {r.code}: {r.body}")
 
 
+def _do_pin_pulse(client: ApiClient, pin: int, seconds: float, mode: str = "digital") -> None:
+    r = client.request("POST", "/actions", json={
+        "kind": "write_pin",
+        "params": {"pin": pin, "value": 1, "mode": mode, "seconds": seconds},
+    })
+    if r.ok:
+        st.toast(f"pin {pin} HIGH for {seconds}s", icon="✏️")
+    else:
+        st.error(f"HTTP {r.code}: {r.body}")
+
+
 # ── page shell ────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="TWFarmBot Research", page_icon="🌾", layout="wide",
@@ -237,11 +325,30 @@ st.markdown("""
   }
   [data-testid="stSidebarCollapsedControl"],
   [data-testid="stSidebarCollapseButton"] { display:none !important; }
-  .stMain { margin-left: 18rem !important; }
-  .block-container { max-width: 1300px; padding-top: 1.25rem; }
-  h1 { font-size: 1.6rem; letter-spacing: -0.03em; }
-  .eyebrow { color: #3f8f64; font-size: .66rem; font-weight: 750;
-             letter-spacing: .14em; text-transform: uppercase; }
+  .stMain {
+    margin-left: 18rem !important;
+    width: calc(100% - 18rem) !important;
+    max-width: calc(100% - 18rem) !important;
+  }
+  .block-container {
+    max-width: 100% !important;
+    padding: 0.5rem 1rem 5rem 1rem;
+  }
+  .eyebrow { margin-bottom: 0 !important; }
+  h1 { margin-top: 0.1rem !important; margin-bottom: 0.1rem !important; }
+  [data-testid="stChatInput"] {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 18rem !important;
+    width: calc(100% - 18rem) !important;
+    z-index: 100 !important;
+    background: var(--background-color) !important;
+    padding: 0.5rem 1rem 1rem 1rem !important;
+    border-top: 1px solid rgba(128,128,128,0.1) !important;
+  }
+  h1 { font-size: 1.15rem; letter-spacing: -0.01em; margin-bottom: 0.35rem; }
+  .eyebrow { color: #3f8f64; font-size: .55rem; font-weight: 750;
+             letter-spacing: .12em; text-transform: uppercase; }
   .card {
     background: var(--secondary-background-color);
     border: 1px solid rgba(128,128,128,0.12);
@@ -281,9 +388,64 @@ st.markdown("""
     background: var(--secondary-background-color);
     border-radius: 9px;
   }
+  [data-testid="stChatMessage"] img {
+    max-width: 480px !important;
+    border-radius: 9px;
+  }
+  [data-testid="stChatMessage"] {
+    padding: 0.35rem 0 !important;
+    margin-bottom: 0.25rem !important;
+    background: transparent !important;
+  }
+  [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  [data-testid="stChatMessage"] p,
+  [data-testid="stChatMessage"] li {
+    font-size: 0.92rem !important;
+    line-height: 1.35 !important;
+    margin-bottom: 0.15rem !important;
+  }
+  [data-testid="stChatMessage"] .stCaption {
+    font-size: 0.72rem !important;
+  }
+  [class*="st-key-proposal_"] {
+    background: var(--secondary-background-color);
+    border: 1px solid rgba(128,128,128,0.12);
+    border-radius: 10px;
+    padding: 0.5rem 0.75rem;
+    margin: 0.35rem 0 0.5rem 0;
+  }
+  [class*="st-key-user_msg_"] [data-testid="stChatMessage"] {
+    flex-direction: row-reverse !important;
+    justify-content: flex-start !important;
+  }
+  [class*="st-key-user_msg_"] [data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"] {
+    margin-left: 0.5rem !important;
+    margin-right: 0 !important;
+  }
+  [class*="st-key-user_msg_"] [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
+    align-items: flex-end !important;
+    margin-right: 0.75rem !important;
+  }
+  [class*="st-key-user_msg_"] [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] p {
+    text-align: right !important;
+  }
   @media (max-width: 760px) {
     section[data-testid="stSidebar"] { width: 14rem !important; min-width: 14rem !important; }
-    .stMain { margin-left: 14rem !important; }
+    .stMain {
+      margin-left: 14rem !important;
+      width: calc(100% - 14rem) !important;
+      max-width: calc(100% - 14rem) !important;
+    }
+    .block-container { max-width: 100% !important; }
+    [data-testid="stChatInput"] {
+      left: 14rem !important;
+      width: calc(100% - 14rem) !important;
+    }
   }
 </style>
 """, unsafe_allow_html=True)
@@ -333,17 +495,128 @@ def _render_overview() -> None:
     st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
     st.markdown("# Research overview")
 
+    # ── Live position ──────────────────────────────────────────────────────────
     row = st.columns(3)
     row[0].metric("X · mm", st.session_state.get("pos_x", "—"))
     row[1].metric("Y · mm", st.session_state.get("pos_y", "—"))
     row[2].metric("Z · mm", st.session_state.get("pos_z", "—"))
 
+     # ── System status ──────────────────────────────────────────────────────────
+    st.markdown("### System status")
+    st.session_state.setdefault("history", [])
+
+    refresh_col, clear_col = st.columns([3, 1])
+    with refresh_col:
+        refresh_clicked = st.button("🔄 Refresh status", use_container_width=True)
+    with clear_col:
+        if st.button("Clear history", use_container_width=True):
+            st.session_state["history"] = []
+            st.rerun()
+
+    if refresh_clicked:
+        _refresh_health(client)
+        _refresh_position(client)
+        d = client.request("GET", "/status")
+        st.session_state["diag"] = d.body.get("state", {}) if d.ok and isinstance(d.body, dict) else {}
+        info_for_history = (st.session_state.get("diag") or {}).get("informational_settings", {}) or {}
+        st.session_state["history"].append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "cpu": _float(info_for_history.get("cpu_usage")),
+            "memory": _float(info_for_history.get("memory_usage")),
+            "disk": _float(info_for_history.get("disk_usage")),
+            "wifi": _float(info_for_history.get("wifi_level_percent")),
+            "soc": _float(info_for_history.get("soc_temp")),
+            "uptime": _float(info_for_history.get("uptime")),
+        })
+        # Keep the last 60 samples so the chart stays readable.
+        st.session_state["history"] = st.session_state["history"][-60:]
+        st.rerun()
+
+    payload = st.session_state.get("diag", {}) or {}
+    info = payload.get("informational_settings", {}) or {}
+    loc = payload.get("location_data", {}) or {}
+
+    status_cols = st.columns(5)
+    status_cols[0].metric("FarmBot", st.session_state.get("farmbot_status", "—"))
+    status_cols[1].metric("Uptime", f"{_num(info.get('uptime'))} s")
+    status_cols[2].metric("Wi-Fi", f"{_num(info.get('wifi_level_percent'))}%")
+    status_cols[3].metric("Sync", info.get("sync_status", "—"))
+    status_cols[4].metric("Busy", "Yes" if info.get("busy") else "No")
+
+    # ── Resources over time ────────────────────────────────────────────────────
+    st.markdown("### Resources over time")
+    cpu = info.get("cpu_usage")
+    mem = info.get("memory_usage")
+    disk = info.get("disk_usage")
+    soc = info.get("soc_temp")
+
+    res_cols = st.columns(4)
+    res_cols[0].metric("CPU", f"{cpu}%" if cpu is not None else "—")
+    res_cols[1].metric("Memory", f"{mem}%" if mem is not None else "—")
+    res_cols[2].metric("Disk", f"{disk}%" if disk is not None else "—")
+    res_cols[3].metric("SoC temp", f"{soc}°C" if soc is not None else "—")
+
+    hist = st.session_state["history"]
+    if hist:
+        base = alt.Chart(alt.Data(values=hist))
+        usage_lines = (
+            base.transform_fold(
+                fold=["cpu", "memory", "disk"],
+                as_=["metric", "value"],
+            )
+            .mark_line(point=True, strokeWidth=2)
+            .encode(
+                x=alt.X("time:N", title=None),
+                y=alt.Y("value:Q", title="Usage %", scale=alt.Scale(domain=[0, 100])),
+                color=alt.Color(
+                    "metric:N",
+                    scale=alt.Scale(
+                        domain=["cpu", "memory", "disk"],
+                        range=["#3f8f64", "#5b8fc7", "#c7a15b"],
+                    ),
+                    legend=alt.Legend(title="Metric"),
+                ),
+            )
+            .properties(height=240)
+        )
+        st.altair_chart(usage_lines, use_container_width=True)
+
+        extra_cols = st.columns(2)
+        with extra_cols[0]:
+            wifi_chart = (
+                base.mark_line(point=True, color="#5b8fc7", strokeWidth=2)
+                .encode(
+                    x=alt.X("time:N", title=None),
+                    y=alt.Y("wifi:Q", title="Wi-Fi %", scale=alt.Scale(domain=[0, 100])),
+                )
+                .properties(height=180)
+            )
+            st.altair_chart(wifi_chart, use_container_width=True)
+        with extra_cols[1]:
+            soc_chart = (
+                base.mark_line(point=True, color="#c75b5b", strokeWidth=2)
+                .encode(
+                    x=alt.X("time:N", title=None),
+                    y=alt.Y("soc:Q", title="SoC temp °C"),
+                )
+                .properties(height=180)
+            )
+            st.altair_chart(soc_chart, use_container_width=True)
+    else:
+        st.info("Click **Refresh status** to start collecting data for the charts.")
+
+    # ── Network & details ──────────────────────────────────────────────────────
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("**Experiment**")
-        st.text_input("Run", key="run", placeholder="e.g. soil-map-07", label_visibility="collapsed")
-        st.text_input("Operator", key="op", placeholder="initials", label_visibility="collapsed")
-        st.text_area("Notes", key="notes", placeholder="Conditions, observations…", height=90, label_visibility="collapsed")
+        st.markdown("**Network & hardware**")
+        st.caption(f"Private IP: `{info.get('private_ip', '—')}`")
+        st.caption(f"Wi-Fi signal: {_num(info.get('wifi_level'))} dBm")
+        st.caption(f"Controller: {info.get('controller_version', '—')}")
+        st.caption(f"Firmware: {info.get('firmware_version', '—')}")
+        axes = loc.get("axis_states", {}) or {}
+        st.caption(
+            f"Axis states · X {axes.get('x', '—')} · Y {axes.get('y', '—')} · Z {axes.get('z', '—')}"
+        )
 
     with c2:
         st.markdown("**Recent events**")
@@ -352,6 +625,16 @@ def _render_overview() -> None:
             st.code("\n".join(msgs[-10:]), language="text")
         else:
             st.caption("No events recorded.")
+
+    # ── Experiment notes ───────────────────────────────────────────────────────
+    st.markdown("### Experiment")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.text_input("Run", key="run", placeholder="e.g. soil-map-07", label_visibility="collapsed")
+    with c2:
+        st.text_input("Operator", key="op", placeholder="initials", label_visibility="collapsed")
+    with c3:
+        st.text_area("Notes", key="notes", placeholder="Conditions, observations…", height=90, label_visibility="collapsed")
 
 
 def _render_garden() -> None:
@@ -443,18 +726,82 @@ def _render_garden() -> None:
         x=alt.X("x:Q", scale=x_scale),
         y=alt.Y("y:Q", scale=y_scale),
         color=alt.Color("kind:N", title="Object"),
-        shape=alt.Shape("kind:N", title="Object"),
+        shape=alt.value("circle"),
         size=alt.Size("radius_mm:Q", scale=alt.Scale(range=[90, 500]), legend=None),
         tooltip=["name:N", "kind:N", "x:Q", "y:Q"],
     )
 
+    grid_rows = _garden_grid(bounds, step=25)
+    click_selection = alt.selection_point(
+        name="garden_click",
+        fields=["x", "y"],
+        on="click",
+        toggle=True,
+        nearest=True,
+        empty=False,
+    )
+    click_layer = alt.Chart(alt.Data(values=grid_rows)).mark_point(
+        size=120
+    ).encode(
+        x=alt.X("x:Q", scale=x_scale),
+        y=alt.Y("y:Q", scale=y_scale),
+        opacity=alt.condition(click_selection, alt.value(0.7), alt.value(0)),
+        color=alt.value("#ff4b4b"),
+    ).add_params(click_selection)
+
     map_col, details = st.columns([2.3, 1])
     with map_col:
-        st.altair_chart(
-            (bounds_chart + zones_chart + points_chart).properties(height=520).interactive(),
+        event = st.altair_chart(
+            (bounds_chart + zones_chart + points_chart + click_layer)
+            .properties(height=520)
+            .interactive(),
             width="stretch",
+            on_select="rerun",
+            key="garden_map",
         )
+    selected_points = _selected_garden_points(st.session_state.get("garden_map"))
     with details:
+        if selected_points:
+            with st.container(border=True):
+                st.markdown(f"**🌱 {len(selected_points)} selected**")
+                kind = st.pills(
+                    "Kind",
+                    ["plant", "obstacle", "tool", "marker", "sensor", "valve", "custom"],
+                    default="plant",
+                    selection_mode="single",
+                    label_visibility="collapsed",
+                    key="garden_assign_kind",
+                )
+                custom_kind = ""
+                if kind == "custom":
+                    custom_kind = st.text_input(
+                        "Custom kind",
+                        placeholder="e.g. watering",
+                        key="garden_assign_custom_kind",
+                    )
+                name = st.text_input(
+                    "Name prefix",
+                    placeholder="e.g. Tomato",
+                    key="garden_assign_name",
+                )
+                c1, c2 = st.columns(2)
+                if c1.button(
+                    f"Assign {len(selected_points)}",
+                    key="garden_assign_save",
+                    use_container_width=True,
+                ):
+                    final_kind = custom_kind if kind == "custom" and custom_kind else (kind or "plant")
+                    if name:
+                        for i, (px, py) in enumerate(selected_points, start=1):
+                            _add_garden_entity(px, py, final_kind, f"{name}-{i}")
+                        st.success(f"Added {len(selected_points)} {final_kind}(s)")
+                        st.session_state.pop("garden_map", None)
+                        st.rerun()
+                    else:
+                        st.warning("Please enter a name prefix.")
+                if c2.button("Clear", key="garden_assign_cancel", use_container_width=True):
+                    st.session_state.pop("garden_map", None)
+                    st.rerun()
         st.markdown("**Live pose**")
         pose = st.columns(3)
         pose[0].metric("X", _num(robot.get("x")))
@@ -554,22 +901,19 @@ def _render_motion() -> None:
                 _do_move(client, float(p["x"]), float(p["y"]), float(p["z"]), p["label"])
 
 
-def _render_sensors() -> None:
+def _render_io() -> None:
     st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
-    st.markdown("# Sensor workspace")
+    st.markdown("# I/O workspace")
 
     if "named_pins" not in st.session_state:
         r = client.request("GET", "/pins")
         st.session_state["named_pins"] = r.body.get("pins", []) if r.ok else []
     named = st.session_state["named_pins"]
 
-    if not named:
-        st.info("No pins configured.")
-        return
-
+    # ── Sensors ───────────────────────────────────────────────────────────────
     sensors = [p for p in named if p.get("kind") == "sensor"]
     if sensors:
-        st.markdown("**Instruments**")
+        st.markdown("## Sensors")
         cols = st.columns(min(3, len(sensors)))
         for i, s in enumerate(sensors):
             with cols[i]:
@@ -578,6 +922,59 @@ def _render_sensors() -> None:
                     r = client.request("GET", f"/pin/{s['pin']}", params={"mode": s.get("mode", "analog")})
                     st.session_state[f"sv_{s['pin']}"] = r.body.get("value") if r.ok else "—"
                 st.metric("Value", st.session_state.get(f"sv_{s['pin']}", "—"))
+    elif named:
+        st.info("No sensor pins configured.")
+
+    st.divider()
+
+    # ── Actuators ─────────────────────────────────────────────────────────────
+    st.markdown("## Actuators")
+    a, b = st.columns(2)
+    with a:
+        st.markdown("**Irrigation**")
+        with st.form("water"):
+            secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5)
+            if st.form_submit_button("Water", use_container_width=True):
+                r = client.request(
+                    "POST", "/actions",
+                    json={"kind": "water", "params": {"seconds": secs}},
+                )
+                if r.ok:
+                    st.success("Queued")
+                else:
+                    st.error(str(r.body))
+
+    with b:
+        st.markdown("**Peripheral control**")
+        outputs = [p for p in named if p.get("kind") != "sensor"]
+        if not outputs:
+            st.info("No output pins configured.")
+        else:
+            sel = st.selectbox(
+                "Output", outputs,
+                format_func=lambda p: f"{p['label']} · pin {p['pin']}",
+            )
+            if sel:
+                mode = sel.get("mode", "digital")
+                high_mode = st.segmented_control(
+                    "HIGH mode", ["Timed", "Keep on"], default="Timed"
+                )
+                if high_mode == "Timed":
+                    high_secs = st.number_input(
+                        "Seconds to stay HIGH", 0.1, 300.0, 2.0, 0.5,
+                        key="high_secs",
+                    )
+                else:
+                    high_secs = None
+
+                off, on = st.columns(2)
+                if off.button("Set LOW", use_container_width=True):
+                    _do_pin_write(client, sel["pin"], 0, mode)
+                if on.button("Set HIGH", use_container_width=True):
+                    if high_mode == "Timed" and high_secs is not None:
+                        _do_pin_pulse(client, sel["pin"], high_secs, mode)
+                    else:
+                        _do_pin_write(client, sel["pin"], 1, mode)
 
 
 def _render_camera() -> None:
@@ -687,62 +1084,45 @@ def _render_camera() -> None:
 
 def _render_assistant() -> None:
     st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
-    st.markdown("# Assistant")
-
-    mode = st.segmented_control(
-        "Mode", ["Chat", "Plan"],
-        default=st.session_state.get("assistant_mode", "Chat"),
-        key="assistant_mode",
-    )
-    if mode == "Plan":
-        _render_plan()
-    else:
-        _render_chat()
-
-
-def _render_chat() -> None:
-    header, clear_col = st.columns([3, 1])
-    with header:
-        st.caption(
-            "Chat with the FarmBot. Ask about status and zones, or tell it to "
-            "water, take photos, move, and more."
-        )
+    title_col, clear_col = st.columns([5, 1])
+    with title_col:
+        st.markdown("# Assistant")
     with clear_col:
         if st.button("Clear chat", use_container_width=True):
             st.session_state["assistant_messages"] = []
             st.rerun()
+    _render_chat()
 
+
+def _render_chat() -> None:
     if "assistant_messages" not in st.session_state:
         st.session_state["assistant_messages"] = []
 
     for idx, msg in enumerate(st.session_state["assistant_messages"]):
         if msg.get("role") == "tool":
             with st.chat_message("assistant"):
-                st.markdown(f"🔧 **{msg.get('name', 'tool')}**")
-                with st.expander("Tool result"):
-                    st.json({"args": msg.get("args"), "result": msg.get("result")})
+                _render_tool_call(
+                    msg.get("name", "tool"),
+                    msg.get("args"),
+                    msg.get("result"),
+                    show_image=False,
+                )
+            continue
+
+        if msg.get("role") == "user":
+            with st.container(key=f"user_msg_{idx}"):
+                with st.chat_message("user"):
+                    st.markdown(msg["content"])
             continue
 
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            if msg.get("tool_calls"):
-                with st.expander("Thinking"):
-                    st.json(msg["tool_calls"])
+            for image in msg.get("images", []):
+                st.image(image.get("attachment_url"), use_container_width=True)
 
             proposed_actions = msg.get("proposed_actions", [])
             if proposed_actions and not msg.get("approved") and not msg.get("rejected"):
-                st.markdown("**Proposed actions**")
-                _render_action_cards(proposed_actions)
-                approve_col, reject_col = st.columns([1, 1])
-                if approve_col.button("✅ Approve", key=f"approve_{idx}", use_container_width=True):
-                    _execute_proposed_actions(proposed_actions)
-                    msg["approved"] = True
-                    msg["content"] += f"\n\n✅ Approved and queued {len(proposed_actions)} action(s)."
-                    st.rerun()
-                if reject_col.button("❌ Reject", key=f"reject_{idx}", use_container_width=True):
-                    msg["rejected"] = True
-                    msg["content"] += "\n\n❌ Cancelled."
-                    st.rerun()
+                _render_proposed_actions_inline(msg, proposed_actions, idx)
             elif msg.get("approved"):
                 st.caption("Approved")
             elif msg.get("rejected"):
@@ -763,8 +1143,11 @@ def _render_chat() -> None:
             if approval or rejection:
                 if pending:
                     st.session_state["assistant_messages"].append({"role": "user", "content": prompt})
+                    with st.container(key="user_msg_current"):
+                        with st.chat_message("user"):
+                            st.markdown(prompt)
                     if approval:
-                        _execute_proposed_actions(proposed)
+                        _execute_proposed_actions(proposed, last_assistant)
                         last_assistant["approved"] = True
                         last_assistant["content"] += (
                             f"\n\n✅ Approved and queued {len(proposed)} action(s)."
@@ -778,41 +1161,50 @@ def _render_chat() -> None:
                     st.rerun()
 
         st.session_state["assistant_messages"].append({"role": "user", "content": prompt})
+        with st.container(key="user_msg_current"):
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
         thinking = st.empty()
-        thinking.info("🤖 Assistant is thinking…")
+        thinking.caption("🤖 Assistant is thinking…")
         with st.chat_message("assistant"):
             placeholder = st.empty()
+            live_tools = st.container()
             stream_meta = {"tool_calls": [], "proposed_actions": []}
             stream_error = None
             accumulated = ""
             try:
-                with httpx.Client() as http:
-                    with http.stream(
-                        "POST", f"{api_url}/chat/stream",
-                        json={"messages": st.session_state["assistant_messages"]},
-                        timeout=PLAN_TIMEOUT,
-                    ) as resp:
-                        resp.raise_for_status()
-                        for line in resp.iter_lines():
-                            if not line.startswith("data: "):
-                                continue
-                            event = json.loads(line[6:])
-                            etype = event.get("type")
-                            if etype == "delta":
-                                accumulated += event.get("content", "")
-                                placeholder.markdown(accumulated)
-                            elif etype == "tool_call":
-                                st.session_state["assistant_messages"].append({
-                                    "role": "tool",
-                                    "name": event.get("name"),
-                                    "args": event.get("args"),
-                                    "result": event.get("result"),
-                                })
-                            elif etype == "meta":
-                                stream_meta["tool_calls"] = event.get("tool_calls", [])
-                                stream_meta["proposed_actions"] = event.get("proposed_actions", [])
-                            elif etype == "error":
-                                stream_error = event.get("error", "stream error")
+                for event in client.stream(
+                    "POST", "/chat/stream",
+                    json={"messages": st.session_state["assistant_messages"]},
+                    timeout=PLAN_TIMEOUT,
+                ):
+                    etype = event.get("type")
+                    if etype == "delta":
+                        accumulated += event.get("content", "")
+                        placeholder.markdown(accumulated)
+                    elif etype == "tool_call":
+                        thinking.caption("🤖 Assistant is using tools…")
+                        name = event.get("name")
+                        args = event.get("args")
+                        result = event.get("result")
+                        st.session_state["assistant_messages"].append({
+                            "role": "tool",
+                            "name": name,
+                            "args": args,
+                            "result": result,
+                        })
+                        if name == "take_photo" and isinstance(result, dict) and result.get("status") == "ok":
+                            image = _capture_photo_image()
+                            if image:
+                                stream_meta.setdefault("images", []).append(image)
+                        with live_tools:
+                            _render_tool_call(name, args, result)
+                    elif etype == "meta":
+                        stream_meta["tool_calls"] = event.get("tool_calls", [])
+                        stream_meta["proposed_actions"] = event.get("proposed_actions", [])
+                    elif etype == "error":
+                        stream_error = event.get("error", "stream error")
             except Exception as exc:  # noqa: BLE001
                 stream_error = f"{type(exc).__name__}: {exc}"
 
@@ -829,6 +1221,13 @@ def _render_chat() -> None:
                     if r.ok and isinstance(r.body, dict):
                         accumulated = str(r.body.get("response", ""))
                         stream_meta["tool_calls"] = r.body.get("tool_calls", []) or []
+                        for tc in stream_meta["tool_calls"]:
+                            st.session_state["assistant_messages"].append({
+                                "role": "tool",
+                                "name": tc.get("name"),
+                                "args": tc.get("args"),
+                                "result": tc.get("result"),
+                            })
                         stream_meta["proposed_actions"] = [
                             {"kind": tc["result"].get("kind", tc["name"]),
                              "params": tc["result"].get("params", tc.get("args", {}))}
@@ -848,21 +1247,99 @@ def _render_chat() -> None:
                 st.error(f"Assistant error: {stream_error}")
 
             if accumulated or stream_meta["tool_calls"] or stream_meta["proposed_actions"]:
+                analysis_images = [
+                    {"attachment_url": tc["result"]["image_url"]}
+                    for tc in stream_meta["tool_calls"]
+                    if tc.get("name") == "analyze_image"
+                    and isinstance(tc.get("result"), dict)
+                    and tc["result"].get("image_url")
+                ]
+                photo_images = [
+                    {"attachment_url": img.get("attachment_url")}
+                    for img in stream_meta.get("images", [])
+                    if isinstance(img, dict) and img.get("attachment_url")
+                ]
                 st.session_state["assistant_messages"].append({
                     "role": "assistant",
                     "content": accumulated,
                     "tool_calls": stream_meta["tool_calls"],
                     "proposed_actions": stream_meta["proposed_actions"],
+                    "images": analysis_images + photo_images,
                 })
         st.rerun()
 
 
-def _execute_proposed_actions(actions: list[dict[str, Any]]) -> None:
+def _fetch_latest_image() -> dict[str, Any] | None:
+    """Return the most recent FarmBot image via the existing /images endpoint."""
+    result = client.request(
+        "GET", "/images", params={"limit": "1", "refresh": "true"}, timeout=10.0
+    )
+    if result.ok and isinstance(result.body, dict):
+        images = result.body.get("images", [])
+        if images:
+            return images[0]
+    return None
+
+
+def _image_is_newer(image: dict[str, Any], previous: dict[str, Any]) -> bool:
+    """Return True if image is strictly newer/different than previous."""
+    if image.get("id") is not None and previous.get("id") is not None:
+        return image["id"] != previous["id"]
+    new_ts = image.get("created_at", "")
+    old_ts = previous.get("created_at", "")
+    if new_ts and old_ts:
+        return new_ts > old_ts
+    return True
+
+
+def _wait_for_new_image(
+    previous: dict[str, Any] | None,
+    max_attempts: int = 15,
+    delay: float = 2.0,
+) -> dict[str, Any] | None:
+    """Poll /images until an image newer than ``previous`` appears."""
+    for _ in range(max_attempts):
+        image = _fetch_latest_image()
+        if image and (previous is None or _image_is_newer(image, previous)):
+            return image
+        time.sleep(delay)
+    return None
+
+
+def _capture_photo_image() -> dict[str, Any] | None:
+    """Fetch the latest image after take_photo, polling for a fresh upload."""
+    baseline = _fetch_latest_image()
+    for _ in range(8):
+        image = _fetch_latest_image()
+        if image:
+            if baseline is None or _image_is_newer(image, baseline):
+                return image
+            # If baseline is already the newest, wait briefly in case the
+            # just-triggered photo is still uploading.
+        time.sleep(1.5)
+    return baseline
+
+
+def _execute_proposed_actions(
+    actions: list[dict[str, Any]],
+    message: dict[str, Any] | None = None,
+) -> None:
+    """Dispatch proposed actions and, for take_photo, attach the new image."""
+    will_capture = message is not None and any(
+        action.get("kind") == "take_photo" for action in actions
+    )
+    previous_image = _fetch_latest_image() if will_capture else None
+
     for action in actions:
         client.request(
             "POST", "/actions",
             json={"kind": action["kind"], "params": action.get("params", {})},
         )
+
+    if will_capture:
+        new_image = _wait_for_new_image(previous_image)
+        if new_image:
+            message.setdefault("images", []).append(new_image)
 
 
 def _render_plan() -> None:
@@ -891,7 +1368,7 @@ def _render_plan() -> None:
     request = st.text_area(
         "Task",
         value=st.session_state["assistant_plan_request"],
-        placeholder="e.g. water bed 1 for 60 seconds, then home",
+        placeholder="e.g. water bed for 60 seconds, then home",
         height=80,
         label_visibility="collapsed",
     )
@@ -971,40 +1448,6 @@ def _render_plan() -> None:
         st.session_state["assistant_plan_response"] = None
         st.session_state["assistant_plan_status"] = None
         st.rerun()
-
-
-def _render_operations() -> None:
-    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
-    st.markdown("# Operations")
-
-    a, b = st.columns(2)
-    with a:
-        st.markdown("**Irrigation**")
-        with st.form("water"):
-            bed = st.selectbox("Bed", ["b1", "b2", "b3"])
-            secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5)
-            if st.form_submit_button("Water", use_container_width=True):
-                r = client.request("POST", "/actions",
-                                   json={"kind": "water", "params": {"bed_id": bed, "seconds": secs}})
-                if r.ok:
-                    st.success("Queued")
-                else:
-                    st.error(str(r.body))
-
-    with b:
-        st.markdown("**Peripheral control**")
-        if "named_pins" not in st.session_state:
-            r = client.request("GET", "/pins")
-            st.session_state["named_pins"] = r.body.get("pins", []) if r.ok else []
-        outputs = [p for p in st.session_state["named_pins"] if p.get("kind") != "sensor"]
-        sel = st.selectbox("Output", outputs,
-                           format_func=lambda p: f"{p['label']} · pin {p['pin']}")
-        if sel:
-            off, on = st.columns(2)
-            if off.button("Set LOW", use_container_width=True):
-                _do_pin_write(client, sel["pin"], 0, sel.get("mode", "digital"))
-            if on.button("Set HIGH", use_container_width=True):
-                _do_pin_write(client, sel["pin"], 1, sel.get("mode", "digital"))
 
 
 def _render_diagnostics() -> None:
@@ -1109,8 +1552,7 @@ renderers = {
     "Garden":       _render_garden,
     "Motion":       _render_motion,
     "Camera":       _render_camera,
-    "Sensors":      _render_sensors,
-    "Operations":   _render_operations,
+    "I/O":          _render_io,
     "Assistant":    _render_assistant,
     "Diagnostics":  _render_diagnostics,
     "Settings":     _render_settings,

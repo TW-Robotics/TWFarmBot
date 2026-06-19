@@ -38,7 +38,7 @@ unsafe actions are rejected and surfaced to the caller.
 ```python
 from planning_service import plan
 
-actions = plan("water the tomato bed for 90 seconds, then move to home")
+actions = plan("water the garden for 90 seconds, then move to home")
 # -> [Action(kind='water', params={...}), Action(kind='move', params={...})]
 ```
 

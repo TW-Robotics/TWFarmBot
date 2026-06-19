@@ -11,12 +11,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import yaml
 from fastapi import APIRouter, HTTPException
 
 from spatial_service import get_snapshot
+from twfarmbot_core.config import load_yaml_config
 from watering_service.backends import farmbot
-from watering_service import _load_yaml_config
 
 log = logging.getLogger("twfarmbot.api_server.read")
 
@@ -74,13 +73,13 @@ def get_images(limit: int = 10, refresh: bool = False) -> dict[str, Any]:
 @router.get("/pins")
 def get_pins() -> dict[str, Any]:
     """Named pins from ``configs/dev.yaml`` for the UI pin grid."""
-    return {"pins": _load_yaml_config().get("pins", []) or []}
+    return {"pins": load_yaml_config().get("pins", []) or []}
 
 
 @router.get("/positions")
 def get_positions() -> dict[str, Any]:
     """Preset gantry positions for the UI Move widget."""
-    return {"positions": _load_yaml_config().get("positions", []) or []}
+    return {"positions": load_yaml_config().get("positions", []) or []}
 
 
 @router.get("/garden")

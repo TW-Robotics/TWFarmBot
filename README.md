@@ -24,7 +24,7 @@ farmbot-research/
 │   └── worker/                 # background jobs, experiment execution
 │
 ├── core/                       # shared building blocks used everywhere
-│   ├── domain/                 # shared concepts: Plant, Bed, SensorReading, Action
+│   ├── domain/                 # shared concepts: Action, Point3D, Rectangle, GardenEntity, GardenWorld
 │   ├── config/                 # typed settings, env loading
 │   ├── logging/                # structured logging setup
 │   └── events/                 # internal event bus / message contracts
@@ -64,7 +64,7 @@ farmbot-research/
 | Folder | Purpose | Examples |
 | --- | --- | --- |
 | `apps/` | Runnable applications. Each subfolder has its own entry point. | `apps/api_server/main.py`, `apps/worker/main.py` |
-| `core/` | Cross-cutting primitives shared by apps and services. | `Plant`, `Bed`, `SensorReading`, `Action` dataclasses; logging; config |
+| `core/` | Cross-cutting primitives shared by apps and services. | `Action`, `Point3D`, `Rectangle`, `GardenEntity`, `GardenWorld` dataclasses; logging; config |
 | `services/` | One service per concern. Services expose a clear API to `apps/` and to other services. | Reading sensors, watering a bed, running vision on a frame |
 | `projects/` | Self-contained student/research projects. A project can wire services together but **must not** modify shared code in `core/`, `services/`, or `libs/`. | Weed detection prototype, VLM planner prototype |
 | `experiments/` | Reproducible experiment definitions, harnesses, configs and result outputs. | `watering_strategy_eval/`, `vlm_grounding/` |
@@ -95,7 +95,7 @@ research and student projects don't step on each other.
    - `libs/` contains pure, reusable utilities. No I/O, no global state.
 
 3. **`core/` defines the shared vocabulary.**
-   `Plant`, `Bed`, `SensorReading`, `Action`, `Event`, … are defined here and
+   `Action`, `Point3D`, `Rectangle`, `GardenEntity`, `GardenWorld`, `Event`, … are defined here and
    imported by everything else. Do not redefine equivalent types inside a
    service or a project.
 

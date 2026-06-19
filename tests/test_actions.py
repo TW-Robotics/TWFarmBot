@@ -34,7 +34,7 @@ def test_dispatch_rejects_unsafe_before_handler() -> None:
     r = ActionRegistry()
     r.register("water", handler)
     with pytest.raises(UnsafeActionError):
-        r.dispatch(Action(kind="water", params={"bed_id": "b1", "seconds": 9999}))
+        r.dispatch(Action(kind="water", params={"seconds": 9999}))
     assert called is False, "handler must not run when safety rejects"
 
 

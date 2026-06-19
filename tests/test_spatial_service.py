@@ -7,4 +7,4 @@ def test_load_world_contains_required_spatial_layers() -> None:
     assert world.bounds.height > 0
     assert world.camera.position.z > 0
     assert {entity.kind for entity in world.entities} >= {"plant", "tool"}
-    assert {zone.kind for zone in world.zones} >= {"watering", "obstacle"}
+    assert {zone.kind for zone in world.zones} >= {"tomato", "herbs"}

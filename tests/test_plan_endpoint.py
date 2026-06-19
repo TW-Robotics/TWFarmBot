@@ -28,7 +28,7 @@ def test_plan_preview_returns_actions(
         return PlanResult(
             request=request,
             actions=[
-                Action(kind="water", params={"bed_id": "b1", "seconds": 60}),
+                Action(kind="water", params={"seconds": 60}),
                 Action(kind="move", params={"x": 0, "y": 0, "z": 0}),
             ],
             rationale="water then home",
@@ -40,7 +40,7 @@ def test_plan_preview_returns_actions(
     body = r.json()
     assert body["request"] == "water bed 1 then go home"
     assert body["actions"] == [
-        {"kind": "water", "params": {"bed_id": "b1", "seconds": 60}},
+        {"kind": "water", "params": {"seconds": 60}},
         {"kind": "move", "params": {"x": 0, "y": 0, "z": 0}},
     ]
     assert body["rationale"] == "water then home"

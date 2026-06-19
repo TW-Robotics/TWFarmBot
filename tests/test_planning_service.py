@@ -59,7 +59,7 @@ def test_plan_returns_actions_from_fake_model() -> None:
     fake = _ToolAwareFake(
         responses=[
             '{"actions": ['
-            '{"kind": "water", "params": {"bed_id": "b1", "seconds": 60}},'
+            '{"kind": "water", "params": {"seconds": 60}},'
             '{"kind": "move", "params": {"x": 0, "y": 0, "z": 0}}'
             '], "rationale": "water then home"}'
         ]
@@ -109,7 +109,7 @@ def test_plan_returns_empty_plan_on_unparseable_output() -> None:
 def test_plan_uses_world_context_when_provided(world: SimpleNamespace) -> None:
     fake = _ToolAwareFake(
         responses=[
-            '{"actions": [{"kind": "water", "params": {"bed_id": "b1", "seconds": 30}}]}'
+            '{"actions": [{"kind": "water", "params": {"seconds": 30}}]}'
         ]
     )
     result = plan("water the tomato zone", world=world, model=fake)
@@ -143,7 +143,7 @@ def test_plan_accepts_tool_calls_when_model_provides_them() -> None:
             return AIMessage(
                 content="",
                 tool_calls=[
-                    {"name": "water", "id": "1", "args": {"bed_id": "b1", "seconds": 10}},
+                    {"name": "water", "id": "1", "args": {"seconds": 10}},
                     {"name": "move", "id": "2", "args": {"x": 0, "y": 0, "z": 0}},
                 ],
             )
@@ -153,4 +153,4 @@ def test_plan_accepts_tool_calls_when_model_provides_them() -> None:
 
     result = plan("water b1 then home", model=ToolCallFake(responses=[]), registry=reg)
     assert [a.kind for a in result.actions] == ["water", "move"]
-    assert result.actions[0].params == {"bed_id": "b1", "seconds": 10}
+    assert result.actions[0].params == {"seconds": 10}

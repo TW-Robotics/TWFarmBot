@@ -12,13 +12,20 @@ find_home, …) remain the only way to mutate the system.
 
 from __future__ import annotations
 
+import base64
 import logging
+import os
+from pathlib import Path
 from typing import Any, Callable
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
+from twfarmbot_ml_utils import HuggingFaceImageProcessor
+
 log = logging.getLogger(__name__)
+
+_IMAGE_PROCESSOR: HuggingFaceImageProcessor | None = None
 
 
 # ── Tool argument schemas ────────────────────────────────────────────────
@@ -38,6 +45,22 @@ class ListEndpointsArgs(BaseModel):
     )
 
 
+class AnalyzeImageArgs(BaseModel):
+    prompt: str = Field(
+        description=(
+            "What to analyse or highlight in the image. "
+            "Examples: 'plants', 'weeds', 'dry soil', 'red markers'."
+        ),
+    )
+    image_url: str | None = Field(
+        default=None,
+        description=(
+            "Public URL of the image to analyse. "
+            "If omitted, the most recent FarmBot camera image is used."
+        ),
+    )
+
+
 # ── Provider protocol ────────────────────────────────────────────────────
 
 
@@ -45,7 +68,7 @@ class SystemStateProvider:
     """Pluggable source of live system data.
 
     The API server injects a provider that knows how to talk to the
-    FarmBot gateway and the spatial/bed config. Tests inject a stub.
+    FarmBot gateway and the spatial config. Tests inject a stub.
     Each method is allowed to raise — the tool wrapper turns the
     exception into a structured error string the model can reason about.
     """
@@ -79,6 +102,23 @@ class SystemStateProvider:
 
     def get_images(self, limit: int = 5) -> list[dict[str, Any]]:
         raise NotImplementedError
+
+
+def _get_image_processor() -> HuggingFaceImageProcessor:
+    """Lazy singleton for the HuggingFace image-analysis client."""
+    global _IMAGE_PROCESSOR
+    if _IMAGE_PROCESSOR is None:
+        space_id = os.getenv("TWFB_AI_SPACE_ID", "DavidSeyserHF/Eupe-Lang")
+        _IMAGE_PROCESSOR = HuggingFaceImageProcessor(space_id)
+    return _IMAGE_PROCESSOR
+
+
+def _image_to_data_uri(path: Path) -> str:
+    """Convert a local image file to a base64 data URI for inline display."""
+    data = path.read_bytes()
+    ext = path.suffix.lower()
+    mime = "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
 
 # ── Tool builder ────────────────────────────────────────────────────────
@@ -163,68 +203,24 @@ def build_introspection_tools(
     def get_garden() -> dict[str, Any]:
         """Return the configured world model (bounds, zones, entities, camera pose).
 
-        Use this to look up zone names, bed_ids, and coordinates. This
-        is the same data the planner sees in the world-model context,
-        but queried live so it reflects the current config.
+        Use this to look up zone names and coordinates. This is the same
+        data the planner sees in the world-model context, but queried live
+        so it reflects the current config.
         """
         return _safe("get_garden", provider.get_garden)
-
-    @tool(args_schema=_NoArgs)
-    def list_beds() -> dict[str, Any]:
-        """List all configured beds and the zones they water.
-
-        Returns a mapping `bed_id -> {"pin": <int>, "zones": [<names>]}`
-        so the planner can map zone names to watering actions.
-        """
-        garden = _safe("get_garden", provider.get_garden)
-        if "error" in garden:
-            return garden
-        # Build bed_id -> zones via the spatial model + watering.pins.
-        bed_to_zones: dict[str, dict[str, Any]] = {}
-        pins_block = garden.get("watering", {}).get("pins", {})
-        zones = garden.get("spatial", {}).get("zones", []) or []
-        pin_to_zones: dict[int, list[str]] = {}
-        for zone in zones:
-            meta = zone.get("metadata") or {}
-            pin = meta.get("valve_pin")
-            name = zone.get("name") or zone.get("id")
-            if pin is not None and name:
-                pin_to_zones.setdefault(int(pin), []).append(str(name))
-        for bed, pin in pins_block.items():
-            bed_to_zones[bed] = {
-                "pin": int(pin),
-                "zones": pin_to_zones.get(int(pin), []),
-            }
-        return {"beds": bed_to_zones, "count": len(bed_to_zones)}
 
     @tool(args_schema=_NoArgs)
     def list_zones() -> dict[str, Any]:
         """List all configured zones with their bounds and centre coordinates.
 
         Each entry: `{"name", "id", "x", "y", "width", "height",
-        "center": (cx, cy), "bed_id"}`. Use this to look up a zone by
-        name and get its centre for a `move` action.
+        "center": (cx, cy)}`. Use this to look up a zone by name and get
+        its centre for a `move` action.
         """
         garden = _safe("get_garden", provider.get_garden)
         if "error" in garden:
             return garden
-        bed_to_zones: dict[str, list[str]] = {}
         zones_block = garden.get("spatial", {}).get("zones", []) or []
-        pin_to_bed: dict[int, str] = {
-            int(pin): bed
-            for bed, pin in (garden.get("watering", {}).get("pins", {}) or {}).items()
-        }
-        # Build name -> bed via valve_pin
-        name_to_bed: dict[str, str] = {}
-        for zone in zones_block:
-            meta = zone.get("metadata") or {}
-            pin = meta.get("valve_pin")
-            name = zone.get("name") or zone.get("id")
-            if pin is not None and name:
-                bed = pin_to_bed.get(int(pin))
-                if bed:
-                    name_to_bed[str(name)] = bed
-                    name_to_bed[str(zone.get("id"))] = bed
         out: list[dict[str, Any]] = []
         for zone in zones_block:
             b = zone.get("bounds", {})
@@ -239,7 +235,6 @@ def build_introspection_tools(
                 "kind": zone.get("kind"),
                 "x": x, "y": y, "width": w, "height": h,
                 "center": (round(x + w / 2), round(y + h / 2)),
-                "bed_id": name_to_bed.get(str(name)),
             })
         return {"zones": out, "count": len(out)}
 
@@ -260,13 +255,39 @@ def build_introspection_tools(
 
     @tool(args_schema=_NoArgs)
     def get_positions() -> dict[str, Any]:
-        """List the named gantry position presets (Home, Bed 1, ...)."""
+        """List the named gantry position presets (Home, Bed, ...)."""
         return _safe("get_positions", lambda: {"positions": provider.get_positions()})
 
     @tool(args_schema=_NoArgs)
     def get_images(limit: int = 5) -> dict[str, Any]:
         """Return the most recent camera images uploaded by the FarmBot."""
         return _safe("get_images", lambda: {"images": provider.get_images(limit=limit)})
+
+    @tool(args_schema=AnalyzeImageArgs)
+    def analyze_image(prompt: str, image_url: str | None = None) -> dict[str, Any]:
+        """Run AI image analysis (Resireg-Mini) on a FarmBot camera image.
+
+        The model decides the prompt, e.g. 'plants', 'weeds', 'dry soil'.
+        If ``image_url`` is omitted the latest camera image is used.
+        Returns the analysed image as a base64 data URI plus the source URL.
+        """
+        try:
+            if not image_url:
+                images = provider.get_images(limit=1)
+                if not images:
+                    return {"error": "no camera image available"}
+                image_url = images[0].get("attachment_url")
+                if not image_url:
+                    return {"error": "latest camera image has no url"}
+            result_path = _get_image_processor().process(image_url, prompt)
+            return {
+                "image_url": _image_to_data_uri(Path(result_path)),
+                "prompt": prompt,
+                "source_url": image_url,
+            }
+        except Exception as err:  # noqa: BLE001
+            log.warning("analyze_image failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
 
     return [
         list_endpoints,
@@ -276,11 +297,11 @@ def build_introspection_tools(
         get_messages,
         read_pin,
         get_garden,
-        list_beds,
         list_zones,
         get_pins,
         get_positions,
         get_images,
+        analyze_image,
     ]
 
 
