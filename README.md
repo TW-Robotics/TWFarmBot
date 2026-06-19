@@ -164,7 +164,6 @@ uv sync
 # run the apps
 uv run twfarmbot-ui
 uv run twfarmbot-api
-uv run twfarmbot-worker
 
 # run the test suite
 uv run pytest tests/
