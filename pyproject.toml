@@ -12,6 +12,7 @@ dependencies = [
     "twfarmbot-gateway",
     "twfarmbot-safety-service",
     "twfarmbot-watering-service",
+    "twfarmbot-planning-service",
     "twfarmbot-api-server",
     "twfarmbot-ui",
     "twfarmbot-worker",
@@ -25,6 +26,7 @@ farmbot-client = { workspace = true }
 twfarmbot-gateway = { workspace = true }
 twfarmbot-safety-service = { workspace = true }
 twfarmbot-watering-service = { workspace = true }
+twfarmbot-planning-service = { workspace = true }
 twfarmbot-api-server = { workspace = true }
 twfarmbot-ui = { workspace = true }
 twfarmbot-worker = { workspace = true }
@@ -38,10 +40,11 @@ members = [
     "services/farmbot_gateway",
     "services/safety_service",
     "services/watering_service",
+    "services/planning_service",
     "apps/ui",
     "apps/api_server",
     "apps/worker",
-] 
+]
 
 [build-system]
 requires = ["hatchling"]

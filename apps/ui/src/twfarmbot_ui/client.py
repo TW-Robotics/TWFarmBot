@@ -33,6 +33,11 @@ class ApiClient:
                 params = dict(kwargs.pop("params", {}) or {})
                 params.setdefault("wait", "false")
                 kwargs["params"] = params
+            per_request_timeout = kwargs.pop("timeout", None)
+            if per_request_timeout is not None:
+                kwargs["timeout"] = httpx.Timeout(
+                    per_request_timeout, connect=min(per_request_timeout, 1.0)
+                )
             r = self._client.request(method, path, **kwargs)
             try:
                 body: Any = r.json()

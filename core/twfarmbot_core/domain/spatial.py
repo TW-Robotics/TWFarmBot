@@ -54,6 +54,7 @@ class GardenWorld:
     camera: CameraPose
     entities: tuple[GardenEntity, ...] = ()
     zones: tuple[GardenZone, ...] = ()
+    camera_offset: Point3D = field(default_factory=lambda: Point3D(x=0, y=0, z=0))
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

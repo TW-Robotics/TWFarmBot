@@ -10,6 +10,7 @@ surfaces the live status via ``GET /health``.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +18,7 @@ from threading import Event, Thread
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from farmbot_client import FarmBotConnectionError
@@ -38,6 +40,28 @@ class ActionPayload(BaseModel):
 
     def to_action(self) -> Action:
         return Action(kind=self.kind, params=self.params)
+
+
+class PlanPayload(BaseModel):
+    request: str = Field(..., min_length=1, description="Natural-language task.")
+    debug: bool = Field(
+        default=False,
+        description=(
+            "If true, the response includes the raw LLM text and any "
+            "introspection tool calls the model made, for debugging."
+        ),
+    )
+
+
+class ChatPayload(BaseModel):
+    messages: list[dict[str, Any]] = Field(
+        ...,
+        description="Conversation history in OpenAI format (user/assistant turns).",
+    )
+    allow_actions: bool = Field(
+        default=True,
+        description="If false, the model only has read-only introspection tools.",
+    )
 
 
 def create_app(registry: ActionRegistry | None = None) -> FastAPI:
@@ -107,6 +131,175 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "action": {"kind": executed.kind, "params": executed.params},
         }
 
+    @app.post("/plan")
+    def post_plan(
+        payload: PlanPayload,
+        execute: bool = False,
+    ) -> dict[str, Any]:
+        """Translate a natural-language request into a validated Action[].
+
+        With ``execute=false`` (the default), returns the proposed plan
+        for UI preview. With ``execute=true``, dispatches each action
+        through the same registry + safety gate as ``POST /actions``.
+        """
+        log.info("POST /plan request=%r execute=%s", payload.request, execute)
+        try:
+            from planning_service import plan as planner_plan
+            from planning_service import PlanError
+            from planning_service.introspection import HttpSystemStateProvider
+
+            # The introspection provider points back at ourselves so
+            # the planner can read state through our own endpoints.
+            api_base = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
+            system_state = HttpSystemStateProvider(api_base)
+            world = _world_snapshot()
+
+            result = planner_plan(
+                payload.request,
+                registry=app.state.registry,
+                world=world,
+                system_state=system_state,
+            )
+        except PlanError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        except UnsafeActionError as err:
+            raise HTTPException(status_code=400, detail=f"unsafe plan: {err}") from err
+        except Exception as err:
+            # LLM timeouts, network errors, missing API keys, etc. all
+            # land here. Surface the type + message in the HTTP response
+            # so the UI's debug expander shows the real cause.
+            from planning_service.config import load_config
+            cfg = load_config()
+            log.exception("planner call failed for request=%r", payload.request)
+            raise HTTPException(
+                status_code=504 if "timeout" in str(err).lower() or "Timeout" in type(err).__name__ else 500,
+                detail=(
+                    f"planner call to {cfg.base_url}/{cfg.model} failed: "
+                    f"{type(err).__name__}: {err}. "
+                    f"Current timeout: {cfg.timeout_s}s. "
+                    f"Raise PLANNING_LLM_TIMEOUT_S or the YAML 'planning.timeout_s' "
+                    f"if this is a slow model."
+                ),
+            ) from err
+
+        actions = list(result.actions)
+        body: dict[str, Any] = {
+            "status": "ok",
+            "request": payload.request,
+            "actions": [{"kind": a.kind, "params": a.params} for a in actions],
+            "rationale": result.rationale,
+        }
+        if payload.debug:
+            body["debug"] = {
+                "raw_text": result.raw_text,
+                "action_count": len(actions),
+                "model": os.getenv("PLANNING_LLM_MODEL"),
+                "base_url": os.getenv("PLANNING_LLM_BASE_URL"),
+            }
+        if execute and actions:
+            results: list[dict[str, Any]] = []
+            for action in actions:
+                try:
+                    app.state.registry.dispatch(action)
+                    results.append(
+                        {"kind": action.kind, "status": "ok",
+                         "params": action.params}
+                    )
+                except UnknownActionError as err:
+                    results.append(
+                        {"kind": action.kind, "status": "error",
+                         "error": f"unknown: {err}"}
+                    )
+                except UnsafeActionError as err:
+                    results.append(
+                        {"kind": action.kind, "status": "error",
+                         "error": f"unsafe: {err}"}
+                    )
+                except Exception as err:  # noqa: BLE001 — surface as per-action error, don't 500
+                    log.exception(
+                        "planner action failed kind=%s params=%s",
+                        action.kind, action.params,
+                    )
+                    results.append(
+                        {"kind": action.kind, "status": "error",
+                         "error": f"{type(err).__name__}: {err}"}
+                    )
+            body["results"] = results
+        return body
+
+    @app.post("/chat")
+    def post_chat(payload: ChatPayload) -> dict[str, Any]:
+        """Conversational assistant that can read state and execute actions."""
+        log.info("POST /chat messages=%d allow_actions=%s", len(payload.messages), payload.allow_actions)
+        try:
+            from planning_service import ChatResult, chat as planner_chat
+            from planning_service.introspection import HttpSystemStateProvider
+
+            api_base = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
+            system_state = HttpSystemStateProvider(api_base)
+            world = _world_snapshot()
+
+            result: ChatResult = planner_chat(
+                payload.messages,
+                registry=app.state.registry,
+                world=world,
+                system_state=system_state,
+                allow_actions=payload.allow_actions,
+                propose_only=True,
+            )
+        except Exception as err:  # noqa: BLE001
+            from planning_service.config import load_config
+            cfg = load_config()
+            log.exception("chat call failed")
+            raise HTTPException(
+                status_code=504 if "timeout" in str(err).lower() or "Timeout" in type(err).__name__ else 500,
+                detail=(
+                    f"chat call to {cfg.base_url}/{cfg.model} failed: "
+                    f"{type(err).__name__}: {err}. "
+                    f"Current timeout: {cfg.timeout_s}s."
+                ),
+            ) from err
+
+        return {
+            "status": "ok",
+            "response": result.response,
+            "tool_calls": result.tool_calls,
+            "messages": result.messages,
+        }
+
+    @app.post("/chat/stream")
+    def post_chat_stream(payload: ChatPayload) -> StreamingResponse:
+        """Streaming conversational assistant (Server-Sent Events)."""
+        log.info("POST /chat/stream messages=%d", len(payload.messages))
+
+        from planning_service import stream_chat as planner_stream_chat
+        from planning_service.introspection import HttpSystemStateProvider
+
+        api_base = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
+        system_state = HttpSystemStateProvider(api_base)
+        world = _world_snapshot()
+
+        def event_generator():
+            try:
+                for event in planner_stream_chat(
+                    payload.messages,
+                    registry=app.state.registry,
+                    world=world,
+                    system_state=system_state,
+                    allow_actions=payload.allow_actions,
+                    propose_only=True,
+                ):
+                    yield f"data: {json.dumps(event)}\n\n"
+            except Exception as err:  # noqa: BLE001
+                log.exception("chat stream failed")
+                yield f"data: {json.dumps({'type': 'error', 'error': f'{type(err).__name__}: {err}'})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+
     return app
 
 
@@ -118,6 +311,17 @@ def _dispatch_queued(registry: ActionRegistry, action: Action) -> None:
     finally:
         if action.kind in {"move", "find_home"}:
             _refresh_position()
+
+
+def _world_snapshot() -> Any:
+    """Build a world-model-like object from the spatial service.
+
+    The planner's ``world`` parameter accepts any object with a
+    ``to_dict()`` method, so we just return the GardenWorld directly.
+    """
+    from spatial_service import load_world
+
+    return load_world()
 
 
 def _refresh_position() -> None:
