@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 import altair as alt
+import httpx
 import streamlit as st
 from twfarmbot_ml_utils import HuggingFaceImageProcessor
 
@@ -21,6 +23,7 @@ from twfarmbot_ui.client import ApiClient
 
 API_URL = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
 AI_SPACE_ID = os.getenv("TWFB_AI_SPACE_ID", "DavidSeyserHF/Eupe-Lang")
+PLAN_TIMEOUT = 60.0  # LLM planning can take longer than the default 2s API timeout
 
 
 @st.cache_resource
@@ -43,6 +46,86 @@ def _num(value: Any) -> str:
 def _float(value: Any, default: float = 0.0) -> float:
     try:    return float(value)
     except (TypeError, ValueError):  return default
+
+
+_NUMBER_RE = re.compile(r"^\s*-?\d+(?:[.,]\d+)?\s*$")
+
+
+def _parse_number(value: Any, default: float = 0.0) -> float | None:
+    """Parse a user-typed number, accepting both '.' and ',' as decimals.
+
+    Returns ``None`` on invalid input rather than silently defaulting — a
+    silent fallback here would let a mistyped "1.234,5" (German thousands
+    style) drive the FarmBot to (0, 0, 0). Callers should treat ``None``
+    as a user-visible error.
+    """
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not _NUMBER_RE.match(text):
+        return None
+    try:
+        return float(text.replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def _action_summary(action: dict[str, Any]) -> str:
+    """Return a compact, human-readable summary of an action."""
+    kind = action.get("kind", "action")
+    params = action.get("params") or {}
+    if kind == "move":
+        return (
+            f"🛠️ **move** → "
+            f"({_num(params.get('x'))}, {_num(params.get('y'))}, {_num(params.get('z'))})"
+        )
+    if kind == "water":
+        return f"🌊 **water** bed **{params.get('bed_id', '—')}** for {_num(params.get('seconds'))} s"
+    if kind == "find_home":
+        return f"🏠 **find_home** (axis={params.get('axis', 'all')}, speed={params.get('speed', '—')})"
+    if kind == "take_photo":
+        return "📷 **take_photo**"
+    if kind == "read_pin":
+        return f"📖 **read_pin** {params.get('pin', '—')} ({params.get('mode', 'digital')})"
+    if kind == "write_pin":
+        return f"✏️ **write_pin** {params.get('pin', '—')} = {params.get('value', '—')}"
+    if kind == "send_message":
+        msg = str(params.get("message", ""))[:40]
+        return f"💬 **send_message**: {msg}"
+    if kind == "mount_tool":
+        return f"🔧 **mount_tool** {params.get('tool_name', '—')}"
+    if kind == "dismount_tool":
+        return "🔧 **dismount_tool**"
+    if kind == "e_stop":
+        return "🛑 **e_stop**"
+    return f"🛠️ **{kind}**"
+
+
+def _render_action_cards(actions: list[dict[str, Any]]) -> None:
+    """Render proposed actions as compact cards with collapsible details."""
+    for action in actions:
+        with st.container(border=True):
+            st.markdown(_action_summary(action))
+            with st.expander("Details"):
+                st.json(action.get("params", {}))
+
+
+_APPROVAL_WORDS = {
+    "yes", "y", "approve", "approved", "ok", "okay", "sure",
+    "go ahead", "do it", "confirm", "confirmed", "execute", "run it",
+}
+_REJECTION_WORDS = {
+    "no", "n", "reject", "rejected", "cancel", "cancelled",
+    "don't", "dont", "stop", "abort",
+}
+
+
+def _is_approval(text: str) -> bool:
+    return text.strip("!.? ").lower() in _APPROVAL_WORDS
+
+
+def _is_rejection(text: str) -> bool:
+    return text.strip("!.? ").lower() in _REJECTION_WORDS
 
 
 def _refresh_position(client: ApiClient) -> None:
@@ -75,6 +158,36 @@ def _refresh_telemetry(client: ApiClient) -> None:
     _refresh_position(client)
     _refresh_health(client)
     _refresh_messages(client)
+
+
+TABS = [
+    "Overview", "Garden", "Motion", "Camera", "Sensors", "Operations",
+    "Assistant", "Diagnostics", "Settings",
+]
+
+
+def _qp_tab() -> str:
+    """Return the tab key currently set in the URL query string."""
+    raw = st.query_params.get("tab")
+    if isinstance(raw, list):
+        raw = raw[0] if raw else ""
+    return (raw or "").lower()
+
+
+def _tab_from_key(key: str) -> str:
+    """Map a URL-safe tab key back to the display name."""
+    low = key.lower()
+    for tab in TABS:
+        if tab.lower() == low:
+            return tab
+    return TABS[0]
+
+
+def _sync_tab_url() -> None:
+    """Callback that updates the URL when the user switches tabs."""
+    selected = st.session_state.get("nav_tab")
+    if selected:
+        st.query_params["tab"] = selected.lower()
 
 
 def _do_move(client: ApiClient, x: float, y: float, z: float, label: str = "") -> None:
@@ -187,10 +300,13 @@ if "farmbot_status" not in st.session_state:
 with st.sidebar:
     st.markdown('<div class="sidebar-kicker">Field robotics</div>'
                 '<div class="sidebar-brand">TWFarmBot</div>', unsafe_allow_html=True)
-    tab = st.radio("Navigation",
-                    ["Overview", "Garden", "Motion", "Camera", "Sensors", "Operations",
-                     "Diagnostics", "Settings"],
-                    label_visibility="collapsed")
+    # Sync the navigation radio with the URL ?tab=... query parameter so
+    # refreshing the browser returns to the same tab.
+    url_tab = _tab_from_key(_qp_tab())
+    if st.session_state.get("nav_tab") != url_tab:
+        st.session_state["nav_tab"] = url_tab
+    tab = st.radio("Navigation", TABS,
+                   key="nav_tab", on_change=_sync_tab_url, label_visibility="collapsed")
 
     st.divider()
     fb = st.session_state.get("farmbot_status", "?")
@@ -282,14 +398,40 @@ def _render_garden() -> None:
          "name": "Camera", "radius_mm": 25},
     ])
 
-    x_domain = [bounds.get("x", 0), bounds.get("x", 0) + bounds.get("width", 1)]
-    y_domain = [bounds.get("y", 0) + bounds.get("height", 1), bounds.get("y", 0)]
+    x_min = bounds.get("x", 0)
+    x_max = x_min + bounds.get("width", 1)
+    y_min = bounds.get("y", 0)
+    y_max = y_min + bounds.get("height", 1)
+
+    def _map_scale(lo: float, hi: float) -> alt.Scale:
+        # Clamp pan/zoom so the user cannot scroll far outside the garden.
+        return alt.Scale(
+            domain=[lo, hi],
+            domainMin=lo,
+            domainMax=hi,
+            clamp=True,
+            nice=False,
+        )
+
+    x_scale = _map_scale(x_min, x_max)
+    y_scale = _map_scale(y_min, y_max)
+
+    bounds_chart = alt.Chart(alt.Data(values=[{
+        "x": x_min, "y": y_min, "x2": x_max, "y2": y_max,
+    }])).mark_rect(
+        filled=False, stroke="#888888", strokeWidth=2
+    ).encode(
+        x=alt.X("x:Q", scale=x_scale, title="X · mm"),
+        x2="x2:Q",
+        y=alt.Y("y:Q", scale=y_scale, title="Y · mm"),
+        y2="y2:Q",
+    )
     zones_chart = alt.Chart(alt.Data(values=zone_rows)).mark_rect(
         opacity=0.18, strokeWidth=2
     ).encode(
-        x=alt.X("x:Q", scale=alt.Scale(domain=x_domain), title="X · mm"),
+        x=alt.X("x:Q", scale=x_scale, title="X · mm"),
         x2="x2:Q",
-        y=alt.Y("y:Q", scale=alt.Scale(domain=y_domain), title="Y · mm"),
+        y=alt.Y("y:Q", scale=y_scale, title="Y · mm"),
         y2="y2:Q",
         color=alt.Color("kind:N", title="Layer"),
         stroke=alt.Stroke("kind:N", legend=None),
@@ -298,8 +440,8 @@ def _render_garden() -> None:
     points_chart = alt.Chart(alt.Data(values=point_rows)).mark_point(
         filled=True, stroke="white", strokeWidth=1
     ).encode(
-        x=alt.X("x:Q", scale=alt.Scale(domain=x_domain)),
-        y=alt.Y("y:Q", scale=alt.Scale(domain=y_domain)),
+        x=alt.X("x:Q", scale=x_scale),
+        y=alt.Y("y:Q", scale=y_scale),
         color=alt.Color("kind:N", title="Object"),
         shape=alt.Shape("kind:N", title="Object"),
         size=alt.Size("radius_mm:Q", scale=alt.Scale(range=[90, 500]), legend=None),
@@ -309,7 +451,7 @@ def _render_garden() -> None:
     map_col, details = st.columns([2.3, 1])
     with map_col:
         st.altair_chart(
-            (zones_chart + points_chart).properties(height=520).interactive(),
+            (bounds_chart + zones_chart + points_chart).properties(height=520).interactive(),
             width="stretch",
         )
     with details:
@@ -329,6 +471,14 @@ def _render_garden() -> None:
             f"Pitch {_num(camera.get('pitch_deg'))}° · "
             f"Roll {_num(camera.get('roll_deg'))}°"
         )
+        camera_offset = world.get("camera_offset") or {}
+        if camera_offset:
+            st.caption(
+                f"Offset from FarmBot: "
+                f"X {_num(camera_offset.get('x'))} · "
+                f"Y {_num(camera_offset.get('y'))} · "
+                f"Z {_num(camera_offset.get('z'))} mm"
+            )
         st.markdown("**Mapped objects**")
         st.dataframe(
             [{"name": item["name"], "kind": item["kind"]} for item in entities],
@@ -369,11 +519,20 @@ def _render_motion() -> None:
     st.divider()
     with st.form("absolute"):
         tx, ty, tz = st.columns(3)
-        gx = tx.number_input("X", value=cur_x, step=10.0)
-        gy = ty.number_input("Y", value=cur_y, step=10.0)
-        gz = tz.number_input("Z", value=cur_z, step=10.0)
+        gx = tx.text_input("X", value=f"{cur_x:.2f}")
+        gy = ty.text_input("Y", value=f"{cur_y:.2f}")
+        gz = tz.text_input("Z", value=f"{cur_z:.2f}")
         if st.form_submit_button("Go to", use_container_width=True):
-            _do_move(client, float(gx), float(gy), float(gz))
+            x = _parse_number(gx)
+            y = _parse_number(gy)
+            z = _parse_number(gz)
+            if None in (x, y, z):
+                st.error(
+                    f"Invalid coordinates: X={gx!r}, Y={gy!r}, Z={gz!r}. "
+                    "Use a plain number like '123' or '123.4' (comma also accepted)."
+                )
+            else:
+                _do_move(client, x, y, z)
 
     if st.button("Find home"):
         r = client.request("POST", "/actions", json={"kind": "find_home", "params": {}})
@@ -526,6 +685,294 @@ def _render_camera() -> None:
             )
 
 
+def _render_assistant() -> None:
+    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown("# Assistant")
+
+    mode = st.segmented_control(
+        "Mode", ["Chat", "Plan"],
+        default=st.session_state.get("assistant_mode", "Chat"),
+        key="assistant_mode",
+    )
+    if mode == "Plan":
+        _render_plan()
+    else:
+        _render_chat()
+
+
+def _render_chat() -> None:
+    header, clear_col = st.columns([3, 1])
+    with header:
+        st.caption(
+            "Chat with the FarmBot. Ask about status and zones, or tell it to "
+            "water, take photos, move, and more."
+        )
+    with clear_col:
+        if st.button("Clear chat", use_container_width=True):
+            st.session_state["assistant_messages"] = []
+            st.rerun()
+
+    if "assistant_messages" not in st.session_state:
+        st.session_state["assistant_messages"] = []
+
+    for idx, msg in enumerate(st.session_state["assistant_messages"]):
+        if msg.get("role") == "tool":
+            with st.chat_message("assistant"):
+                st.markdown(f"🔧 **{msg.get('name', 'tool')}**")
+                with st.expander("Tool result"):
+                    st.json({"args": msg.get("args"), "result": msg.get("result")})
+            continue
+
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("tool_calls"):
+                with st.expander("Thinking"):
+                    st.json(msg["tool_calls"])
+
+            proposed_actions = msg.get("proposed_actions", [])
+            if proposed_actions and not msg.get("approved") and not msg.get("rejected"):
+                st.markdown("**Proposed actions**")
+                _render_action_cards(proposed_actions)
+                approve_col, reject_col = st.columns([1, 1])
+                if approve_col.button("✅ Approve", key=f"approve_{idx}", use_container_width=True):
+                    _execute_proposed_actions(proposed_actions)
+                    msg["approved"] = True
+                    msg["content"] += f"\n\n✅ Approved and queued {len(proposed_actions)} action(s)."
+                    st.rerun()
+                if reject_col.button("❌ Reject", key=f"reject_{idx}", use_container_width=True):
+                    msg["rejected"] = True
+                    msg["content"] += "\n\n❌ Cancelled."
+                    st.rerun()
+            elif msg.get("approved"):
+                st.caption("Approved")
+            elif msg.get("rejected"):
+                st.caption("Rejected")
+
+    if prompt := st.chat_input("Ask the FarmBot assistant…"):
+        messages = st.session_state["assistant_messages"]
+
+        # Natural-language approval/rejection: if the user replies "yes",
+        # "approve", "no", "cancel", etc. to a proposal, handle it immediately
+        # instead of sending it back to the model and getting a confused answer.
+        if messages and messages[-1].get("role") == "assistant":
+            last_assistant = messages[-1]
+            proposed = last_assistant.get("proposed_actions", [])
+            pending = proposed and not last_assistant.get("approved") and not last_assistant.get("rejected")
+            approval = _is_approval(prompt)
+            rejection = _is_rejection(prompt)
+            if approval or rejection:
+                if pending:
+                    st.session_state["assistant_messages"].append({"role": "user", "content": prompt})
+                    if approval:
+                        _execute_proposed_actions(proposed)
+                        last_assistant["approved"] = True
+                        last_assistant["content"] += (
+                            f"\n\n✅ Approved and queued {len(proposed)} action(s)."
+                        )
+                    else:
+                        last_assistant["rejected"] = True
+                        last_assistant["content"] += "\n\n❌ Cancelled."
+                    st.rerun()
+                else:
+                    st.toast("No pending proposal to approve or reject.", icon="⚠️")
+                    st.rerun()
+
+        st.session_state["assistant_messages"].append({"role": "user", "content": prompt})
+        thinking = st.empty()
+        thinking.info("🤖 Assistant is thinking…")
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            stream_meta = {"tool_calls": [], "proposed_actions": []}
+            stream_error = None
+            accumulated = ""
+            try:
+                with httpx.Client() as http:
+                    with http.stream(
+                        "POST", f"{api_url}/chat/stream",
+                        json={"messages": st.session_state["assistant_messages"]},
+                        timeout=PLAN_TIMEOUT,
+                    ) as resp:
+                        resp.raise_for_status()
+                        for line in resp.iter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            event = json.loads(line[6:])
+                            etype = event.get("type")
+                            if etype == "delta":
+                                accumulated += event.get("content", "")
+                                placeholder.markdown(accumulated)
+                            elif etype == "tool_call":
+                                st.session_state["assistant_messages"].append({
+                                    "role": "tool",
+                                    "name": event.get("name"),
+                                    "args": event.get("args"),
+                                    "result": event.get("result"),
+                                })
+                            elif etype == "meta":
+                                stream_meta["tool_calls"] = event.get("tool_calls", [])
+                                stream_meta["proposed_actions"] = event.get("proposed_actions", [])
+                            elif etype == "error":
+                                stream_error = event.get("error", "stream error")
+            except Exception as exc:  # noqa: BLE001
+                stream_error = f"{type(exc).__name__}: {exc}"
+
+            # If the stream produced nothing useful, fall back to the
+            # non-streaming endpoint so the chat still works even when the
+            # SSE path is blocked or misbehaving.
+            if not accumulated and not stream_meta["tool_calls"] and not stream_meta["proposed_actions"]:
+                try:
+                    r = client.request(
+                        "POST", "/chat",
+                        json={"messages": st.session_state["assistant_messages"]},
+                        timeout=PLAN_TIMEOUT,
+                    )
+                    if r.ok and isinstance(r.body, dict):
+                        accumulated = str(r.body.get("response", ""))
+                        stream_meta["tool_calls"] = r.body.get("tool_calls", []) or []
+                        stream_meta["proposed_actions"] = [
+                            {"kind": tc["result"].get("kind", tc["name"]),
+                             "params": tc["result"].get("params", tc.get("args", {}))}
+                            for tc in stream_meta["tool_calls"]
+                            if isinstance(tc.get("result"), dict) and tc["result"].get("status") == "proposed"
+                        ]
+                        stream_error = None
+                    else:
+                        stream_error = f"Fallback failed: HTTP {r.code}: {r.body}"
+                except Exception as exc:  # noqa: BLE001
+                    stream_error = f"Fallback failed: {type(exc).__name__}: {exc}"
+
+            thinking.empty()
+            if accumulated:
+                placeholder.markdown(accumulated)
+            if stream_error:
+                st.error(f"Assistant error: {stream_error}")
+
+            if accumulated or stream_meta["tool_calls"] or stream_meta["proposed_actions"]:
+                st.session_state["assistant_messages"].append({
+                    "role": "assistant",
+                    "content": accumulated,
+                    "tool_calls": stream_meta["tool_calls"],
+                    "proposed_actions": stream_meta["proposed_actions"],
+                })
+        st.rerun()
+
+
+def _execute_proposed_actions(actions: list[dict[str, Any]]) -> None:
+    for action in actions:
+        client.request(
+            "POST", "/actions",
+            json={"kind": action["kind"], "params": action.get("params", {})},
+        )
+
+
+def _render_plan() -> None:
+    st.caption("Describe a task. The LLM builds a step-by-step plan; review it before running.")
+
+    if "assistant_plan_response" not in st.session_state:
+        st.session_state["assistant_plan_response"] = None
+    if "assistant_plan_status" not in st.session_state:
+        st.session_state["assistant_plan_status"] = None
+    if "assistant_plan_request" not in st.session_state:
+        st.session_state["assistant_plan_request"] = ""
+
+    examples = [
+        "Water the tomato zone for 90 seconds, then go home",
+        "Take a photo and send me the result",
+        "Move to x=500 y=200 z=0",
+    ]
+    cols = st.columns(len(examples))
+    for col, example in zip(cols, examples):
+        if col.button(example, use_container_width=True, key=f"plan_ex_{example[:20]}"):
+            st.session_state["assistant_plan_request"] = example
+            st.session_state["assistant_plan_response"] = None
+            st.session_state["assistant_plan_status"] = None
+            st.rerun()
+
+    request = st.text_area(
+        "Task",
+        value=st.session_state["assistant_plan_request"],
+        placeholder="e.g. water bed 1 for 60 seconds, then home",
+        height=80,
+        label_visibility="collapsed",
+    )
+    st.session_state["assistant_plan_request"] = request
+
+    plan_col, _ = st.columns([1, 3])
+    preview_clicked = plan_col.button(
+        "Preview plan", type="primary", use_container_width=True,
+        disabled=not request.strip(),
+    )
+
+    if preview_clicked and request.strip():
+        with st.spinner("Asking the planner…"):
+            r = client.request(
+                "POST", "/plan",
+                json={"request": request, "debug": True},
+                timeout=PLAN_TIMEOUT,
+            )
+        st.session_state["assistant_plan_response"] = r.body if r.ok else {"error": r.body}
+        st.session_state["assistant_plan_status"] = r.code
+
+    response = st.session_state.get("assistant_plan_response")
+    status = st.session_state.get("assistant_plan_status")
+
+    if not response:
+        st.info("No plan yet. Type a task above and click **Preview plan**.")
+        return
+
+    with st.expander("Debug · raw response", expanded=False):
+        st.json(response)
+
+    if status and status >= 400:
+        st.error(f"Planner error (HTTP {status}): {response.get('error', response)}")
+        return
+
+    actions = response.get("actions", []) or []
+    rationale = response.get("rationale") if isinstance(response, dict) else None
+    st.success(f"Plan ready · {len(actions)} action(s)")
+    if rationale:
+        st.caption(f"Model rationale: {rationale}")
+
+    if not actions:
+        st.warning("The planner returned an empty plan.")
+        return
+
+    st.markdown("**Proposed actions**")
+    for idx, action in enumerate(actions, start=1):
+        with st.container(border=True):
+            st.markdown(f"{idx}. {_action_summary(action)}")
+            with st.expander("Details"):
+                st.json(action.get("params", {}))
+
+    run_col, clear_col = st.columns([1, 1])
+    if clear_col.button("Clear", use_container_width=True):
+        st.session_state["assistant_plan_response"] = None
+        st.session_state["assistant_plan_status"] = None
+        st.rerun()
+
+    if run_col.button("Run plan", type="primary", use_container_width=True):
+        queued = 0
+        failed = 0
+        for action in actions:
+            r = client.request(
+                "POST", "/actions",
+                json={"kind": action["kind"], "params": action.get("params", {})},
+            )
+            if r.ok:
+                queued += 1
+                st.toast(f"Queued {action['kind']}", icon="➡️")
+            else:
+                failed += 1
+                st.error(f"Failed to queue {action['kind']}: {r.body}")
+        if failed == 0:
+            st.success(f"Plan queued · {queued} action(s)")
+        else:
+            st.warning(f"Plan partially queued · {queued} ok, {failed} failed")
+        st.session_state["assistant_plan_response"] = None
+        st.session_state["assistant_plan_status"] = None
+        st.rerun()
+
+
 def _render_operations() -> None:
     st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
     st.markdown("# Operations")
@@ -664,6 +1111,7 @@ renderers = {
     "Camera":       _render_camera,
     "Sensors":      _render_sensors,
     "Operations":   _render_operations,
+    "Assistant":    _render_assistant,
     "Diagnostics":  _render_diagnostics,
     "Settings":     _render_settings,
 }

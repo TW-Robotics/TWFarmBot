@@ -9,9 +9,10 @@ dependencies = [
     "twfarmbot-spatial-service",
     "twfarmbot-safety-service",
     "twfarmbot-watering-service",
+    "twfarmbot-planning-service",
     "fastapi",
     "uvicorn",
-] 
+]
 
 [project.scripts]
 twfarmbot-api = "twfarmbot_api_server.__main__:main"

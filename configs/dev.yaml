@@ -1,6 +1,17 @@
 env: dev
 log_level: INFO
 
+# LLM planner configuration. Read by planning_service.load_config().
+# Resolution: PLANNING_LLM_* env var → this block → built-in default.
+# Secrets (api_key) are NEVER stored here — set PLANNING_LLM_API_KEY in
+# the environment, or reference a different env var via api_key_env.
+planning:
+  base_url: https://openrouter.ai/api/v1   # OpenAI-compatible endpoint
+  model: deepseek/deepseek-v4-flash      # any model the endpoint exposes
+  api_key_env: PLANNING_LLM_API_KEY  # name of the env var that holds the secret
+  timeout_s: 120                       # raise this for slower models
+  temperature: 0.0
+
 # FarmBot WiFi credentials are read from environment variables
 # (FARMBOT_HOST, FARMBOT_EMAIL, FARMBOT_PASSWORD, optional FARMBOT_TOKEN)
 # by services/farmbot_gateway. Host defaults to the cloud broker
@@ -13,17 +24,18 @@ safety:
   allowed_beds: []   # empty = allow all known beds
   # Move axis bounds (mm). Anything outside is rejected by safety.
   max_axis_mm:
-    x: 3000
-    y: 1500
-    z: 800
+    x: 1900
+    y: 700
+    z: 500
 
 # Pin map: bed_id → FarmBot peripheral pin controlling that bed's valve.
-# To add a new bed, add an entry here (or set FARMBOT_PIN_<bed>=<pin>).
+# The real FarmBot has the pump on pin 7, so every bed is wired to that
+# single pump. Override per bed with FARMBOT_PIN_<bed>=<pin> if needed.
 watering:
   pins:
-    b1: 13
-    b2: 11
-    b3: 9
+    b1: 7
+    b2: 7
+    b3: 7
 
 # Named pins for the UI: label → {pin, mode, kind, group}.
 #   kind: "valve" | "servo" | "sensor" | "io"
@@ -31,13 +43,11 @@ watering:
 # Every pin number must be unique; a single GPIO can't drive a valve and
 # read a sensor at the same time.
 pins:
-  - {label: "Valve b1",     pin: 13, mode: digital, kind: valve,  group: "Water"}
-  - {label: "Valve b2",     pin: 11, mode: digital, kind: valve,  group: "Water"}
-  - {label: "Valve b3",     pin: 9,  mode: digital, kind: valve,  group: "Water"}
-  - {label: "Tool servo",   pin: 10, mode: digital, kind: servo,  group: "Tools"}
-  - {label: "Light",        pin: 8,  mode: digital, kind: io,     group: "Tools"}
-  - {label: "Soil sensor",  pin: 14, mode: analog,  kind: sensor, group: "Sensors"}
-  - {label: "Light sensor", pin: 15, mode: analog,  kind: sensor, group: "Sensors"}
+  - {label: "Pump",            pin: 7,  mode: digital, kind: valve,  group: "Water"}
+  - {label: "Water solenoid",  pin: 8,  mode: digital, kind: valve,  group: "Water"}
+  - {label: "Tool servo",      pin: 10, mode: digital, kind: servo,  group: "Tools"}
+  - {label: "Soil sensor",     pin: 14, mode: analog,  kind: sensor, group: "Sensors"}
+  - {label: "Light sensor",    pin: 15, mode: analog,  kind: sensor, group: "Sensors"}
 
 # Preset gantry positions for the UI Move widget. Coordinates in mm.
 positions:
@@ -47,16 +57,39 @@ positions:
   - {label: "Bed 3",      x: 900,  y: 200, z: 0}
   - {label: "Camera top", x: 0,    y: 0,   z: 400}
 
-# Persistent garden coordinate model. Origin is FarmBot home (top-left);
-# X grows to the right and Y grows down the bed.
+# Persistent garden coordinate model. The UI renders the origin at the
+# bottom-left; X grows to the right and Y grows up the bed. Store coordinates
+# using that same frame.
 spatial:
-  bounds: {x: 0, y: 0, width: 1200, height: 1000}
-  camera:
-    {x: 0, y: 0, z: 400, yaw_deg: 0, pitch_deg: 90, roll_deg: 0}
-  entities:
-    - {id: tool-bay, kind: tool, name: Tool bay, x: 60, y: 80, z: 0, radius_mm: 35}
-    - {id: plant-1, kind: plant, name: Plant 1, x: 140, y: 170, z: 0, radius_mm: 25}
-    - {id: plant-2, kind: plant, name: Plant 2, x: 240, y: 610, z: 0, radius_mm: 25}
+  bounds: {x: 0, y: 0, width: 1900, height: 700}
+  camera_offset: {x: 0, y: 0, z: 400}
+  camera: {yaw_deg: 0, pitch_deg: 90, roll_deg: 0}
+
   zones:
-    - {id: bed-1, kind: watering, name: Watering zone 1, x: 80, y: 100, width: 320, height: 360}
-    - {id: keepout-1, kind: obstacle, name: Tool keep-out, x: 20, y: 30, width: 100, height: 160}
+    - id: tomato
+      kind: tomato
+      name: "Tomato Zone"
+      x: 1100
+      y: 100
+      width: 800
+      height: 300
+      metadata: {soil_type: loam, valve_pin: 13}
+
+    - id: herbs
+      kind: herbs
+      name: "Herbs Zone"
+      x: 100
+      y: 100
+      width: 1000
+      height: 300
+      metadata: {soil_type: sandy, valve_pin: 11}
+
+  entities:
+    - id: herbs
+      kind: plant
+      name: "Herbs"
+      x: 120
+      y: 180
+      z: 0
+      radius_mm: 80
+      metadata: {species: herbs, planted: "2026-05-01", bed: bed1}

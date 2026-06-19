@@ -1,0 +1,22 @@
+[project]
+name = "twfarmbot-planning-service"
+version = "0.1.0"
+description = "LLM task planner: natural language -> typed Action[] via LangChain."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "twfarmbot-core",
+    "twfarmbot-safety-service",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    "pydantic>=2",
+    "pyyaml>=6",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["planning_service"]
