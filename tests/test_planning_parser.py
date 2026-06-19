@@ -31,9 +31,9 @@ def test_parses_json_in_markdown_fence() -> None:
 
 
 def test_parses_json_embedded_in_prose() -> None:
-    text = 'Sure, the plan is {"actions": [{"kind": "water", "params": {"bed_id": "b1", "seconds": 60}}]}. Hope that helps.'
+    text = 'Sure, the plan is {"actions": [{"kind": "water", "params": {"seconds": 60}}]}. Hope that helps.'
     out = parse_plan(text, _registry())
-    assert out == [Action(kind="water", params={"bed_id": "b1", "seconds": 60})]
+    assert out == [Action(kind="water", params={"seconds": 60})]
 
 
 def test_unknown_kind_is_rejected() -> None:
@@ -69,7 +69,7 @@ def test_empty_actions_is_valid() -> None:
 def test_multiple_actions_in_order() -> None:
     text = (
         '{"actions": ['
-        '{"kind": "water", "params": {"bed_id": "b1", "seconds": 30}},'
+        '{"kind": "water", "params": {"seconds": 30}},'
         '{"kind": "move", "params": {"x": 0, "y": 0, "z": 0}}'
         ']}'
     )

@@ -8,7 +8,7 @@ no caller can bypass safety by going around this module.
 
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import Any, Callable
 
 from safety_service import UnsafeActionError, validate as safety_validate
 
@@ -19,6 +19,89 @@ ActionHandler = Callable[[Action], Action]
 
 class UnknownActionError(KeyError):
     """Raised when no handler is registered for an Action's kind."""
+
+
+def _num(value: Any) -> str:
+    """Format a number for display, stripping trailing ``.0``."""
+    if value is None:
+        return "—"
+    try:
+        f = float(value)
+        return str(int(f)) if f == int(f) else str(f)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _summarize_move(params: dict[str, Any]) -> str:
+    return (
+        f"🛠️ **move** → "
+        f"({_num(params.get('x'))}, {_num(params.get('y'))}, {_num(params.get('z'))})"
+    )
+
+
+def _summarize_water(params: dict[str, Any]) -> str:
+    return f"🌊 **water** for {_num(params.get('seconds'))} s"
+
+
+def _summarize_find_home(params: dict[str, Any]) -> str:
+    return f"🏠 **find_home** (axis={params.get('axis', 'all')}, speed={params.get('speed', '—')})"
+
+
+def _summarize_take_photo(params: dict[str, Any]) -> str:
+    return "📷 **take_photo**"
+
+
+def _summarize_read_pin(params: dict[str, Any]) -> str:
+    return f"📖 **read_pin** {params.get('pin', '—')} ({params.get('mode', 'digital')})"
+
+
+def _summarize_write_pin(params: dict[str, Any]) -> str:
+    return f"✏️ **write_pin** {params.get('pin', '—')} = {params.get('value', '—')}"
+
+
+def _summarize_send_message(params: dict[str, Any]) -> str:
+    msg = str(params.get("message", ""))[:40]
+    return f"💬 **send_message**: {msg}"
+
+
+def _summarize_mount_tool(params: dict[str, Any]) -> str:
+    return f"🔧 **mount_tool** {params.get('tool_name', '—')}"
+
+
+def _summarize_dismount_tool(params: dict[str, Any]) -> str:
+    return "🔧 **dismount_tool**"
+
+
+def _summarize_e_stop(params: dict[str, Any]) -> str:
+    return "🛑 **e_stop**"
+
+
+ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
+    "move": _summarize_move,
+    "water": _summarize_water,
+    "find_home": _summarize_find_home,
+    "take_photo": _summarize_take_photo,
+    "read_pin": _summarize_read_pin,
+    "write_pin": _summarize_write_pin,
+    "send_message": _summarize_send_message,
+    "mount_tool": _summarize_mount_tool,
+    "dismount_tool": _summarize_dismount_tool,
+    "e_stop": _summarize_e_stop,
+}
+
+
+def summarize_action(action: Action | dict[str, Any]) -> str:
+    """Return a compact, human-readable summary of an action."""
+    if isinstance(action, Action):
+        kind = action.kind
+        params = action.params
+    else:
+        kind = action.get("kind", "action")
+        params = action.get("params") or {}
+    fn = ACTION_SUMMARIES.get(kind)
+    if fn is None:
+        return f"🛠️ **{kind}**"
+    return fn(params)
 
 
 class ActionRegistry:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-import yaml
+from twfarmbot_core.config import load_yaml_config
 from twfarmbot_core.domain import (
     CameraPose,
     GardenEntity,
@@ -44,7 +44,7 @@ def _point(data: Any) -> Point3D:
 
 def load_world(path: str | Path = DEFAULT_CONFIG) -> GardenWorld:
     """Load the configured world model."""
-    config = yaml.safe_load(Path(path).read_text()) or {}
+    config = load_yaml_config(path)
     spatial = config.get("spatial", {})
     bounds = spatial.get("bounds", {})
     camera = spatial.get("camera", {})
@@ -95,6 +95,39 @@ def load_world(path: str | Path = DEFAULT_CONFIG) -> GardenWorld:
     )
 
 
+def format_world_context(world: GardenWorld | Mapping[str, Any] | None = None) -> str:
+    """Render a compact, model-friendly summary of the world model.
+
+    Mirrors the YAML: name, id, kind, bounds, entity positions. Nothing
+    derived, nothing invented — the model does the arithmetic if it needs
+    a center.
+    """
+    if world is None:
+        world = load_world()
+    snapshot = world.to_dict() if hasattr(world, "to_dict") else dict(world)
+    lines: list[str] = []
+    for zone in snapshot.get("zones", []):
+        bounds = zone.get("bounds", {})
+        x = bounds.get("x", 0)
+        y = bounds.get("y", 0)
+        w = bounds.get("width", 0)
+        h = bounds.get("height", 0)
+        name = zone.get("name", zone.get("id"))
+        lines.append(
+            f"- zone {name!r} "
+            f"(kind={zone.get('kind')}, id={zone.get('id')}, "
+            f"x={x}, y={y}, width={w}, height={h})"
+        )
+    for entity in snapshot.get("entities", []):
+        pos = entity.get("position", {})
+        lines.append(
+            f"- entity {entity.get('name', entity.get('id'))!r} "
+            f"(kind={entity.get('kind')}, id={entity.get('id')}, "
+            f"x={pos.get('x')}, y={pos.get('y')}, z={pos.get('z')})"
+        )
+    return "\n".join(lines) if lines else "(no zones or entities configured)"
+
+
 def get_snapshot(robot_position: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Return the configured world plus optional live robot position.
     
@@ -117,4 +150,4 @@ def get_snapshot(robot_position: Mapping[str, Any] | None = None) -> dict[str, A
     return snapshot
 
 
-__all__ = ["get_snapshot", "load_world"]
+__all__ = ["format_world_context", "get_snapshot", "load_world"]

@@ -32,23 +32,21 @@ def test_introspection_tools_are_built() -> None:
                         "name": "Tomato Zone",
                         "kind": "zone",
                         "bounds": {"x": 1100, "y": 100, "width": 800, "height": 300},
-                        "metadata": {"valve_pin": 13},
                     }
                 ]
             },
-            "watering": {"pins": {"b1": 13}},
         },
     )
     tools = build_introspection_tools(p)
     names = {t.name for t in tools}
     assert "get_position" in names
     assert "list_zones" in names
-    assert "list_beds" in names
     assert "list_endpoints" in names
     assert "read_pin" in names
+    assert "analyze_image" in names
 
 
-def test_list_zones_computes_centre_and_bed() -> None:
+def test_list_zones_computes_centre() -> None:
     p = InMemorySystemStateProvider(
         garden={
             "spatial": {
@@ -58,11 +56,9 @@ def test_list_zones_computes_centre_and_bed() -> None:
                         "name": "Tomato Zone",
                         "kind": "zone",
                         "bounds": {"x": 1100, "y": 100, "width": 800, "height": 300},
-                        "metadata": {"valve_pin": 13},
                     }
                 ]
             },
-            "watering": {"pins": {"b1": 13}},
         }
     )
     tools = {t.name: t for t in build_introspection_tools(p)}
@@ -71,34 +67,6 @@ def test_list_zones_computes_centre_and_bed() -> None:
     zone = result["zones"][0]
     assert zone["name"] == "Tomato Zone"
     assert zone["center"] == (1500, 250)  # x + w/2, y + h/2
-    assert zone["bed_id"] == "b1"
-
-
-def test_list_beds_resolves_zone_to_bed() -> None:
-    p = InMemorySystemStateProvider(
-        garden={
-            "spatial": {
-                "zones": [
-                    {
-                        "id": "tomato",
-                        "name": "Tomato Zone",
-                        "metadata": {"valve_pin": 13},
-                    },
-                    {
-                        "id": "herbs",
-                        "name": "Herbs Zone",
-                        "metadata": {"valve_pin": 11},
-                    },
-                ]
-            },
-            "watering": {"pins": {"b1": 13, "b2": 11}},
-        }
-    )
-    tools = {t.name: t for t in build_introspection_tools(p)}
-    result = tools["list_beds"].invoke({})
-    assert result["count"] == 2
-    assert result["beds"]["b1"]["zones"] == ["Tomato Zone"]
-    assert result["beds"]["b2"]["zones"] == ["Herbs Zone"]
 
 
 def test_introspection_tool_swallows_provider_errors() -> None:

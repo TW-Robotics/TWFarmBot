@@ -35,8 +35,18 @@ def build_execution_tools(
     approval before executing.
     """
 
-    def _dispatch_or_propose(kind: str, params: dict[str, Any]) -> dict[str, Any]:
-        if propose_only:
+    # Tools that physically move the robot or change outputs require explicit
+    # user approval even when the chat is in "action" mode. Safe / read-only
+    # actions execute immediately.
+    APPROVAL_TOOLS = {"move", "water", "find_home", "write_pin", "mount_tool", "dismount_tool"}
+
+    def _dispatch_or_propose(
+        kind: str,
+        params: dict[str, Any],
+        *,
+        requires_approval: bool,
+    ) -> dict[str, Any]:
+        if propose_only and requires_approval:
             return {
                 "status": "proposed",
                 "kind": kind,
@@ -55,42 +65,46 @@ def build_execution_tools(
         @tool(args_schema=MoveArgs)
         def move(x: float, y: float, z: float) -> dict[str, Any]:
             """Move the gantry to absolute coordinates (mm)."""
-            return _dispatch_or_propose("move", {"x": x, "y": y, "z": z})
+            return _dispatch_or_propose("move", {"x": x, "y": y, "z": z}, requires_approval=True)
         tools.append(move)
 
     if "water" in registry.kinds():
         @tool(args_schema=WaterArgs)
-        def water(bed_id: str, seconds: float) -> dict[str, Any]:
-            """Open a bed's irrigation valve for the given seconds."""
-            return _dispatch_or_propose("water", {"bed_id": bed_id, "seconds": seconds})
+        def water(seconds: float) -> dict[str, Any]:
+            """Turn the pump on for the given seconds."""
+            return _dispatch_or_propose("water", {"seconds": seconds}, requires_approval=True)
         tools.append(water)
 
     if "find_home" in registry.kinds():
         @tool(args_schema=FindHomeArgs)
         def find_home(axis: str = "all", speed: int = 100) -> dict[str, Any]:
             """Run the end-stop homing sequence to calibrate axes."""
-            return _dispatch_or_propose("find_home", {"axis": axis, "speed": speed})
+            return _dispatch_or_propose(
+                "find_home", {"axis": axis, "speed": speed}, requires_approval=True
+            )
         tools.append(find_home)
 
     if "read_pin" in registry.kinds():
         @tool(args_schema=ReadPinArgs)
         def read_pin(pin: int, mode: str = "digital") -> dict[str, Any]:
             """Read a GPIO pin value."""
-            return _dispatch_or_propose("read_pin", {"pin": pin, "mode": mode})
+            return _dispatch_or_propose("read_pin", {"pin": pin, "mode": mode}, requires_approval=False)
         tools.append(read_pin)
 
     if "write_pin" in registry.kinds():
         @tool(args_schema=WritePinArgs)
         def write_pin(pin: int, value: int, mode: str = "digital") -> dict[str, Any]:
             """Write a GPIO pin to the given value (0 or 1)."""
-            return _dispatch_or_propose("write_pin", {"pin": pin, "value": value, "mode": mode})
+            return _dispatch_or_propose(
+                "write_pin", {"pin": pin, "value": value, "mode": mode}, requires_approval=True
+            )
         tools.append(write_pin)
 
     if "take_photo" in registry.kinds():
         @tool
         def take_photo() -> dict[str, Any]:
             """Trigger the camera to take a photo."""
-            return _dispatch_or_propose("take_photo", {})
+            return _dispatch_or_propose("take_photo", {}, requires_approval=False)
         tools.append(take_photo)
 
     if "send_message" in registry.kinds():
@@ -98,7 +112,9 @@ def build_execution_tools(
         def send_message(message: str, message_type: str = "info") -> dict[str, Any]:
             """Show a message to the user."""
             return _dispatch_or_propose(
-                "send_message", {"message": message, "message_type": message_type}
+                "send_message",
+                {"message": message, "message_type": message_type},
+                requires_approval=False,
             )
         tools.append(send_message)
 
@@ -106,21 +122,23 @@ def build_execution_tools(
         @tool(args_schema=MountToolArgs)
         def mount_tool(tool_name: str) -> dict[str, Any]:
             """Mount a named tool on the gantry."""
-            return _dispatch_or_propose("mount_tool", {"tool_name": tool_name})
+            return _dispatch_or_propose(
+                "mount_tool", {"tool_name": tool_name}, requires_approval=True
+            )
         tools.append(mount_tool)
 
     if "dismount_tool" in registry.kinds():
         @tool
         def dismount_tool() -> dict[str, Any]:
             """Dismount whatever tool is currently mounted."""
-            return _dispatch_or_propose("dismount_tool", {})
+            return _dispatch_or_propose("dismount_tool", {}, requires_approval=True)
         tools.append(dismount_tool)
 
     if "e_stop" in registry.kinds():
         @tool
         def e_stop() -> dict[str, Any]:
             """Emergency stop — halt the robot immediately."""
-            return _dispatch_or_propose("e_stop", {})
+            return _dispatch_or_propose("e_stop", {}, requires_approval=False)
         tools.append(e_stop)
 
     return tools

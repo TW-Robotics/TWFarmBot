@@ -1,4 +1,4 @@
-"""Handler for Action(kind='water', params={'bed_id', 'seconds'})."""
+"""Handler for Action(kind='water', params={'seconds'})."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import watering_service
 
 
 def handle_water(action: Action) -> Action:
-    bed_id = str(action.params["bed_id"])
     seconds = float(action.params["seconds"])
-    watering_service.water_bed(bed_id, seconds)
+    watering_service.water(seconds)
     return action

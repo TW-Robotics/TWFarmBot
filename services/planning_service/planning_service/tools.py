@@ -27,14 +27,7 @@ class MoveArgs(BaseModel):
 
 
 class WaterArgs(BaseModel):
-    bed_id: str = Field(
-        ...,
-        description=(
-            "ID of the bed to water (e.g. 'b1'). MUST be one of the "
-            "values listed in the user message's Available bed_ids."
-        ),
-    )
-    seconds: float = Field(..., description="How long to keep the valve open (1..300).")
+    seconds: float = Field(..., description="How long to keep the pump on (1..300).")
 
 
 class FindHomeArgs(BaseModel):
@@ -91,9 +84,9 @@ def build_tools(registry: ActionRegistry) -> list[BaseTool]:
 
     if "water" in kinds:
         @tool(args_schema=WaterArgs)
-        def water(bed_id: str, seconds: float) -> dict[str, Any]:
-            """Open a bed's irrigation valve for the given seconds."""
-            return {"kind": "water", "params": {"bed_id": bed_id, "seconds": seconds}}
+        def water(seconds: float) -> dict[str, Any]:
+            """Turn the pump on for the given seconds."""
+            return {"kind": "water", "params": {"seconds": seconds}}
         tools.append(water)
 
     if "find_home" in kinds:

@@ -28,8 +28,10 @@ from pydantic import BaseModel, Field
 from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 
+from spatial_service import format_world_context
+
+from .agent import build_base_model, build_tool_set
 from .chat import ChatResult, chat, stream_chat
-from .client import build_chat_model
 from .config import PlannerConfig, load_config
 from .introspection import (
     InMemorySystemStateProvider,
@@ -92,40 +94,23 @@ def plan(
         config: Optional planner config (overrides env-derived config).
         system_state: Optional provider for live system state. When
             supplied, the planner binds introspection tools
-            (``get_position``, ``list_zones``, ``list_beds``, …) so
+            (``get_position``, ``list_zones``, …) so
             the model can query the system during a planning call.
             Pass ``InMemorySystemStateProvider(...)`` in tests.
     """
-    cfg = config or load_config()
+    cfg, base_model = build_base_model(model=model, config=config)
     registry = registry or get_default_registry()
-    base_model = model or build_chat_model(
-        base_url=cfg.base_url,
-        model=cfg.model,
-        api_key=cfg.api_key,
-        timeout_s=cfg.timeout_s,
-        temperature=cfg.temperature,
-    )
 
-    bed_ids, bed_to_zones = _load_bed_mapping()
-    zone_to_bed = {
-        zone: bed for bed, zones in bed_to_zones.items() for zone in zones
-    }
-    world_context = _world_context(
-        world, zone_to_bed=zone_to_bed,
-    ) if world is not None else None
+    world_context = format_world_context(world) if world is not None else None
     user_msg = build_user_prompt(
         request,
         world_context=world_context,
-        bed_ids=bed_ids,
-        bed_to_zones=bed_to_zones,
     )
 
     # Bind all tools: action tools + (optional) introspection tools.
-    action_tools = build_tools(registry)
-    introspection_tools = (
-        build_introspection_tools(system_state) if system_state is not None else []
+    all_tools = build_tool_set(
+        registry, system_state, for_chat=False, propose_only=False, allow_actions=True
     )
-    all_tools = action_tools + introspection_tools
     chat_model = base_model.bind_tools(all_tools) if all_tools else base_model
 
     # Preferred path: structured output via Pydantic. Forces the model
@@ -318,39 +303,6 @@ def _actions_from_tool_calls_with_introspection(
     return actions, introspect_results
 
 
-def _load_bed_mapping() -> tuple[list[str], dict[str, list[str]]]:
-    """Read ``watering.pins`` and zone ``metadata.valve_pin`` from the YAML.
-
-    Returns (bed_ids, bed_id -> [zone_name, ...]) so the world context
-    can show the model which zone each bed waters, and vice versa.
-    """
-    try:
-        import yaml
-    except ImportError:
-        return [], {}
-    yaml_path = Path(__file__).resolve().parents[3] / "configs" / "dev.yaml"
-    if not yaml_path.exists():
-        return [], {}
-    loaded = yaml.safe_load(yaml_path.read_text()) or {}
-    pins: dict[str, int] = dict((loaded.get("watering", {}) or {}).get("pins", {}) or {})
-
-    bed_ids = list(pins.keys())
-    pin_to_zones: dict[int, list[str]] = {}
-    for zone in (loaded.get("spatial", {}) or {}).get("zones", []) or []:
-        meta = zone.get("metadata") or {}
-        pin = meta.get("valve_pin")
-        name = zone.get("name") or zone.get("id")
-        if pin is not None and name:
-            pin_to_zones.setdefault(int(pin), []).append(str(name))
-
-    bed_to_zones: dict[str, list[str]] = {}
-    for bed, pin in pins.items():
-        zones = pin_to_zones.get(int(pin), [])
-        if zones:
-            bed_to_zones[bed] = zones
-    return bed_ids, bed_to_zones
-
-
 def _parse_with_rationale(text: str, registry: ActionRegistry) -> tuple[list[Action], str]:
     """Parse the LLM output, returning (actions, rationale)."""
     rationale = _extract_rationale_from_text(text)
@@ -389,16 +341,16 @@ def _extract_rationale_from_text(text: str) -> str:
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 
-def _world_context(
-    world: Any,
-    *,
-    zone_to_bed: dict[str, str] | None = None,
-) -> str:
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+
+
+def _world_context(world: Any) -> str:
     """Render a compact, model-friendly summary of the world model.
 
-    Mirrors the YAML: name, id, kind, bounds, entity positions, and
-    bed-to-zone wiring. Nothing derived, nothing invented — the model
-    does the arithmetic if it needs a center.
+    Mirrors the YAML: name, id, kind, bounds, entity positions. Nothing
+    derived, nothing invented — the model does the arithmetic if it needs
+    a center.
     """
     snapshot = world.to_dict() if hasattr(world, "to_dict") else dict(world)
     lines: list[str] = []
@@ -409,15 +361,10 @@ def _world_context(
         w = bounds.get("width", 0)
         h = bounds.get("height", 0)
         name = zone.get("name", zone.get("id"))
-        bed_hint = ""
-        if zone_to_bed:
-            bed = zone_to_bed.get(str(name)) or zone_to_bed.get(str(zone.get("id")))
-            if bed:
-                bed_hint = f", waters via bed_id={bed!r}"
         lines.append(
             f"- zone {name!r} "
             f"(kind={zone.get('kind')}, id={zone.get('id')}, "
-            f"x={x}, y={y}, width={w}, height={h}{bed_hint})"
+            f"x={x}, y={y}, width={w}, height={h})"
         )
     for entity in snapshot.get("entities", []):
         pos = entity.get("position", {})

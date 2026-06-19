@@ -30,11 +30,11 @@ class FarmBotBackend:
         self._images_lock = Lock()
 
     @property
-    def pins(self) -> dict[str, int]:
+    def pump_pin(self) -> int:
         # Read fresh each call so config edits / env overrides take effect.
-        from watering_service import _pin_map
+        from watering_service import _pump_pin
 
-        return _pin_map()
+        return _pump_pin()
 
     def _bot(self) -> Any:
         from farmbot_gateway import get_farmbot
@@ -43,30 +43,9 @@ class FarmBotBackend:
 
     # -------- Watering ----------------------------------------------------
 
-    def water(self, bed_id: str, seconds: float) -> None:
-        pin = self.pins.get(bed_id)
-        if pin is None:
-            raise ValueError(
-                f"no valve pin configured for bed {bed_id!r}; "
-                f"known beds: {sorted(self.pins)}"
-            )
-        bot = self._bot()
-        log.info("farmbot: open valve pin=%s bed=%s seconds=%s", pin, bed_id, seconds)
-        bot.control_peripheral(peripheral_name=str(pin), value=1, mode="digital")
-        try:
-            time.sleep(seconds)
-        finally:
-            bot.control_peripheral(peripheral_name=str(pin), value=0, mode="digital")
-            log.info("farmbot: closed valve pin=%s", pin)
-
-    # The WaterSource protocol used by watering_service.water_bed:
-    def open(self, bed_id: str) -> None:
-        pin = self.pins[bed_id]
-        self._bot().control_peripheral(peripheral_name=str(pin), value=1, mode="digital")
-
-    def close(self, bed_id: str) -> None:
-        pin = self.pins[bed_id]
-        self._bot().control_peripheral(peripheral_name=str(pin), value=0, mode="digital")
+    def water(self, seconds: float) -> None:
+        log.info("farmbot: water seconds=%s", seconds)
+        self.write_pin(self.pump_pin, 1, "digital", seconds=seconds)
 
     # -------- Movement ----------------------------------------------------
 
@@ -91,9 +70,19 @@ class FarmBotBackend:
         log.info("farmbot: read_pin pin=%s mode=%s", pin, mode)
         return self._bot().read_pin(pin_number=pin, mode=mode)
 
-    def write_pin(self, pin: int, value: int, mode: str = "digital") -> None:
+    def write_pin(
+        self,
+        pin: int,
+        value: int,
+        mode: str = "digital",
+        seconds: float | None = None,
+    ) -> None:
         log.info("farmbot: write_pin pin=%s value=%s mode=%s", pin, value, mode)
         self._bot().write_pin(pin_number=pin, value=value, mode=mode)
+        if value == 1 and seconds is not None and seconds > 0:
+            time.sleep(float(seconds))
+            self._bot().write_pin(pin_number=pin, value=0, mode=mode)
+            log.info("farmbot: write_pin pin=%s value=0 mode=%s", pin, mode)
 
     def control_peripheral(self, peripheral_name: str, value: int, mode: str | None = None) -> None:
         log.info("farmbot: control_peripheral %s=%s mode=%s", peripheral_name, value, mode)

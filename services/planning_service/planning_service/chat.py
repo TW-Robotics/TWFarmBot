@@ -17,10 +17,11 @@ from langchain_core.tools import BaseTool
 
 from twfarmbot_core.actions import ActionRegistry
 
-from .client import build_chat_model
+from spatial_service import format_world_context
+
+from .agent import build_base_model, build_tool_set
 from .config import PlannerConfig, load_config
-from .execution_tools import build_execution_tools
-from .introspection import SystemStateProvider, build_introspection_tools
+from .introspection import SystemStateProvider
 from .prompt import build_chat_system_prompt
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,20 @@ def _to_langchain_message(message: dict[str, Any]) -> SystemMessage | HumanMessa
     return SystemMessage(content=str(content))
 
 
+def _llm_friendly_result(result: Any) -> Any:
+    """Return a version of a tool result suitable for the LLM context.
+
+    Large binary payloads (e.g. base64 analysis images) are replaced with a
+    placeholder so they do not waste tokens or overflow the context window.
+    The full result is still returned to the UI via tool_call events.
+    """
+    if isinstance(result, dict) and "image_url" in result:
+        out = dict(result)
+        out["image_url"] = "[image data shown to user in chat]"
+        return out
+    return result
+
+
 def chat(
     messages: list[dict[str, Any]],
     *,
@@ -69,38 +84,20 @@ def chat(
     When ``propose_only=True`` action tools do not mutate the robot. They
     only record proposed actions so the UI can ask the user for approval.
     """
-    cfg = config or load_config()
-    base_model = model or build_chat_model(
-        base_url=cfg.base_url,
-        model=cfg.model,
-        api_key=cfg.api_key,
-        timeout_s=cfg.timeout_s,
-        temperature=cfg.temperature,
+    cfg, base_model = build_base_model(model=model, config=config)
+    all_tools = build_tool_set(
+        registry,
+        system_state,
+        for_chat=True,
+        propose_only=propose_only,
+        allow_actions=allow_actions,
     )
-
-    introspection_tools = (
-        build_introspection_tools(system_state) if system_state is not None else []
-    )
-    execution_tools = (
-        build_execution_tools(registry, propose_only=propose_only)
-        if allow_actions else []
-    )
-
-    # Avoid duplicate read_pin tools: the execution read_pin does the same job
-    # as the introspection one and actually returns the value.
-    introspection_names = {t.name for t in introspection_tools}
-    execution_names = {t.name for t in execution_tools}
-    all_tools: list[BaseTool] = list(execution_tools)
-    for tool in introspection_tools:
-        if tool.name not in execution_names:
-            all_tools.append(tool)
-
     chat_model = base_model.bind_tools(all_tools) if all_tools else base_model
     tool_map = {t.name: t for t in all_tools}
 
     system_prompt = build_chat_system_prompt(registry.kinds(), propose_only=propose_only)
     if world is not None:
-        world_context = _world_context(world)
+        world_context = format_world_context(world)
         if world_context:
             system_prompt += "\n\nCurrent world model:\n" + world_context
 
@@ -140,7 +137,7 @@ def chat(
                 })
             langchain_messages.append(
                 ToolMessage(
-                    content=json.dumps(result),
+                    content=json.dumps(_llm_friendly_result(result)),
                     tool_call_id=tool_call_id,
                     name=name,
                 )
@@ -187,36 +184,20 @@ def stream_chat(
     the model has finished using read-only tools and decided on a final
     answer.
     """
-    cfg = config or load_config()
-    base_model = model or build_chat_model(
-        base_url=cfg.base_url,
-        model=cfg.model,
-        api_key=cfg.api_key,
-        timeout_s=cfg.timeout_s,
-        temperature=cfg.temperature,
+    cfg, base_model = build_base_model(model=model, config=config)
+    all_tools = build_tool_set(
+        registry,
+        system_state,
+        for_chat=True,
+        propose_only=propose_only,
+        allow_actions=allow_actions,
     )
-
-    introspection_tools = (
-        build_introspection_tools(system_state) if system_state is not None else []
-    )
-    execution_tools = (
-        build_execution_tools(registry, propose_only=propose_only)
-        if allow_actions else []
-    )
-
-    introspection_names = {t.name for t in introspection_tools}
-    execution_names = {t.name for t in execution_tools}
-    all_tools: list[BaseTool] = list(execution_tools)
-    for tool in introspection_tools:
-        if tool.name not in execution_names:
-            all_tools.append(tool)
-
     chat_model = base_model.bind_tools(all_tools) if all_tools else base_model
     tool_map = {t.name: t for t in all_tools}
 
     system_prompt = build_chat_system_prompt(registry.kinds(), propose_only=propose_only)
     if world is not None:
-        world_context = _world_context(world)
+        world_context = format_world_context(world)
         if world_context:
             system_prompt += "\n\nCurrent world model:\n" + world_context
 
@@ -226,7 +207,7 @@ def stream_chat(
 
     tool_log: list[dict[str, Any]] = []
     proposed_actions: list[dict[str, Any]] = []
-    action_tool_names = {t.name for t in execution_tools}
+    action_tool_names = {t.name for t in all_tools if t.name in registry.kinds()}
     last_response = None
 
     for _ in range(max_iterations):
@@ -257,7 +238,7 @@ def stream_chat(
             yield {"type": "tool_call", "name": name, "args": args, "result": result}
             langchain_messages.append(
                 ToolMessage(
-                    content=json.dumps(result),
+                    content=json.dumps(_llm_friendly_result(result)),
                     tool_call_id=tool_call_id,
                     name=name,
                 )
@@ -311,24 +292,6 @@ def stream_chat(
             yield {"type": "delta", "content": str(content)}
 
 
-def _world_context(world: Any) -> str:
-    """Render a compact summary of the configured world model."""
-    snapshot = world.to_dict() if hasattr(world, "to_dict") else dict(world)
-    lines: list[str] = []
-    for zone in snapshot.get("zones", []):
-        bounds = zone.get("bounds", {})
-        lines.append(
-            f"- zone {zone.get('name', zone.get('id'))!r} "
-            f"(x={bounds.get('x', 0)}, y={bounds.get('y', 0)}, "
-            f"width={bounds.get('width', 0)}, height={bounds.get('height', 0)})"
-        )
-    for entity in snapshot.get("entities", []):
-        pos = entity.get("position", {})
-        lines.append(
-            f"- entity {entity.get('name', entity.get('id'))!r} "
-            f"(x={pos.get('x')}, y={pos.get('y')}, z={pos.get('z')})"
-        )
-    return "\n".join(lines)
 
 
 def _response_describes_action(response_text: str, messages: list[dict[str, Any]]) -> bool:
@@ -346,6 +309,6 @@ def _response_describes_action(response_text: str, messages: list[dict[str, Any]
         return True
     if re.search(r"\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\)", text):
         return True
-    if ("bed" in text or "seconds" in text) and ("water" in text or "irrigate" in text):
+    if ("seconds" in text) and ("water" in text or "irrigate" in text):
         return True
     return False

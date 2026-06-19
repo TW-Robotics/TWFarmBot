@@ -30,7 +30,7 @@ def test_assistant_preview_shape(client: TestClient, monkeypatch: pytest.MonkeyP
         return PlanResult(
             request=request,
             actions=[
-                Action(kind="water", params={"bed_id": "b1", "seconds": 60}),
+                Action(kind="water", params={"seconds": 60}),
                 Action(kind="move", params={"x": 0, "y": 0, "z": 0}),
             ],
             rationale="water then home",

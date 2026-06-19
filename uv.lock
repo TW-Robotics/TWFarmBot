@@ -2163,6 +2163,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ruamel-yaml"
+version = "0.19.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/3b/ebda527b56beb90cb7652cb1c7e4f91f48649fbcd8d2eb2fb6e77cd3329b/ruamel_yaml-0.19.1.tar.gz", hash = "sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993", size = 142709, upload-time = "2026-01-02T16:50:31.84Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/0c/51f6841f1d84f404f92463fc2b1ba0da357ca1e3db6b7fbda26956c3b82a/ruamel_yaml-0.19.1-py3-none-any.whl", hash = "sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93", size = 118102, upload-time = "2026-01-02T16:50:29.201Z" },
+]
+
+[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2399,6 +2408,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "farmbot-client" },
+    { name = "ruamel-yaml" },
     { name = "twfarmbot-api-server" },
     { name = "twfarmbot-core" },
     { name = "twfarmbot-gateway" },
@@ -2420,6 +2430,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "farmbot-client", editable = "libs/farmbot_client" },
+    { name = "ruamel-yaml", specifier = ">=0.19.1" },
     { name = "twfarmbot-api-server", editable = "apps/api_server" },
     { name = "twfarmbot-core", editable = "core" },
     { name = "twfarmbot-gateway", editable = "services/farmbot_gateway" },
@@ -2511,6 +2522,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "twfarmbot-core" },
+    { name = "twfarmbot-ml-utils" },
     { name = "twfarmbot-safety-service" },
 ]
 
@@ -2522,6 +2534,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "twfarmbot-core", editable = "core" },
+    { name = "twfarmbot-ml-utils", editable = "libs/ml_utils" },
     { name = "twfarmbot-safety-service", editable = "services/safety_service" },
 ]
 

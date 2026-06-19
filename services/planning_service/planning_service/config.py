@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from twfarmbot_core.config import load_yaml_config
+
 
 @dataclass(frozen=True)
 class PlannerConfig:
@@ -90,23 +92,7 @@ def _load_planning_block(
 ) -> Mapping[str, Any]:
     if yaml_data is not None:
         return dict(yaml_data.get("planning", {}) or {})
-    if yaml_path is None:
-        yaml_path = _default_yaml_path()
-    try:
-        import yaml
-    except ImportError:
-        return {}
-    path = Path(yaml_path)
-    if not path.exists():
-        return {}
-    loaded = yaml.safe_load(path.read_text()) or {}
-    return dict(loaded.get("planning", {}) or {})
-
-
-def _default_yaml_path() -> Path:
-    # configs/dev.yaml is the project's canonical config; planning lives
-    # there under the ``planning:`` key.
-    return Path(__file__).resolve().parents[3] / "configs" / "dev.yaml"
+    return dict(load_yaml_config(yaml_path).get("planning", {}) or {})
 
 
 def _resolve_api_key(planning: Mapping[str, Any]) -> str | None:
