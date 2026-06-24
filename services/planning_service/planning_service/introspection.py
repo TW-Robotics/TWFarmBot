@@ -62,7 +62,10 @@ class AnalyzeImageArgs(BaseModel):
         default=None,
         description=(
             "Public URL of the image to analyse. "
-            "If omitted, the most recent FarmBot camera image is used."
+            "If omitted, the most recent FarmBot camera image is used. "
+            "When checking a specific zone, move the camera to that zone and "
+            "call take_photo first; otherwise the latest image may be from "
+            "somewhere else."
         ),
     )
 
@@ -77,7 +80,10 @@ class SegmentImageArgs(BaseModel):
         default=None,
         description=(
             "Public URL of the image to segment. "
-            "If omitted, the most recent FarmBot camera image is used."
+            "If omitted, the most recent FarmBot camera image is used. "
+            "When checking a specific zone, move the camera to that zone and "
+            "call take_photo first; otherwise the latest image may be from "
+            "somewhere else."
         ),
     )
     negative: str = Field(
@@ -97,7 +103,10 @@ class VisualizeFeaturesArgs(BaseModel):
         default=None,
         description=(
             "Public URL of the image to analyse. "
-            "If omitted, the most recent FarmBot camera image is used."
+            "If omitted, the most recent FarmBot camera image is used. "
+            "When checking a specific zone, move the camera to that zone and "
+            "call take_photo first; otherwise the latest image may be from "
+            "somewhere else."
         ),
     )
 
@@ -113,7 +122,10 @@ class EstimateTraversabilityArgs(BaseModel):
         default=None,
         description=(
             "Public URL of the image to analyse. "
-            "If omitted, the most recent FarmBot camera image is used."
+            "If omitted, the most recent FarmBot camera image is used. "
+            "When checking a specific zone, move the camera to that zone and "
+            "call take_photo first; otherwise the latest image may be from "
+            "somewhere else."
         ),
     )
     negatives: str = Field(

@@ -48,14 +48,6 @@ class WritePinArgs(BaseModel):
     mode: str = Field(default="digital", description="'digital' or 'analog'.")
 
 
-class SendMessageArgs(BaseModel):
-    message: str = Field(..., description="Message text to show.")
-    message_type: str = Field(
-        default="info",
-        description="'info', 'success', 'warn', or 'error'.",
-    )
-
-
 class MountToolArgs(BaseModel):
     tool_name: str = Field(..., description="Name of the tool to mount.")
 
@@ -78,6 +70,10 @@ class MovePathArgs(BaseModel):
     photo_at_waypoints: bool = Field(
         default=False,
         description="If true, take a photo at every waypoint.",
+    )
+    water_pin: int | None = Field(
+        default=None,
+        description="If set, keep this GPIO pin HIGH while moving and turn it OFF once the final position is reached.",
     )
 
 
@@ -139,7 +135,6 @@ def tool_calls_to_actions(
             "read_pin",
             "write_pin",
             "take_photo",
-            "send_message",
             "mount_tool",
             "dismount_tool",
             "e_stop",

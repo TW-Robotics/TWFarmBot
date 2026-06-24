@@ -37,6 +37,7 @@ from twfarmbot_core.config import load_yaml_config
 
 @dataclass(frozen=True)
 class PlannerConfig:
+    provider: str
     base_url: str
     model: str
     api_key: str | None
@@ -69,6 +70,11 @@ def load_config(
     """
     planning = _load_planning_block(yaml_path, yaml_data)
 
+    provider = (
+        os.getenv("PLANNING_LLM_PROVIDER")
+        or planning.get("provider")
+        or "openrouter"
+    ).lower()
     base_url = (
         os.getenv("PLANNING_LLM_BASE_URL")
         or planning.get("base_url")
@@ -91,6 +97,7 @@ def load_config(
         extra_body = None
     weave_project = os.getenv("WEAVE_PROJECT") or planning.get("weave_project")
     return PlannerConfig(
+        provider=provider,
         base_url=base_url,
         model=model,
         api_key=api_key,

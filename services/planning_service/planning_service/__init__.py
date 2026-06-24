@@ -69,6 +69,7 @@ def plan(
     model: BaseChatModel | None = None,
     config: PlannerConfig | None = None,
     system_state: SystemStateProvider | None = None,
+    model_name: str | None = None,
 ) -> PlanResult:
     """Translate a natural-language ``request`` into a validated PlanResult.
 
@@ -77,13 +78,14 @@ def plan(
     inside ``plan()``; they are validated and returned for the caller to
     execute or preview.
     """
-    cfg, base_model = build_base_model(model=model, config=config)
+    cfg, base_model = build_base_model(model=model, config=config, model_name=model_name)
     registry = registry or get_default_registry()
 
     tool_registry = ToolRegistry(registry, system_state)
     approval_gate = ApprovalGate(registry, planning_mode=True)
     context_builder = ContextBuilder(tool_registry, world=world)
     planner_model = base_model.bind_tools(tool_registry.langchain_tools())
+    selected_model = model_name or cfg.model
 
     loop = AgentLoop(
         model=planner_model,
@@ -91,14 +93,13 @@ def plan(
         approval_gate=approval_gate,
         context_builder=context_builder,
         reasoning=ReasoningController(),
-        model_name=cfg.model,
+        model_name=selected_model,
         propose_only=False,
         allow_actions=False,
-        max_iterations=3,
         include_reasoning=False,
     )
 
-    log.info("planning request via %s/%s", cfg.base_url, cfg.model)
+    log.info("planning request via %s/%s", cfg.base_url, selected_model)
     result = loop.plan_request(request)
 
     actions = _extract_actions(result.tool_calls, registry, approval_gate)

@@ -35,9 +35,6 @@ class ChatResult:
     thinking: str | None = None
 
 
-def _include_reasoning(cfg: PlannerConfig) -> bool:
-    return "deepseek" in cfg.model.lower() and "v4" in cfg.model.lower()
-
 
 def _make_loop(
     messages: list[dict[str, Any]],
@@ -49,27 +46,31 @@ def _make_loop(
     config: PlannerConfig | None = None,
     allow_actions: bool = True,
     propose_only: bool = False,
-    max_iterations: int = 5,
+    model_name: str | None = None,
 ) -> AgentLoop:
-    cfg, base_model = build_base_model(model=model, config=config)
+    cfg, base_model = build_base_model(model=model, config=config, model_name=model_name)
     tool_registry = ToolRegistry(registry, system_state)
     approval_gate = ApprovalGate(registry)
     context_builder = ContextBuilder(
         tool_registry, world=world, propose_only=propose_only
     )
     chat_model = base_model.bind_tools(tool_registry.langchain_tools())
+    selected_model = model_name or cfg.model
     return AgentLoop(
         model=chat_model,
         tool_registry=tool_registry,
         approval_gate=approval_gate,
         context_builder=context_builder,
         reasoning=ReasoningController(),
-        model_name=cfg.model,
+        model_name=selected_model,
         propose_only=propose_only,
         allow_actions=allow_actions,
-        max_iterations=max_iterations,
-        include_reasoning=_include_reasoning(cfg),
+        include_reasoning=_include_reasoning_for(selected_model),
     )
+
+
+def _include_reasoning_for(model_name: str) -> bool:
+    return "deepseek" in model_name.lower() and "v4" in model_name.lower()
 
 
 def chat(
@@ -82,7 +83,7 @@ def chat(
     config: PlannerConfig | None = None,
     allow_actions: bool = True,
     propose_only: bool = False,
-    max_iterations: int = 5,
+    model_name: str | None = None,
 ) -> ChatResult:
     """Run one conversational turn with tool use.
 
@@ -100,7 +101,7 @@ def chat(
         config=config,
         allow_actions=allow_actions,
         propose_only=propose_only,
-        max_iterations=max_iterations,
+        model_name=model_name,
     )
     result = loop.run(messages)
     out_messages = list(messages)
@@ -124,7 +125,7 @@ def stream_chat(
     config: PlannerConfig | None = None,
     allow_actions: bool = True,
     propose_only: bool = False,
-    max_iterations: int = 5,
+    model_name: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Streaming conversational assistant.
 
@@ -143,6 +144,6 @@ def stream_chat(
         config=config,
         allow_actions=allow_actions,
         propose_only=propose_only,
-        max_iterations=max_iterations,
+        model_name=model_name,
     )
     yield from loop.stream(messages)

@@ -16,7 +16,6 @@ from ..tools import (
     MoveArgs,
     MovePathArgs,
     ReadPinArgs,
-    SendMessageArgs,
     WaterArgs,
     WritePinArgs,
 )
@@ -64,18 +63,16 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
     "take_photo": ToolPolicy(
         ToolCategory.READ,
         requires_approval=False,
-        description="Trigger the camera to take a photo.",
+        description=(
+            "Trigger the camera to take a photo at the current gantry position. "
+            "Move to the target zone first if the photo should be of a specific bed."
+        ),
     ),
     "move_path": ToolPolicy(
         ToolCategory.ACT,
         requires_approval=True,
         safety_rules=("move_path",),
         description="Move the gantry through a sequence of waypoints, optionally taking photos.",
-    ),
-    "send_message": ToolPolicy(
-        ToolCategory.READ,
-        requires_approval=False,
-        description="Show a message to the user.",
     ),
     "e_stop": ToolPolicy(
         ToolCategory.ACT,
@@ -92,7 +89,6 @@ _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "find_home": FindHomeArgs,
     "read_pin": ReadPinArgs,
     "write_pin": WritePinArgs,
-    "send_message": SendMessageArgs,
     "mount_tool": MountToolArgs,
 }
 

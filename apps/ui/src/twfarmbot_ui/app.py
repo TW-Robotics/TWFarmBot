@@ -143,11 +143,10 @@ def _render_proposed_actions_inline(
         if approve_col.button(
             "✓ Approve", key=f"approve_{idx}", use_container_width=True
         ):
-            _execute_proposed_actions(actions, message)
+            with st.spinner("Executing actions…"):
+                results = _execute_proposed_actions(actions, message, wait=True)
             message["approved"] = True
-            message[
-                "content"
-            ] += f"\n\n✅ Approved and queued {len(actions)} action(s)."
+            message["content"] += "\n\n" + _format_execution_results(results)
             st.rerun()
         if reject_col.button("✕ Reject", key=f"reject_{idx}", use_container_width=True):
             message["rejected"] = True
@@ -1399,6 +1398,69 @@ def _render_camera() -> None:
             )
 
 
+def _render_model_picker() -> str | None:
+    """Render provider + model selectors and return the selected model id."""
+    if "assistant_providers" not in st.session_state:
+        r = client.request("GET", "/providers")
+        if r.ok and isinstance(r.body, dict):
+            st.session_state["assistant_providers"] = r.body.get("providers", [])
+            st.session_state["assistant_provider"] = r.body.get("current", "openrouter")
+        else:
+            st.session_state["assistant_providers"] = ["openrouter", "local"]
+            st.session_state["assistant_provider"] = "openrouter"
+
+    providers = st.session_state["assistant_providers"]
+    provider_col, model_col = st.columns([1, 2])
+    with provider_col:
+        provider = st.selectbox(
+            "Provider",
+            providers,
+            key="assistant_provider",
+        )
+
+    cache = st.session_state.setdefault("assistant_models_cache", {})
+    if provider not in cache:
+        r = client.request("GET", "/models", params={"provider": provider})
+        if r.ok and isinstance(r.body, dict):
+            cache[provider] = r.body.get("models", [])
+            if not st.session_state.get("assistant_model"):
+                st.session_state["assistant_model"] = r.body.get("current")
+        else:
+            cache[provider] = []
+
+    models = cache.get(provider, [])
+    selected_model: str | None = None
+    with model_col:
+        if models:
+            current = st.session_state.get("assistant_model")
+            # Avoid defaulting to the first option from a raw provider list,
+            # which may be a meta/safeguard model that cannot chat.
+            if current not in models:
+                preferred = [
+                    "openai/gpt-4o-mini",
+                    "openai/gpt-4o",
+                    "anthropic/claude-3.5-sonnet",
+                    "anthropic/claude-3.5-haiku",
+                    "deepseek/deepseek-v4-flash",
+                ]
+                current = next((m for m in preferred if m in models), models[0])
+                st.session_state["assistant_model"] = current
+            index = models.index(current)
+            selected_model = st.selectbox(
+                "Model",
+                models,
+                index=index,
+                key="assistant_model",
+            )
+        else:
+            selected_model = st.text_input(
+                "Model",
+                value=st.session_state.get("assistant_model", ""),
+                key="assistant_model",
+            ) or None
+    return selected_model
+
+
 def _render_assistant() -> None:
     st.markdown(
         '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
@@ -1411,6 +1473,8 @@ def _render_assistant() -> None:
         if st.button("Clear chat", use_container_width=True):
             st.session_state["assistant_messages"] = []
             st.rerun()
+    selected_model = _render_model_picker()
+    st.session_state["assistant_selected_model"] = selected_model
     _render_chat()
 
 
@@ -1485,11 +1549,10 @@ def _render_chat() -> None:
                         with st.chat_message("user"):
                             st.markdown(prompt)
                     if approval:
-                        _execute_proposed_actions(proposed, last_assistant)
+                        with st.spinner("Executing actions…"):
+                            results = _execute_proposed_actions(proposed, last_assistant, wait=True)
                         last_assistant["approved"] = True
-                        last_assistant[
-                            "content"
-                        ] += f"\n\n✅ Approved and queued {len(proposed)} action(s)."
+                        last_assistant["content"] += "\n\n" + _format_execution_results(results)
                     else:
                         last_assistant["rejected"] = True
                         last_assistant["content"] += "\n\n❌ Cancelled."
@@ -1532,7 +1595,10 @@ def _render_chat() -> None:
                 for event in client.stream(
                     "POST",
                     "/chat/stream",
-                    json={"messages": st.session_state["assistant_messages"]},
+                    json={
+                        "messages": st.session_state["assistant_messages"],
+                        "model": st.session_state.get("assistant_selected_model"),
+                    },
                     timeout=PLAN_TIMEOUT,
                 ):
                     etype = event.get("type")
@@ -1592,7 +1658,10 @@ def _render_chat() -> None:
                     r = client.request(
                         "POST",
                         "/chat",
-                        json={"messages": st.session_state["assistant_messages"]},
+                        json={
+                            "messages": st.session_state["assistant_messages"],
+                            "model": st.session_state.get("assistant_selected_model"),
+                        },
                         timeout=PLAN_TIMEOUT,
                     )
                     if r.ok and isinstance(r.body, dict):
@@ -1712,18 +1781,34 @@ def _capture_photo_image() -> dict[str, Any] | None:
 def _execute_proposed_actions(
     actions: list[dict[str, Any]],
     message: dict[str, Any] | None = None,
-) -> None:
-    """Dispatch proposed actions and, for take_photo, attach the new image."""
+    *,
+    wait: bool = True,
+) -> list[dict[str, Any]]:
+    """Dispatch proposed actions and return per-action results.
+
+    By default this waits for each action to finish so the UI can give
+    immediate feedback. For fire-and-forget dispatch, pass ``wait=False``.
+    """
     will_capture = message is not None and any(
         action.get("kind") == "take_photo" for action in actions
     )
     previous_image = _fetch_latest_image() if will_capture else None
 
+    results: list[dict[str, Any]] = []
     for action in actions:
-        client.request(
+        r = client.request(
             "POST",
             "/actions",
             json={"kind": action["kind"], "params": action.get("params", {})},
+            params={"wait": "true" if wait else "false"},
+        )
+        results.append(
+            {
+                "kind": action["kind"],
+                "ok": r.ok,
+                "status": "ok" if r.ok else "error",
+                "detail": r.body if isinstance(r.body, str) else r.body.get("detail") if isinstance(r.body, dict) else str(r.body),
+            }
         )
 
     if will_capture:
@@ -1731,11 +1816,30 @@ def _execute_proposed_actions(
         if new_image:
             message.setdefault("images", []).append(new_image)
 
+    return results
+
+
+def _format_execution_results(results: list[dict[str, Any]]) -> str:
+    """Turn per-action results into a short, human-readable summary."""
+    if not results:
+        return "✅ Approved (no actions)."
+    lines: list[str] = []
+    for res in results:
+        summary = _action_summary({"kind": res["kind"], "params": {}})
+        if res.get("ok"):
+            lines.append(f"✅ {summary}")
+        else:
+            lines.append(f"❌ {summary} — {res.get('detail', 'unknown error')}")
+    return "\n".join(lines)
+
 
 def _render_plan() -> None:
     st.caption(
         "Describe a task. The LLM builds a step-by-step plan; review it before running."
     )
+
+    selected_model = _render_model_picker()
+    st.session_state["assistant_selected_model"] = selected_model
 
     if "assistant_plan_response" not in st.session_state:
         st.session_state["assistant_plan_response"] = None
@@ -1779,7 +1883,11 @@ def _render_plan() -> None:
             r = client.request(
                 "POST",
                 "/plan",
-                json={"request": request, "debug": True},
+                json={
+                    "request": request,
+                    "debug": True,
+                    "model": st.session_state.get("assistant_selected_model"),
+                },
                 timeout=PLAN_TIMEOUT,
             )
         st.session_state["assistant_plan_response"] = (
@@ -1945,7 +2053,7 @@ def _render_settings() -> None:
 
     with st.expander("Raw action"):
         with st.form("raw"):
-            kind = st.text_input("Kind", "send_message")
+            kind = st.text_input("Kind", "move")
             raw = st.text_area("Params (JSON)", '{"message":"hello"}', height=100)
             if st.form_submit_button("Fire"):
                 try:

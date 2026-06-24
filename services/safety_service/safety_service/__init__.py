@@ -104,6 +104,15 @@ def _check_move_path(action: Action, limits: SafetyLimits) -> None:
                     f"waypoint {idx} {axis}={value} exceeds |max| {cap} mm"
                 )
 
+    water_pin = action.params.get("water_pin")
+    if water_pin is not None:
+        try:
+            int(water_pin)
+        except (TypeError, ValueError) as err:
+            raise UnsafeActionError(
+                f"water_pin must be an integer, got {water_pin!r}"
+            ) from err
+
 
 register("move", _check_move)
 register("move_path", _check_move_path)

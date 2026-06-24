@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
+import json
+
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages.tool import ToolCallChunk
 from langchain_core.tools import BaseTool
 
 from planning_service.harness import (
@@ -58,8 +61,23 @@ class _ToolAwareFake(FakeListChatModel):
         return AIMessage(content=str(response))
 
     def stream(self, *_args: Any, **_kwargs: Any):
-        text = self.invoke(*_args, **_kwargs).content
-        yield type("Chunk", (), {"content": text, "additional_kwargs": {}})()
+        msg = self.invoke(*_args, **_kwargs)
+        if getattr(msg, "tool_calls", None):
+            yield AIMessageChunk(
+                content=msg.content or "",
+                tool_call_chunks=[
+                    ToolCallChunk(
+                        id=tc.get("id", ""),
+                        name=tc.get("name", ""),
+                        args=json.dumps(tc.get("args", {})),
+                        index=i,
+                    )
+                    for i, tc in enumerate(msg.tool_calls)
+                ],
+            )
+        else:
+            for word in str(msg.content or "").split():
+                yield AIMessageChunk(content=word + " ")
 
 
 def _make_registry() -> ActionRegistry:
@@ -191,7 +209,6 @@ def _make_loop(
         context_builder=builder,
         propose_only=propose_only,
         allow_actions=True,
-        max_iterations=3,
     )
 
 

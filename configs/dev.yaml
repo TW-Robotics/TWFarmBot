@@ -7,7 +7,7 @@ log_level: INFO
 # the environment, or reference a different env var via api_key_env.
 planning:
   base_url: https://openrouter.ai/api/v1   # OpenAI-compatible endpoint
-  model: deepseek/deepseek-v4-flash      # any model the endpoint exposes
+  model: openai/gpt-oss-safeguard-20b     # any model the endpoint exposes
   api_key_env: PLANNING_LLM_API_KEY  # name of the env var that holds the secret
   timeout_s: 120                       # raise this for slower models
   temperature: 0.0

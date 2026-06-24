@@ -8,28 +8,27 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from twfarmbot_core.actions import ActionRegistry
 
-from .client import build_chat_model
 from .config import PlannerConfig, load_config
 from .harness import ToolRegistry
 from .harness.tracing import init_weave
 from .introspection import SystemStateProvider
+from .providers import get_provider
 
 
 def build_base_model(
     model: Any | None = None,
     config: PlannerConfig | None = None,
+    model_name: str | None = None,
 ) -> tuple[PlannerConfig, BaseChatModel]:
-    """Resolve config and build the chat model."""
+    """Resolve config and build the chat model.
+
+    ``model_name`` overrides the configured model name for this call only.
+    """
     cfg = config or load_config()
     init_weave(cfg.weave_project)
-    base_model = model or build_chat_model(
-        base_url=cfg.base_url,
-        model=cfg.model,
-        api_key=cfg.api_key,
-        timeout_s=cfg.timeout_s,
-        temperature=cfg.temperature,
-        extra_body=cfg.extra_body,
-    )
+    provider = get_provider(cfg.provider)
+    selected_model = model_name or cfg.model
+    base_model = model or provider.build_chat_model(selected_model, cfg)
     return cfg, base_model
 
 
