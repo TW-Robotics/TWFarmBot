@@ -73,6 +73,34 @@ def test_api_client_strips_trailing_slash() -> None:
     assert c.base_url == "http://api"
 
 
+def test_api_result_error_message_prefers_detail() -> None:
+    from twfarmbot_ui.client import ApiResult
+
+    r = ApiResult(ok=False, code=500, body={"detail": "FarmBot not connected"})
+    assert r.error_message() == "FarmBot not connected"
+
+
+def test_api_result_error_message_falls_back_to_error_key() -> None:
+    from twfarmbot_ui.client import ApiResult
+
+    r = ApiResult(ok=False, code=0, body={"error": "ConnectError: refused"})
+    assert r.error_message() == "ConnectError: refused"
+
+
+def test_api_result_error_message_falls_back_to_string_body() -> None:
+    from twfarmbot_ui.client import ApiResult
+
+    r = ApiResult(ok=False, code=500, body="raw error text")
+    assert r.error_message() == "raw error text"
+
+
+def test_api_result_error_message_stringifies_unknown_body() -> None:
+    from twfarmbot_ui.client import ApiResult
+
+    r = ApiResult(ok=False, code=500, body={"nested": ["info"]})
+    assert "nested" in r.error_message()
+
+
 def test_huggingface_image_processor_calls_gradio_endpoint(
     monkeypatch: "pytest.MonkeyPatch",
 ) -> None:

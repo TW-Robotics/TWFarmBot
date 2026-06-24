@@ -25,7 +25,7 @@ from twfarmbot_ml_utils import (
 
 from twfarmbot_core.actions import summarize_action
 
-from twfarmbot_ui.client import ApiClient
+from twfarmbot_ui.client import ApiClient, ApiResult
 
 # ── config ────────────────────────────────────────────────────────────────────
 
@@ -336,7 +336,7 @@ def _do_move(client: ApiClient, x: float, y: float, z: float, label: str = "") -
         st.toast(msg, icon="➡️")
         _refresh_position(client)
     else:
-        st.error(f"HTTP {r.code}: {r.body}")
+        st.error(r.error_message())
 
 
 def _do_pin_write(
@@ -353,7 +353,7 @@ def _do_pin_write(
     if r.ok:
         st.toast(f"pin {pin} = {value}", icon="✏️")
     else:
-        st.error(f"HTTP {r.code}: {r.body}")
+        st.error(r.error_message())
 
 
 def _do_pin_pulse(
@@ -370,7 +370,7 @@ def _do_pin_pulse(
     if r.ok:
         st.toast(f"pin {pin} HIGH for {seconds}s", icon="✏️")
     else:
-        st.error(f"HTTP {r.code}: {r.body}")
+        st.error(r.error_message())
 
 
 # ── page shell ────────────────────────────────────────────────────────────────
@@ -579,7 +579,7 @@ with st.sidebar:
         if r.ok:
             st.toast("ESTOP sent", icon="🛑")
         else:
-            st.error(str(r.body))
+            st.error(r.error_message())
 
 # ── tab content ───────────────────────────────────────────────────────────────
 
@@ -763,7 +763,7 @@ def _render_garden() -> None:
 
     result = client.request("GET", "/garden")
     if not result.ok or not isinstance(result.body, dict):
-        st.error(f"Garden model unavailable: {result.body}")
+        st.error(f"Garden model unavailable: {result.error_message()}")
         return
 
     world = result.body
@@ -1065,7 +1065,7 @@ def _render_motion() -> None:
         if r.ok:
             st.toast("Homing queued")
         else:
-            st.error(str(r.body))
+            st.error(r.error_message())
 
     # Presets
     if "presets" not in st.session_state:
@@ -1135,7 +1135,7 @@ def _render_io() -> None:
                 if r.ok:
                     st.success("Queued")
                 else:
-                    st.error(str(r.body))
+                    st.error(r.error_message())
 
     with b:
         st.markdown("**Peripheral control**")
@@ -1190,7 +1190,7 @@ def _render_camera() -> None:
         if r.ok:
             st.toast("Capture queued", icon="📷")
         else:
-            st.error(str(r.body))
+            st.error(r.error_message())
     if refresh.button("↻ Refresh gallery", use_container_width=True):
         st.session_state["images"] = client.request(
             "GET", "/images", params={"refresh": "true"}, timeout=10.0
@@ -1694,7 +1694,7 @@ def _render_chat() -> None:
                             seg[1] = accumulated
                             seg[0].markdown(accumulated)
                     else:
-                        stream_error = f"Fallback failed: HTTP {r.code}: {r.body}"
+                        stream_error = f"Fallback failed: {r.error_message()}"
                 except Exception as exc:  # noqa: BLE001
                     stream_error = f"Fallback failed: {type(exc).__name__}: {exc}"
 
@@ -1906,7 +1906,11 @@ def _render_plan() -> None:
         st.json(response)
 
     if status and status >= 400:
-        st.error(f"Planner error (HTTP {status}): {response.get('error', response)}")
+        err_body = response.get("error", response)
+        st.error(
+            f"Planner error (HTTP {status}): "
+            f"{ApiResult(ok=False, code=status, body=err_body).error_message()}"
+        )
         return
 
     actions = response.get("actions", []) or []
@@ -1946,7 +1950,7 @@ def _render_plan() -> None:
                 st.toast(f"Queued {action['kind']}", icon="➡️")
             else:
                 failed += 1
-                st.error(f"Failed to queue {action['kind']}: {r.body}")
+                st.error(f"Failed to queue {action['kind']}: {r.error_message()}")
         if failed == 0:
             st.success(f"Plan queued · {queued} action(s)")
         else:
@@ -1968,7 +1972,7 @@ def _render_diagnostics() -> None:
         if d.ok and isinstance(d.body, dict):
             st.session_state["diag"] = d.body.get("state", {})
         else:
-            st.error(f"Read failed: {d.body}")
+            st.error(f"Read failed: {d.error_message()}")
 
     payload = st.session_state.get("diag", {}) or {}
     info = payload.get("informational_settings", {}) or {}

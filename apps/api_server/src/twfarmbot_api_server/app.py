@@ -158,6 +158,19 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(err)) from err
         except UnsafeActionError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
+        except FarmBotConnectionError as err:
+            raise HTTPException(
+                status_code=502,
+                detail=f"FarmBot not connected: {err}",
+            ) from err
+        except Exception as err:  # noqa: BLE001 — surface real cause to the UI
+            log.exception(
+                "action failed kind=%s params=%s", action.kind, action.params
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(err).__name__}: {err}",
+            ) from err
         return {
             "status": "ok",
             "action": {"kind": executed.kind, "params": executed.params},
