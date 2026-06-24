@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable
 
-from langchain_core.tools import BaseTool, StructuredTool, tool
+from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel
 from twfarmbot_core.actions import ActionRegistry
 
