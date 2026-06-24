@@ -91,6 +91,7 @@ def plan(
         approval_gate=approval_gate,
         context_builder=context_builder,
         reasoning=ReasoningController(),
+        model_name=cfg.model,
         propose_only=False,
         allow_actions=False,
         max_iterations=3,

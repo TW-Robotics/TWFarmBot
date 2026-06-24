@@ -21,6 +21,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+try:
+    from dotenv import load_dotenv
+
+    # Load .env once at import time, but never override existing env vars
+    # so that explicitly exported variables still win. Skip during pytest to
+    # avoid triggering external services (e.g. Weave) from the test suite.
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        load_dotenv(override=False)
+except ImportError:  # pragma: no cover - python-dotenv is optional
+    pass
+
 from twfarmbot_core.config import load_yaml_config
 
 
@@ -32,6 +43,7 @@ class PlannerConfig:
     timeout_s: float
     temperature: float
     extra_body: dict[str, Any] | None = None
+    weave_project: str | None = None
 
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -77,6 +89,7 @@ def load_config(
     extra_body = planning.get("extra_body")
     if extra_body is not None and not isinstance(extra_body, dict):
         extra_body = None
+    weave_project = os.getenv("WEAVE_PROJECT") or planning.get("weave_project")
     return PlannerConfig(
         base_url=base_url,
         model=model,
@@ -84,6 +97,7 @@ def load_config(
         timeout_s=timeout_s,
         temperature=temperature,
         extra_body=extra_body,
+        weave_project=weave_project,
     )
 
 

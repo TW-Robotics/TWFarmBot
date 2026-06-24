@@ -23,6 +23,7 @@ from .context_builder import ContextBuilder
 from .reasoning_controller import ReasoningController
 from .tool_policy import ToolCategory, ToolDescriptor
 from .tool_registry import ToolRegistry
+from .tracing import is_enabled, timed_invoke, timed_stream, trace_tool_call
 
 
 def _llm_friendly_result(result: Any) -> Any:
@@ -55,6 +56,7 @@ class AgentLoop:
         context_builder: ContextBuilder,
         reasoning: ReasoningController | None = None,
         *,
+        model_name: str = "unknown",
         propose_only: bool = False,
         allow_actions: bool = True,
         max_iterations: int = 5,
@@ -65,6 +67,7 @@ class AgentLoop:
         self._approval_gate = approval_gate
         self._context_builder = context_builder
         self._reasoning = reasoning or ReasoningController()
+        self._model_name = model_name
         self._propose_only = propose_only
         self._allow_actions = allow_actions
         self._max_iterations = max_iterations
@@ -88,7 +91,7 @@ class AgentLoop:
         final_thinking: str | None = None
 
         for _ in range(self._max_iterations):
-            response = self._model.invoke(lc_messages)
+            response = timed_invoke(self._model, lc_messages, self._model_name)
             last_response = response
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
@@ -144,7 +147,7 @@ class AgentLoop:
         last_response: Any = None
 
         for _ in range(self._max_iterations):
-            response = self._model.invoke(lc_messages)
+            response = timed_invoke(self._model, lc_messages, self._model_name)
             last_response = response
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
@@ -187,7 +190,7 @@ class AgentLoop:
         buffer = ""
         streamed_reasoning: list[str] = []
         streamed_reasoning_emitted = bool(tool_turn_thinking)
-        for chunk in self._model.stream(lc_messages):
+        for chunk in timed_stream(self._model, lc_messages, self._model_name):
             for event in self._reasoning.stream_chunks(
                 chunk,
                 accumulated_reasoning=streamed_reasoning,
@@ -228,7 +231,7 @@ class AgentLoop:
         final_thinking: str | None = None
 
         for _ in range(max_iterations):
-            response = self._model.invoke(lc_messages)
+            response = timed_invoke(self._model, lc_messages, self._model_name)
             last_response = response
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
@@ -317,6 +320,9 @@ class AgentLoop:
         if tool is None:
             return {"error": f"unknown tool {name!r}"}
         try:
-            return tool.invoke(args)
+            result = tool.invoke(args)
         except Exception as err:  # noqa: BLE001
-            return {"error": f"{type(err).__name__}: {err}"}
+            result = {"error": f"{type(err).__name__}: {err}"}
+        if is_enabled():
+            trace_tool_call(name, args, result)
+        return result

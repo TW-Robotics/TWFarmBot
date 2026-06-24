@@ -15,6 +15,9 @@ planning:
   # OpenRouter use: extra_body: {reasoning: {effort: low}}
   # For native DeepSeek use: extra_body: {thinking: {type: enabled}}
   extra_body: {reasoning: {effort: low}}
+  # Optional W&B Weave project for tracing. Set WEAVE_PROJECT or this field
+  # to enable model/tool-call/token tracing.
+  weave_project: ""
 
 # FarmBot WiFi credentials are read from environment variables
 # (FARMBOT_HOST, FARMBOT_EMAIL, FARMBOT_PASSWORD, optional FARMBOT_TOKEN)

@@ -11,6 +11,7 @@ from twfarmbot_core.actions import ActionRegistry
 from .client import build_chat_model
 from .config import PlannerConfig, load_config
 from .harness import ToolRegistry
+from .harness.tracing import init_weave
 from .introspection import SystemStateProvider
 
 
@@ -20,6 +21,7 @@ def build_base_model(
 ) -> tuple[PlannerConfig, BaseChatModel]:
     """Resolve config and build the chat model."""
     cfg = config or load_config()
+    init_weave(cfg.weave_project)
     base_model = model or build_chat_model(
         base_url=cfg.base_url,
         model=cfg.model,
