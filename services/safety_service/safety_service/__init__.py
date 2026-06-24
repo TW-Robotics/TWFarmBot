@@ -3,6 +3,9 @@
 Per the README: *Any code path that ultimately moves the FarmBot (watering,
 weeding, tool changes, …) must pass through safety_service before it reaches
 farmbot_gateway.*
+
+Validators are registered by action kind. Adding a new safety rule is now a
+single line: ``register("my_kind", my_validator)``.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
+from typing import Callable
 
 from twfarmbot_core.domain.action import Action
 
@@ -39,6 +43,18 @@ def load_limits() -> SafetyLimits:
     )
 
 
+Validator = Callable[[Action, SafetyLimits], None]
+
+_VALIDATORS: dict[str, Validator] = {}
+
+
+def register(kind: str, validator: Validator) -> None:
+    """Register a safety validator for an action kind."""
+    if kind in _VALIDATORS:
+        raise ValueError(f"safety validator already registered for {kind!r}")
+    _VALIDATORS[kind] = validator
+
+
 def _check_move(action: Action, limits: SafetyLimits) -> None:
     for axis in ("x", "y", "z"):
         if axis not in action.params:
@@ -56,25 +72,28 @@ def _check_move(action: Action, limits: SafetyLimits) -> None:
             )
 
 
+def _check_water(action: Action, limits: SafetyLimits) -> None:
+    seconds = float(action.params.get("seconds", 0.0))
+    if seconds <= 0:
+        raise UnsafeActionError(f"water action needs positive seconds, got {seconds}")
+    if seconds > limits.max_water_seconds:
+        raise UnsafeActionError(
+            f"water action exceeds max {limits.max_water_seconds}s (got {seconds}s)"
+        )
+
+
+register("move", _check_move)
+register("water", _check_water)
+
+
 def validate(action: Action, *, limits: SafetyLimits | None = None) -> Action:
     """Check an Action against the safety rules. Returns it unchanged on pass.
 
     Raises :class:`UnsafeActionError` if the action is rejected.
     """
     limits = limits or load_limits()
-
-    if action.kind == "water":
-        seconds = float(action.params.get("seconds", 0.0))
-        if seconds <= 0:
-            raise UnsafeActionError(f"water action needs positive seconds, got {seconds}")
-        if seconds > limits.max_water_seconds:
-            raise UnsafeActionError(
-                f"water action exceeds max {limits.max_water_seconds}s (got {seconds}s)"
-            )
-
-    elif action.kind == "move":
-        _check_move(action, limits)
-
+    validator = _VALIDATORS.get(action.kind)
+    if validator is not None:
+        validator(action, limits)
     log.info("safety: approved %s", action)
     return action
-

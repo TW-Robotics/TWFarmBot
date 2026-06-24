@@ -10,9 +10,8 @@ from twfarmbot_core.actions import ActionRegistry
 
 from .client import build_chat_model
 from .config import PlannerConfig, load_config
-from .execution_tools import build_execution_tools
-from .introspection import SystemStateProvider, build_introspection_tools
-from .tools import build_tools
+from .harness import ToolRegistry
+from .introspection import SystemStateProvider
 
 
 def build_base_model(
@@ -42,22 +41,14 @@ def build_tool_set(
 ) -> list[BaseTool]:
     """Build the combined tool list for a chat/planner run.
 
-    Execution tools win name collisions against introspection tools (e.g.
-    ``read_pin``) so the robot actually changes state.
-    """
-    if for_chat:
-        execution_tools = (
-            build_execution_tools(registry, propose_only=propose_only)
-            if allow_actions
-            else []
-        )
-    else:
-        execution_tools = build_tools(registry)
+    The harness owns approval/execution semantics; this helper now just
+    returns schema-complete LangChain tools generated from the unified
+    ``ToolRegistry``.
 
-    introspection_tools = (
-        build_introspection_tools(system_state) if system_state is not None else []
-    )
-    execution_names = {t.name for t in execution_tools}
-    return list(execution_tools) + [
-        t for t in introspection_tools if t.name not in execution_names
-    ]
+    The ``for_chat``, ``propose_only``, and ``allow_actions`` parameters
+    are kept for backward compatibility but no longer change the returned
+    tool schemas — policy is applied at invocation time by ``AgentLoop``.
+    """
+    del for_chat, propose_only, allow_actions
+    tool_registry = ToolRegistry(registry, system_state)
+    return tool_registry.langchain_tools()

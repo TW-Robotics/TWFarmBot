@@ -1,30 +1,27 @@
 """Conversational chat interface for the FarmBot.
 
-The model is bound to both introspection (read-only) and execution tools so it
-can answer "what is the status?" and also water, take photos, move, etc.
+The heavy lifting is delegated to the harness ``AgentLoop``; this module
+just wires it to the public ``chat()`` / ``stream_chat()`` signatures.
 """
 
 from __future__ import annotations
 
-import json
-import logging
-import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterator
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import BaseTool
-
+from langchain_core.language_models import BaseChatModel
 from twfarmbot_core.actions import ActionRegistry
 
-from spatial_service import format_world_context
-
-from .agent import build_base_model, build_tool_set
-from .config import PlannerConfig, load_config
+from .agent import build_base_model
+from .config import PlannerConfig
+from .harness import (
+    AgentLoop,
+    ApprovalGate,
+    ContextBuilder,
+    ReasoningController,
+    ToolRegistry,
+)
 from .introspection import SystemStateProvider
-from .prompt import build_chat_system_prompt
-
-log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -38,62 +35,40 @@ class ChatResult:
     thinking: str | None = None
 
 
-def _to_langchain_message(
-    message: dict[str, Any], *, include_reasoning: bool = False
-) -> SystemMessage | HumanMessage | AIMessage | None:
-    role = message.get("role", "")
-    content = message.get("content", "")
-    if role == "user":
-        return HumanMessage(content=str(content))
-    if role == "assistant":
-        kwargs: dict[str, Any] = {}
-        if include_reasoning:
-            thinking = message.get("thinking")
-            if thinking:
-                kwargs["additional_kwargs"] = {"reasoning_content": str(thinking)}
-        return AIMessage(content=str(content), **kwargs)
-    # Unknown / UI-only roles are not sent back to the model.
-    return None
+def _include_reasoning(cfg: PlannerConfig) -> bool:
+    return "deepseek" in cfg.model.lower() and "v4" in cfg.model.lower()
 
 
-THINK_TAG_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
-
-
-def _extract_thinking(message: Any) -> str | None:
-    """Extract reasoning / thinking content from a LangChain message.
-
-    Tries, in order:
-    1. ``<think>...</think>`` tags in the message content.
-    2. Provider-specific metadata fields such as ``reasoning_content``
-       (DeepSeek / OpenRouter) or ``thinking`` (Claude).
-    """
-    content = str(getattr(message, "content", "") or "")
-    match = THINK_TAG_RE.search(content)
-    if match:
-        thinking = match.group(1).strip()
-        return thinking if thinking else None
-
-    for key in ("reasoning_content", "thinking", "reasoning"):
-        value = getattr(message, "response_metadata", {}).get(key) or getattr(
-            message, "additional_kwargs", {}
-        ).get(key)
-        if value:
-            return str(value).strip() or None
-    return None
-
-
-def _llm_friendly_result(result: Any) -> Any:
-    """Return a version of a tool result suitable for the LLM context.
-
-    Large binary payloads (e.g. base64 analysis images) are replaced with a
-    placeholder so they do not waste tokens or overflow the context window.
-    The full result is still returned to the UI via tool_call events.
-    """
-    if isinstance(result, dict) and "image_url" in result:
-        out = dict(result)
-        out["image_url"] = "[image data shown to user in chat]"
-        return out
-    return result
+def _make_loop(
+    messages: list[dict[str, Any]],
+    *,
+    registry: ActionRegistry,
+    world: Any = None,
+    system_state: SystemStateProvider | None = None,
+    model: BaseChatModel | None = None,
+    config: PlannerConfig | None = None,
+    allow_actions: bool = True,
+    propose_only: bool = False,
+    max_iterations: int = 5,
+) -> AgentLoop:
+    cfg, base_model = build_base_model(model=model, config=config)
+    tool_registry = ToolRegistry(registry, system_state)
+    approval_gate = ApprovalGate(registry)
+    context_builder = ContextBuilder(
+        tool_registry, world=world, propose_only=propose_only
+    )
+    chat_model = base_model.bind_tools(tool_registry.langchain_tools())
+    return AgentLoop(
+        model=chat_model,
+        tool_registry=tool_registry,
+        approval_gate=approval_gate,
+        context_builder=context_builder,
+        reasoning=ReasoningController(),
+        propose_only=propose_only,
+        allow_actions=allow_actions,
+        max_iterations=max_iterations,
+        include_reasoning=_include_reasoning(cfg),
+    )
 
 
 def chat(
@@ -102,7 +77,7 @@ def chat(
     registry: ActionRegistry,
     world: Any = None,
     system_state: SystemStateProvider | None = None,
-    model: Any = None,
+    model: BaseChatModel | None = None,
     config: PlannerConfig | None = None,
     allow_actions: bool = True,
     propose_only: bool = False,
@@ -114,99 +89,27 @@ def chat(
     turns, no system message). The function prepends a system prompt,
     runs the model, executes any tool calls, and returns the final
     assistant text plus a log of tool calls made.
-
-    When ``propose_only=True`` action tools do not mutate the robot. They
-    only record proposed actions so the UI can ask the user for approval.
     """
-    cfg, base_model = build_base_model(model=model, config=config)
-    all_tools = build_tool_set(
-        registry,
-        system_state,
-        for_chat=True,
-        propose_only=propose_only,
+    loop = _make_loop(
+        messages,
+        registry=registry,
+        world=world,
+        system_state=system_state,
+        model=model,
+        config=config,
         allow_actions=allow_actions,
+        propose_only=propose_only,
+        max_iterations=max_iterations,
     )
-    chat_model = base_model.bind_tools(all_tools) if all_tools else base_model
-    tool_map = {t.name: t for t in all_tools}
-
-    system_prompt = build_chat_system_prompt(
-        registry.kinds(), propose_only=propose_only
-    )
-    if world is not None:
-        world_context = format_world_context(world)
-        if world_context:
-            system_prompt += "\n\nCurrent world model:\n" + world_context
-
-    include_reasoning = "deepseek" in cfg.model.lower() and "v4" in cfg.model.lower()
-    langchain_messages = [SystemMessage(content=system_prompt)]
-    for msg in messages:
-        lc_msg = _to_langchain_message(msg, include_reasoning=include_reasoning)
-        if lc_msg is not None:
-            langchain_messages.append(lc_msg)
-
-    tool_log: list[dict[str, Any]] = []
-    proposed_actions: list[dict[str, Any]] = []
-    final_response = ""
-    final_thinking: str | None = None
-    last_response: Any = None
-
-    for _ in range(max_iterations):
-        response = chat_model.invoke(langchain_messages)
-        last_response = response
-        tool_calls = getattr(response, "tool_calls", None) or []
-        if not tool_calls:
-            final_response = str(response.content or "")
-            final_thinking = _extract_thinking(response)
-            break
-
-        langchain_messages.append(response)
-        for call in tool_calls:
-            name = call.get("name")
-            args = call.get("args", {})
-            tool_call_id = call.get("id", "")
-            tool = tool_map.get(name)
-            if tool is None:
-                result = {"error": f"unknown tool {name!r}"}
-            else:
-                try:
-                    result = tool.invoke(args)
-                except Exception as err:  # noqa: BLE001
-                    result = {"error": f"{type(err).__name__}: {err}"}
-            tool_log.append({"name": name, "args": args, "result": result})
-            if isinstance(result, dict) and result.get("status") == "proposed":
-                proposed_actions.append(
-                    {
-                        "kind": result.get("kind", name),
-                        "params": result.get("params", args),
-                    }
-                )
-            langchain_messages.append(
-                ToolMessage(
-                    content=json.dumps(_llm_friendly_result(result)),
-                    tool_call_id=tool_call_id,
-                    name=name,
-                )
-            )
-    else:
-        # Hit the iteration limit; return the last model text if any.
-        final_response = str(getattr(last_response, "content", "") or "")
-        final_thinking = _extract_thinking(last_response)
-        if not final_response:
-            final_response = (
-                "I ran too many tool calls without finishing. Please try again."
-            )
-
-    # Strip <think> tags from the visible response so they don't render twice.
-    final_response = THINK_TAG_RE.sub("", final_response).strip()
-
+    result = loop.run(messages)
     out_messages = list(messages)
-    out_messages.append({"role": "assistant", "content": final_response})
+    out_messages.append({"role": "assistant", "content": result.response})
     return ChatResult(
-        response=final_response,
-        proposed_actions=proposed_actions,
-        tool_calls=tool_log,
+        response=result.response,
+        proposed_actions=result.proposed_actions,
+        tool_calls=result.tool_calls,
         messages=out_messages,
-        thinking=final_thinking,
+        thinking=result.thinking,
     )
 
 
@@ -216,222 +119,29 @@ def stream_chat(
     registry: ActionRegistry,
     world: Any = None,
     system_state: SystemStateProvider | None = None,
-    model: Any = None,
+    model: BaseChatModel | None = None,
     config: PlannerConfig | None = None,
     allow_actions: bool = True,
     propose_only: bool = False,
     max_iterations: int = 5,
-):
-    """Streaming version of :func:`chat`.
+) -> Iterator[dict[str, Any]]:
+    """Streaming conversational assistant.
 
     Yields events:
-      - ``{"type": "delta", "content": "..."}`` for each piece of the
-        final assistant text.
-      - ``{"type": "tool_call", "name": ..., "args": ..., "result": ...}``
-        after a tool is executed.
-      - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...]}``
-        at the very end.
-
-    Tool calls are resolved server-side; the text stream only starts after
-    the model has finished using read-only tools and decided on a final
-    answer.
+      - ``{"type": "tool_call", ...}`` after a tool is executed.
+      - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...]}``.
+      - ``{"type": "thinking", "content": "..."}`` for reasoning traces.
+      - ``{"type": "delta", "content": "..."}`` for the final answer text.
     """
-    cfg, base_model = build_base_model(model=model, config=config)
-    all_tools = build_tool_set(
-        registry,
-        system_state,
-        for_chat=True,
-        propose_only=propose_only,
+    loop = _make_loop(
+        messages,
+        registry=registry,
+        world=world,
+        system_state=system_state,
+        model=model,
+        config=config,
         allow_actions=allow_actions,
+        propose_only=propose_only,
+        max_iterations=max_iterations,
     )
-    chat_model = base_model.bind_tools(all_tools) if all_tools else base_model
-    tool_map = {t.name: t for t in all_tools}
-
-    system_prompt = build_chat_system_prompt(
-        registry.kinds(), propose_only=propose_only
-    )
-    if world is not None:
-        world_context = format_world_context(world)
-        if world_context:
-            system_prompt += "\n\nCurrent world model:\n" + world_context
-
-    include_reasoning = "deepseek" in cfg.model.lower() and "v4" in cfg.model.lower()
-    langchain_messages = [SystemMessage(content=system_prompt)]
-    for msg in messages:
-        lc_msg = _to_langchain_message(msg, include_reasoning=include_reasoning)
-        if lc_msg is not None:
-            langchain_messages.append(lc_msg)
-
-    tool_log: list[dict[str, Any]] = []
-    proposed_actions: list[dict[str, Any]] = []
-    action_tool_names = {t.name for t in all_tools if t.name in registry.kinds()}
-    last_response = None
-
-    for _ in range(max_iterations):
-        response = chat_model.invoke(langchain_messages)
-        last_response = response
-        tool_calls = getattr(response, "tool_calls", None) or []
-        if not tool_calls:
-            break
-        langchain_messages.append(response)
-        for call in tool_calls:
-            name = call.get("name")
-            args = call.get("args", {})
-            tool_call_id = call.get("id", "")
-            tool = tool_map.get(name)
-            if tool is None:
-                result = {"error": f"unknown tool {name!r}"}
-            else:
-                try:
-                    result = tool.invoke(args)
-                except Exception as err:  # noqa: BLE001
-                    result = {"error": f"{type(err).__name__}: {err}"}
-            tool_log.append({"name": name, "args": args, "result": result})
-            if isinstance(result, dict) and result.get("status") == "proposed":
-                proposed_actions.append(
-                    {
-                        "kind": result.get("kind", name),
-                        "params": result.get("params", args),
-                    }
-                )
-            yield {"type": "tool_call", "name": name, "args": args, "result": result}
-            langchain_messages.append(
-                ToolMessage(
-                    content=json.dumps(_llm_friendly_result(result)),
-                    tool_call_id=tool_call_id,
-                    name=name,
-                )
-            )
-
-    # Fallback: some models describe the proposed action in text without ever
-    # calling the action tool. If no action tool was invoked but the answer
-    # looks like a proposal, ask the planner for a concrete action list so the
-    # UI can render Approve/Reject buttons.
-    if (
-        not any(tc["name"] in action_tool_names for tc in tool_log)
-        and last_response is not None
-        and _response_describes_action(str(last_response.content or ""), messages)
-    ):
-        from planning_service import plan as planner_plan
-
-        last_user = next(
-            (
-                str(m.get("content", ""))
-                for m in reversed(messages)
-                if m.get("role") == "user"
-            ),
-            "",
-        )
-        try:
-            plan_result = planner_plan(
-                last_user,
-                registry=registry,
-                world=world,
-                system_state=system_state,
-                model=base_model,
-                config=cfg,
-            )
-        except Exception:  # noqa: BLE001
-            plan_result = None
-        if plan_result and plan_result.actions:
-            proposed_actions = [
-                {"kind": a.kind, "params": a.params} for a in plan_result.actions
-            ]
-            tool_log.append(
-                {
-                    "name": "planner_fallback",
-                    "args": {"request": last_user},
-                    "result": {
-                        "status": "proposed",
-                        "actions": proposed_actions,
-                        "rationale": plan_result.rationale,
-                    },
-                }
-            )
-
-    yield {"type": "meta", "tool_calls": tool_log, "proposed_actions": proposed_actions}
-
-    # If the model exposed thinking/reasoning on the last tool-call turn,
-    # surface it before the answer text stream starts.
-    tool_turn_thinking = (
-        _extract_thinking(last_response) if last_response is not None else None
-    )
-    if tool_turn_thinking:
-        yield {"type": "thinking", "content": tool_turn_thinking}
-
-    buffer = ""
-    streamed_reasoning: list[str] = []
-    streamed_reasoning_emitted = bool(tool_turn_thinking)
-    for chunk in chat_model.stream(langchain_messages):
-        reasoning = getattr(chunk, "additional_kwargs", {}).get("reasoning")
-        if reasoning:
-            streamed_reasoning.append(str(reasoning))
-        content = getattr(chunk, "content", None)
-        if content and streamed_reasoning and not streamed_reasoning_emitted:
-            yield {"type": "thinking", "content": "".join(streamed_reasoning)}
-            streamed_reasoning_emitted = True
-        if not content:
-            continue
-        buffer += str(content)
-
-        # Extract complete <think>...</think> blocks and keep the rest.
-        while True:
-            start = buffer.find("<think>")
-            end = buffer.find("</think>")
-            if start != -1 and end != -1 and end > start:
-                prefix = buffer[:start]
-                think = buffer[start + 7 : end]
-                suffix = buffer[end + 8 :]
-                if prefix:
-                    yield {"type": "delta", "content": prefix}
-                if think:
-                    yield {"type": "thinking", "content": think}
-                buffer = suffix
-                continue
-            break
-
-        # No open think tag: emit what we have and reset.
-        if "<think>" not in buffer:
-            if buffer:
-                yield {"type": "delta", "content": buffer}
-            buffer = ""
-
-    if buffer:
-        yield {"type": "delta", "content": buffer}
-
-
-def _response_describes_action(
-    response_text: str, messages: list[dict[str, Any]]
-) -> bool:
-    """Detect when the model described an action but skipped the tool call."""
-    text = response_text.lower()
-    last_user = next(
-        (
-            str(m.get("content", "")).lower()
-            for m in reversed(messages)
-            if m.get("role") == "user"
-        ),
-        "",
-    )
-    action_words = {
-        "move",
-        "water",
-        "irrigate",
-        "find_home",
-        "home",
-        "e_stop",
-        "mount_tool",
-        "dismount_tool",
-    }
-    if not any(word in last_user or word in text for word in action_words):
-        return False
-    # Concrete proposal indicators
-    if re.search(r"→|->", text):
-        return True
-    if re.search(
-        r"\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\)", text
-    ):
-        return True
-    if ("seconds" in text) and ("water" in text or "irrigate" in text):
-        return True
-    return False
+    yield from loop.stream(messages)
