@@ -31,6 +31,7 @@ class PlannerConfig:
     api_key: str | None
     timeout_s: float
     temperature: float
+    extra_body: dict[str, Any] | None = None
 
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -61,11 +62,7 @@ def load_config(
         or planning.get("base_url")
         or DEFAULT_BASE_URL
     ).rstrip("/")
-    model = (
-        os.getenv("PLANNING_LLM_MODEL")
-        or planning.get("model")
-        or DEFAULT_MODEL
-    )
+    model = os.getenv("PLANNING_LLM_MODEL") or planning.get("model") or DEFAULT_MODEL
     api_key = _resolve_api_key(planning)
     timeout_s = float(
         os.getenv("PLANNING_LLM_TIMEOUT_S")
@@ -77,12 +74,16 @@ def load_config(
         if os.getenv("PLANNING_LLM_TEMPERATURE") is not None
         else planning.get("temperature", DEFAULT_TEMPERATURE)
     )
+    extra_body = planning.get("extra_body")
+    if extra_body is not None and not isinstance(extra_body, dict):
+        extra_body = None
     return PlannerConfig(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout_s=timeout_s,
         temperature=temperature,
+        extra_body=extra_body,
     )
 
 

@@ -18,7 +18,10 @@ from typing import Any
 import altair as alt
 import streamlit as st
 from ruamel.yaml import YAML
-from twfarmbot_ml_utils import HuggingFaceImageProcessor
+from twfarmbot_ml_utils import (
+    HuggingFaceImageProcessor,
+    parse_segmentation_labels,
+)
 
 from twfarmbot_core.actions import summarize_action
 
@@ -27,7 +30,7 @@ from twfarmbot_ui.client import ApiClient
 # ── config ────────────────────────────────────────────────────────────────────
 
 API_URL = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
-AI_SPACE_ID = os.getenv("TWFB_AI_SPACE_ID", "DavidSeyserHF/Eupe-Lang")
+AI_SPACE_ID = os.getenv("TWFB_AI_SPACE_ID", "SimonSchwaiger/resireg-playground")
 PLAN_TIMEOUT = 60.0  # LLM planning can take longer than the default 2s API timeout
 
 
@@ -43,14 +46,19 @@ def _image_processor(space_id: str) -> HuggingFaceImageProcessor:
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def _num(value: Any) -> str:
-    try:    return f"{float(value):.1f}"
-    except (TypeError, ValueError):  return "—"
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return "—"
 
 
 def _float(value: Any, default: float = 0.0) -> float:
-    try:    return float(value)
-    except (TypeError, ValueError):  return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 _NUMBER_RE = re.compile(r"^\s*-?\d+(?:[.,]\d+)?\s*$")
@@ -80,10 +88,22 @@ def _action_summary(action: dict[str, Any]) -> str:
     return summarize_action(action)
 
 
-def _render_tool_call(name: str, args: Any, result: Any, *, show_image: bool = True) -> None:
+def _render_tool_call(
+    name: str, args: Any, result: Any, *, show_image: bool = True
+) -> None:
     """Render a compact tool call; shows AI-analysis images inline if present."""
     label = f"🔧 {name}"
     if name == "analyze_image" and isinstance(args, dict) and args.get("prompt"):
+        label += f" · '{args['prompt']}'"
+    elif name == "segment_image" and isinstance(args, dict) and args.get("classes"):
+        label += f" · '{args['classes']}'"
+    elif name == "visualize_image_features" and isinstance(args, dict):
+        label += f" · clusters={args.get('n_clusters', 6)}"
+    elif (
+        name == "estimate_traversability"
+        and isinstance(args, dict)
+        and args.get("prompt")
+    ):
         label += f" · '{args['prompt']}'"
     elif name == "get_images" and isinstance(args, dict) and args.get("limit"):
         label += f" · limit={args['limit']}"
@@ -91,7 +111,23 @@ def _render_tool_call(name: str, args: Any, result: Any, *, show_image: bool = T
     with st.expander(label, expanded=False):
         st.json({"args": args, "result": result})
 
-    if show_image and name == "analyze_image" and isinstance(result, dict) and result.get("image_url"):
+    if not show_image or not isinstance(result, dict):
+        return
+
+    if name == "analyze_image" and result.get("image_url"):
+        st.image(result["image_url"], use_container_width=True)
+    elif name == "estimate_traversability" and result.get("image_url"):
+        st.image(result["image_url"], use_container_width=True)
+    elif name in {"segment_image", "visualize_image_features"} and result.get(
+        "image_urls"
+    ):
+        cols = st.columns(min(len(result["image_urls"]), 3))
+        for idx, url in enumerate(result["image_urls"]):
+            cols[idx % len(cols)].image(url, use_container_width=True)
+        for label_text in result.get("labels", []):
+            st.caption(label_text)
+    elif result.get("image_url"):
+        # Fallback for any other tool that returns a single image (e.g. take_photo).
         st.image(result["image_url"], use_container_width=True)
 
 
@@ -109,25 +145,42 @@ def _render_proposed_actions_inline(
         ):
             _execute_proposed_actions(actions, message)
             message["approved"] = True
-            message["content"] += (
-                f"\n\n✅ Approved and queued {len(actions)} action(s)."
-            )
+            message[
+                "content"
+            ] += f"\n\n✅ Approved and queued {len(actions)} action(s)."
             st.rerun()
-        if reject_col.button(
-            "✕ Reject", key=f"reject_{idx}", use_container_width=True
-        ):
+        if reject_col.button("✕ Reject", key=f"reject_{idx}", use_container_width=True):
             message["rejected"] = True
             message["content"] += "\n\n❌ Cancelled."
             st.rerun()
 
 
 _APPROVAL_WORDS = {
-    "yes", "y", "approve", "approved", "ok", "okay", "sure",
-    "go ahead", "do it", "confirm", "confirmed", "execute", "run it",
+    "yes",
+    "y",
+    "approve",
+    "approved",
+    "ok",
+    "okay",
+    "sure",
+    "go ahead",
+    "do it",
+    "confirm",
+    "confirmed",
+    "execute",
+    "run it",
 }
 _REJECTION_WORDS = {
-    "no", "n", "reject", "rejected", "cancel", "cancelled",
-    "don't", "dont", "stop", "abort",
+    "no",
+    "n",
+    "reject",
+    "rejected",
+    "cancel",
+    "cancelled",
+    "don't",
+    "dont",
+    "stop",
+    "abort",
 }
 
 
@@ -194,7 +247,9 @@ def _selected_garden_points(event: Any) -> list[tuple[float, float]]:
     return points
 
 
-def _garden_grid(bounds: dict[str, float], step: float = 100.0) -> list[dict[str, float]]:
+def _garden_grid(
+    bounds: dict[str, float], step: float = 100.0
+) -> list[dict[str, float]]:
     x0 = bounds.get("x", 0)
     y0 = bounds.get("y", 0)
     width = bounds.get("width", 0)
@@ -235,8 +290,14 @@ def _refresh_telemetry(client: ApiClient) -> None:
 
 
 TABS = [
-    "Overview", "Garden", "Motion", "Camera", "I/O",
-    "Assistant", "Diagnostics", "Settings",
+    "Overview",
+    "Garden",
+    "Motion",
+    "Camera",
+    "I/O",
+    "Assistant",
+    "Diagnostics",
+    "Settings",
 ]
 
 
@@ -268,7 +329,9 @@ def _sync_tab_url() -> None:
 
 
 def _do_move(client: ApiClient, x: float, y: float, z: float, label: str = "") -> None:
-    r = client.request("POST", "/actions", json={"kind": "move", "params": {"x": x, "y": y, "z": z}})
+    r = client.request(
+        "POST", "/actions", json={"kind": "move", "params": {"x": x, "y": y, "z": z}}
+    )
     if r.ok:
         msg = f"→ {label}" if label else f"→ ({x:.0f}, {y:.0f}, {z:.0f})"
         st.toast(msg, icon="➡️")
@@ -277,21 +340,34 @@ def _do_move(client: ApiClient, x: float, y: float, z: float, label: str = "") -
         st.error(f"HTTP {r.code}: {r.body}")
 
 
-def _do_pin_write(client: ApiClient, pin: int, value: int, mode: str = "digital") -> None:
-    r = client.request("POST", "/actions", json={
-        "kind": "write_pin", "params": {"pin": pin, "value": value, "mode": mode},
-    })
+def _do_pin_write(
+    client: ApiClient, pin: int, value: int, mode: str = "digital"
+) -> None:
+    r = client.request(
+        "POST",
+        "/actions",
+        json={
+            "kind": "write_pin",
+            "params": {"pin": pin, "value": value, "mode": mode},
+        },
+    )
     if r.ok:
         st.toast(f"pin {pin} = {value}", icon="✏️")
     else:
         st.error(f"HTTP {r.code}: {r.body}")
 
 
-def _do_pin_pulse(client: ApiClient, pin: int, seconds: float, mode: str = "digital") -> None:
-    r = client.request("POST", "/actions", json={
-        "kind": "write_pin",
-        "params": {"pin": pin, "value": 1, "mode": mode, "seconds": seconds},
-    })
+def _do_pin_pulse(
+    client: ApiClient, pin: int, seconds: float, mode: str = "digital"
+) -> None:
+    r = client.request(
+        "POST",
+        "/actions",
+        json={
+            "kind": "write_pin",
+            "params": {"pin": pin, "value": 1, "mode": mode, "seconds": seconds},
+        },
+    )
     if r.ok:
         st.toast(f"pin {pin} HIGH for {seconds}s", icon="✏️")
     else:
@@ -300,10 +376,15 @@ def _do_pin_pulse(client: ApiClient, pin: int, seconds: float, mode: str = "digi
 
 # ── page shell ────────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="TWFarmBot Research", page_icon="🌾", layout="wide",
-                   initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="TWFarmBot Research",
+    page_icon="🌾",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-st.markdown("""
+st.markdown(
+    """
 <style>
   header[data-testid="stHeader"], [data-testid="stToolbar"],
   [data-testid="stDecoration"] { display:none !important; }
@@ -448,7 +529,9 @@ st.markdown("""
     }
   }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 api_url = st.session_state.setdefault("api_url", API_URL)
 client = _client(api_url)
@@ -460,23 +543,33 @@ if "farmbot_status" not in st.session_state:
 # ── sidebar  ──────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-kicker">Field robotics</div>'
-                '<div class="sidebar-brand">TWFarmBot</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sidebar-kicker">Field robotics</div>'
+        '<div class="sidebar-brand">TWFarmBot</div>',
+        unsafe_allow_html=True,
+    )
     # Sync the navigation radio with the URL ?tab=... query parameter so
     # refreshing the browser returns to the same tab.
     url_tab = _tab_from_key(_qp_tab())
     if st.session_state.get("nav_tab") != url_tab:
         st.session_state["nav_tab"] = url_tab
-    tab = st.radio("Navigation", TABS,
-                   key="nav_tab", on_change=_sync_tab_url, label_visibility="collapsed")
+    tab = st.radio(
+        "Navigation",
+        TABS,
+        key="nav_tab",
+        on_change=_sync_tab_url,
+        label_visibility="collapsed",
+    )
 
     st.divider()
     fb = st.session_state.get("farmbot_status", "?")
     pill_css = "ok" if fb == "connected" else ("warn" if fb == "skipped" else "bad")
     st.markdown(f'<span class="pill {pill_css}">● {fb}</span>', unsafe_allow_html=True)
-    st.caption(f"X {st.session_state.get('pos_x', '—')} · "
-               f"Y {st.session_state.get('pos_y', '—')} · "
-               f"Z {st.session_state.get('pos_z', '—')} mm")
+    st.caption(
+        f"X {st.session_state.get('pos_x', '—')} · "
+        f"Y {st.session_state.get('pos_y', '—')} · "
+        f"Z {st.session_state.get('pos_z', '—')} mm"
+    )
     if st.button("↻ Refresh", use_container_width=True):
         _refresh_telemetry(client)
         st.rerun()
@@ -491,8 +584,12 @@ with st.sidebar:
 
 # ── tab content ───────────────────────────────────────────────────────────────
 
+
 def _render_overview() -> None:
-    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("# Research overview")
 
     # ── Live position ──────────────────────────────────────────────────────────
@@ -501,7 +598,7 @@ def _render_overview() -> None:
     row[1].metric("Y · mm", st.session_state.get("pos_y", "—"))
     row[2].metric("Z · mm", st.session_state.get("pos_z", "—"))
 
-     # ── System status ──────────────────────────────────────────────────────────
+    # ── System status ──────────────────────────────────────────────────────────
     st.markdown("### System status")
     st.session_state.setdefault("history", [])
 
@@ -517,17 +614,23 @@ def _render_overview() -> None:
         _refresh_health(client)
         _refresh_position(client)
         d = client.request("GET", "/status")
-        st.session_state["diag"] = d.body.get("state", {}) if d.ok and isinstance(d.body, dict) else {}
-        info_for_history = (st.session_state.get("diag") or {}).get("informational_settings", {}) or {}
-        st.session_state["history"].append({
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "cpu": _float(info_for_history.get("cpu_usage")),
-            "memory": _float(info_for_history.get("memory_usage")),
-            "disk": _float(info_for_history.get("disk_usage")),
-            "wifi": _float(info_for_history.get("wifi_level_percent")),
-            "soc": _float(info_for_history.get("soc_temp")),
-            "uptime": _float(info_for_history.get("uptime")),
-        })
+        st.session_state["diag"] = (
+            d.body.get("state", {}) if d.ok and isinstance(d.body, dict) else {}
+        )
+        info_for_history = (st.session_state.get("diag") or {}).get(
+            "informational_settings", {}
+        ) or {}
+        st.session_state["history"].append(
+            {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "cpu": _float(info_for_history.get("cpu_usage")),
+                "memory": _float(info_for_history.get("memory_usage")),
+                "disk": _float(info_for_history.get("disk_usage")),
+                "wifi": _float(info_for_history.get("wifi_level_percent")),
+                "soc": _float(info_for_history.get("soc_temp")),
+                "uptime": _float(info_for_history.get("uptime")),
+            }
+        )
         # Keep the last 60 samples so the chart stays readable.
         st.session_state["history"] = st.session_state["history"][-60:]
         st.rerun()
@@ -587,7 +690,9 @@ def _render_overview() -> None:
                 base.mark_line(point=True, color="#5b8fc7", strokeWidth=2)
                 .encode(
                     x=alt.X("time:N", title=None),
-                    y=alt.Y("wifi:Q", title="Wi-Fi %", scale=alt.Scale(domain=[0, 100])),
+                    y=alt.Y(
+                        "wifi:Q", title="Wi-Fi %", scale=alt.Scale(domain=[0, 100])
+                    ),
                 )
                 .properties(height=180)
             )
@@ -630,15 +735,31 @@ def _render_overview() -> None:
     st.markdown("### Experiment")
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.text_input("Run", key="run", placeholder="e.g. soil-map-07", label_visibility="collapsed")
+        st.text_input(
+            "Run",
+            key="run",
+            placeholder="e.g. soil-map-07",
+            label_visibility="collapsed",
+        )
     with c2:
-        st.text_input("Operator", key="op", placeholder="initials", label_visibility="collapsed")
+        st.text_input(
+            "Operator", key="op", placeholder="initials", label_visibility="collapsed"
+        )
     with c3:
-        st.text_area("Notes", key="notes", placeholder="Conditions, observations…", height=90, label_visibility="collapsed")
+        st.text_area(
+            "Notes",
+            key="notes",
+            placeholder="Conditions, observations…",
+            height=90,
+            label_visibility="collapsed",
+        )
 
 
 def _render_garden() -> None:
-    st.markdown('<div class="eyebrow">Spatial model · configured world state</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="eyebrow">Spatial model · configured world state</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("# Garden map")
 
     result = client.request("GET", "/garden")
@@ -659,27 +780,44 @@ def _render_garden() -> None:
     metrics[2].metric("Known objects", len(entities))
     metrics[3].metric("Mapped zones", len(zones))
 
-    zone_rows = [{
-        **zone["bounds"],
-        "x2": zone["bounds"]["x"] + zone["bounds"]["width"],
-        "y2": zone["bounds"]["y"] + zone["bounds"]["height"],
-        "kind": zone["kind"],
-        "name": zone["name"],
-    } for zone in zones]
-    point_rows = [{
-        "x": entity["position"]["x"],
-        "y": entity["position"]["y"],
-        "kind": entity["kind"],
-        "name": entity["name"],
-        "radius_mm": entity["radius_mm"],
-    } for entity in entities]
-    point_rows.extend([
-        {"x": robot.get("x", 0), "y": robot.get("y", 0), "kind": "robot",
-         "name": "FarmBot", "radius_mm": 35},
-        {"x": camera.get("position", {}).get("x", 0),
-         "y": camera.get("position", {}).get("y", 0), "kind": "camera",
-         "name": "Camera", "radius_mm": 25},
-    ])
+    zone_rows = [
+        {
+            **zone["bounds"],
+            "x2": zone["bounds"]["x"] + zone["bounds"]["width"],
+            "y2": zone["bounds"]["y"] + zone["bounds"]["height"],
+            "kind": zone["kind"],
+            "name": zone["name"],
+        }
+        for zone in zones
+    ]
+    point_rows = [
+        {
+            "x": entity["position"]["x"],
+            "y": entity["position"]["y"],
+            "kind": entity["kind"],
+            "name": entity["name"],
+            "radius_mm": entity["radius_mm"],
+        }
+        for entity in entities
+    ]
+    point_rows.extend(
+        [
+            {
+                "x": robot.get("x", 0),
+                "y": robot.get("y", 0),
+                "kind": "robot",
+                "name": "FarmBot",
+                "radius_mm": 35,
+            },
+            {
+                "x": camera.get("position", {}).get("x", 0),
+                "y": camera.get("position", {}).get("y", 0),
+                "kind": "camera",
+                "name": "Camera",
+                "radius_mm": 25,
+            },
+        ]
+    )
 
     x_min = bounds.get("x", 0)
     x_max = x_min + bounds.get("width", 1)
@@ -699,36 +837,51 @@ def _render_garden() -> None:
     x_scale = _map_scale(x_min, x_max)
     y_scale = _map_scale(y_min, y_max)
 
-    bounds_chart = alt.Chart(alt.Data(values=[{
-        "x": x_min, "y": y_min, "x2": x_max, "y2": y_max,
-    }])).mark_rect(
-        filled=False, stroke="#888888", strokeWidth=2
-    ).encode(
-        x=alt.X("x:Q", scale=x_scale, title="X · mm"),
-        x2="x2:Q",
-        y=alt.Y("y:Q", scale=y_scale, title="Y · mm"),
-        y2="y2:Q",
+    bounds_chart = (
+        alt.Chart(
+            alt.Data(
+                values=[
+                    {
+                        "x": x_min,
+                        "y": y_min,
+                        "x2": x_max,
+                        "y2": y_max,
+                    }
+                ]
+            )
+        )
+        .mark_rect(filled=False, stroke="#888888", strokeWidth=2)
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, title="X · mm"),
+            x2="x2:Q",
+            y=alt.Y("y:Q", scale=y_scale, title="Y · mm"),
+            y2="y2:Q",
+        )
     )
-    zones_chart = alt.Chart(alt.Data(values=zone_rows)).mark_rect(
-        opacity=0.18, strokeWidth=2
-    ).encode(
-        x=alt.X("x:Q", scale=x_scale, title="X · mm"),
-        x2="x2:Q",
-        y=alt.Y("y:Q", scale=y_scale, title="Y · mm"),
-        y2="y2:Q",
-        color=alt.Color("kind:N", title="Layer"),
-        stroke=alt.Stroke("kind:N", legend=None),
-        tooltip=["name:N", "kind:N", "x:Q", "y:Q", "width:Q", "height:Q"],
+    zones_chart = (
+        alt.Chart(alt.Data(values=zone_rows))
+        .mark_rect(opacity=0.18, strokeWidth=2)
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, title="X · mm"),
+            x2="x2:Q",
+            y=alt.Y("y:Q", scale=y_scale, title="Y · mm"),
+            y2="y2:Q",
+            color=alt.Color("kind:N", title="Layer"),
+            stroke=alt.Stroke("kind:N", legend=None),
+            tooltip=["name:N", "kind:N", "x:Q", "y:Q", "width:Q", "height:Q"],
+        )
     )
-    points_chart = alt.Chart(alt.Data(values=point_rows)).mark_point(
-        filled=True, stroke="white", strokeWidth=1
-    ).encode(
-        x=alt.X("x:Q", scale=x_scale),
-        y=alt.Y("y:Q", scale=y_scale),
-        color=alt.Color("kind:N", title="Object"),
-        shape=alt.value("circle"),
-        size=alt.Size("radius_mm:Q", scale=alt.Scale(range=[90, 500]), legend=None),
-        tooltip=["name:N", "kind:N", "x:Q", "y:Q"],
+    points_chart = (
+        alt.Chart(alt.Data(values=point_rows))
+        .mark_point(filled=True, stroke="white", strokeWidth=1)
+        .encode(
+            x=alt.X("x:Q", scale=x_scale),
+            y=alt.Y("y:Q", scale=y_scale),
+            color=alt.Color("kind:N", title="Object"),
+            shape=alt.value("circle"),
+            size=alt.Size("radius_mm:Q", scale=alt.Scale(range=[90, 500]), legend=None),
+            tooltip=["name:N", "kind:N", "x:Q", "y:Q"],
+        )
     )
 
     grid_rows = _garden_grid(bounds, step=25)
@@ -740,14 +893,17 @@ def _render_garden() -> None:
         nearest=True,
         empty=False,
     )
-    click_layer = alt.Chart(alt.Data(values=grid_rows)).mark_point(
-        size=120
-    ).encode(
-        x=alt.X("x:Q", scale=x_scale),
-        y=alt.Y("y:Q", scale=y_scale),
-        opacity=alt.condition(click_selection, alt.value(0.7), alt.value(0)),
-        color=alt.value("#ff4b4b"),
-    ).add_params(click_selection)
+    click_layer = (
+        alt.Chart(alt.Data(values=grid_rows))
+        .mark_point(size=120)
+        .encode(
+            x=alt.X("x:Q", scale=x_scale),
+            y=alt.Y("y:Q", scale=y_scale),
+            opacity=alt.condition(click_selection, alt.value(0.7), alt.value(0)),
+            color=alt.value("#ff4b4b"),
+        )
+        .add_params(click_selection)
+    )
 
     map_col, details = st.columns([2.3, 1])
     with map_col:
@@ -766,7 +922,15 @@ def _render_garden() -> None:
                 st.markdown(f"**🌱 {len(selected_points)} selected**")
                 kind = st.pills(
                     "Kind",
-                    ["plant", "obstacle", "tool", "marker", "sensor", "valve", "custom"],
+                    [
+                        "plant",
+                        "obstacle",
+                        "tool",
+                        "marker",
+                        "sensor",
+                        "valve",
+                        "custom",
+                    ],
                     default="plant",
                     selection_mode="single",
                     label_visibility="collapsed",
@@ -790,7 +954,11 @@ def _render_garden() -> None:
                     key="garden_assign_save",
                     use_container_width=True,
                 ):
-                    final_kind = custom_kind if kind == "custom" and custom_kind else (kind or "plant")
+                    final_kind = (
+                        custom_kind
+                        if kind == "custom" and custom_kind
+                        else (kind or "plant")
+                    )
                     if name:
                         for i, (px, py) in enumerate(selected_points, start=1):
                             _add_garden_entity(px, py, final_kind, f"{name}-{i}")
@@ -799,7 +967,9 @@ def _render_garden() -> None:
                         st.rerun()
                     else:
                         st.warning("Please enter a name prefix.")
-                if c2.button("Clear", key="garden_assign_cancel", use_container_width=True):
+                if c2.button(
+                    "Clear", key="garden_assign_cancel", use_container_width=True
+                ):
                     st.session_state.pop("garden_map", None)
                     st.rerun()
         st.markdown("**Live pose**")
@@ -839,7 +1009,10 @@ def _render_motion() -> None:
     cur_y = _float(st.session_state.get("pos_y"))
     cur_z = _float(st.session_state.get("pos_z"))
 
-    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("# Motion workspace")
 
     row = st.columns(3)
@@ -851,17 +1024,24 @@ def _render_motion() -> None:
 
     # D-pad
     _, u, _ = st.columns(3)
-    if u.button("▲ Y+", use_container_width=True): _do_move(client, cur_x, cur_y + step, cur_z, f"Y+{step:.0f}")
+    if u.button("▲ Y+", use_container_width=True):
+        _do_move(client, cur_x, cur_y + step, cur_z, f"Y+{step:.0f}")
     l, m, r = st.columns(3)
-    if l.button("◀ X−", use_container_width=True): _do_move(client, cur_x - step, cur_y, cur_z, f"X-{step:.0f}")
-    if m.button("🏠 Home", use_container_width=True): _do_move(client, 0, 0, 0, "Home")
-    if r.button("X+ ▶", use_container_width=True): _do_move(client, cur_x + step, cur_y, cur_z, f"X+{step:.0f}")
+    if l.button("◀ X−", use_container_width=True):
+        _do_move(client, cur_x - step, cur_y, cur_z, f"X-{step:.0f}")
+    if m.button("🏠 Home", use_container_width=True):
+        _do_move(client, 0, 0, 0, "Home")
+    if r.button("X+ ▶", use_container_width=True):
+        _do_move(client, cur_x + step, cur_y, cur_z, f"X+{step:.0f}")
     _, d, _ = st.columns(3)
-    if d.button("▼ Y−", use_container_width=True): _do_move(client, cur_x, cur_y - step, cur_z, f"Y-{step:.0f}")
+    if d.button("▼ Y−", use_container_width=True):
+        _do_move(client, cur_x, cur_y - step, cur_z, f"Y-{step:.0f}")
 
     zl, zr = st.columns(2)
-    if zl.button("⬆ Z+", use_container_width=True): _do_move(client, cur_x, cur_y, cur_z + step, f"Z+{step:.0f}")
-    if zr.button("⬇ Z−", use_container_width=True): _do_move(client, cur_x, cur_y, cur_z - step, f"Z-{step:.0f}")
+    if zl.button("⬆ Z+", use_container_width=True):
+        _do_move(client, cur_x, cur_y, cur_z + step, f"Z+{step:.0f}")
+    if zr.button("⬇ Z−", use_container_width=True):
+        _do_move(client, cur_x, cur_y, cur_z - step, f"Z-{step:.0f}")
 
     st.divider()
     with st.form("absolute"):
@@ -897,12 +1077,19 @@ def _render_motion() -> None:
         st.markdown("**Locations**")
         cols = st.columns(min(5, len(presets)))
         for i, p in enumerate(presets):
-            if cols[i].button(p.get("label", "?"), key=f"preset_{i}", use_container_width=True):
-                _do_move(client, float(p["x"]), float(p["y"]), float(p["z"]), p["label"])
+            if cols[i].button(
+                p.get("label", "?"), key=f"preset_{i}", use_container_width=True
+            ):
+                _do_move(
+                    client, float(p["x"]), float(p["y"]), float(p["z"]), p["label"]
+                )
 
 
 def _render_io() -> None:
-    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("# I/O workspace")
 
     if "named_pins" not in st.session_state:
@@ -919,8 +1106,14 @@ def _render_io() -> None:
             with cols[i]:
                 st.caption(f"{s['label']} · pin {s['pin']} · {s.get('mode', 'analog')}")
                 if st.button("Read", key=f"sensor_{i}", use_container_width=True):
-                    r = client.request("GET", f"/pin/{s['pin']}", params={"mode": s.get("mode", "analog")})
-                    st.session_state[f"sv_{s['pin']}"] = r.body.get("value") if r.ok else "—"
+                    r = client.request(
+                        "GET",
+                        f"/pin/{s['pin']}",
+                        params={"mode": s.get("mode", "analog")},
+                    )
+                    st.session_state[f"sv_{s['pin']}"] = (
+                        r.body.get("value") if r.ok else "—"
+                    )
                 st.metric("Value", st.session_state.get(f"sv_{s['pin']}", "—"))
     elif named:
         st.info("No sensor pins configured.")
@@ -936,7 +1129,8 @@ def _render_io() -> None:
             secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5)
             if st.form_submit_button("Water", use_container_width=True):
                 r = client.request(
-                    "POST", "/actions",
+                    "POST",
+                    "/actions",
                     json={"kind": "water", "params": {"seconds": secs}},
                 )
                 if r.ok:
@@ -951,7 +1145,8 @@ def _render_io() -> None:
             st.info("No output pins configured.")
         else:
             sel = st.selectbox(
-                "Output", outputs,
+                "Output",
+                outputs,
                 format_func=lambda p: f"{p['label']} · pin {p['pin']}",
             )
             if sel:
@@ -961,7 +1156,11 @@ def _render_io() -> None:
                 )
                 if high_mode == "Timed":
                     high_secs = st.number_input(
-                        "Seconds to stay HIGH", 0.1, 300.0, 2.0, 0.5,
+                        "Seconds to stay HIGH",
+                        0.1,
+                        300.0,
+                        2.0,
+                        0.5,
                         key="high_secs",
                     )
                 else:
@@ -978,12 +1177,17 @@ def _render_io() -> None:
 
 
 def _render_camera() -> None:
-    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("# Camera")
 
     capture, refresh, _ = st.columns([1, 1, 4])
     if capture.button("📷 Take photo", type="primary", use_container_width=True):
-        r = client.request("POST", "/actions", json={"kind": "take_photo", "params": {}})
+        r = client.request(
+            "POST", "/actions", json={"kind": "take_photo", "params": {}}
+        )
         if r.ok:
             st.toast("Capture queued", icon="📷")
         else:
@@ -1011,64 +1215,177 @@ def _render_camera() -> None:
             f"image {image.get('id', '—')}"
         ),
     )
-    meta = selected.get("meta") or {}
-    photo, details = st.columns([1.55, 1])
-    with photo:
-        st.image(selected.get("attachment_url"), use_container_width=True)
-    with details:
-        st.markdown("**Selected capture**")
-        st.caption(selected.get("created_at", "Unknown time"))
-        xyz = st.columns(3)
-        xyz[0].metric("X", meta.get("x", "—"))
-        xyz[1].metric("Y", meta.get("y", "—"))
-        xyz[2].metric("Z", meta.get("z", "—"))
-        st.caption(f"Image ID {selected.get('id', '—')}")
 
+    # Show the source image and analysis controls side-by-side so both fit
+    # above the fold without scrolling. The analysis results still appear below.
+    img_col, ctrl_col = st.columns([1.6, 1])
+
+    with img_col:
+        st.image(selected.get("attachment_url"), use_container_width=True)
+
+    with ctrl_col:
         st.markdown("**AI analysis**")
-        prompt = st.text_input(
-            "Target",
-            placeholder="e.g. green leaves, dry soil, red marker",
-            key=f"ai_prompt_{selected.get('id', 'unknown')}",
+        mode = st.selectbox(
+            "Mode",
+            [
+                "Open Language Similarity",
+                "Zero-Shot Segmentation",
+                "PCA Feature Visualization",
+                "Traversability Estimation",
+            ],
+            key=f"ai_mode_{selected.get('id', 'unknown')}",
+            label_visibility="collapsed",
         )
+
+        processor = _image_processor(AI_SPACE_ID)
+        inputs: dict[str, Any] = {}
+        button_disabled = False
+
+        if mode == "Open Language Similarity":
+            inputs["prompt"] = st.text_input(
+                "Target prompt",
+                placeholder="e.g. green leaves, dry soil, red marker",
+                key=f"ai_prompt_{selected.get('id', 'unknown')}",
+                label_visibility="collapsed",
+            )
+            button_disabled = not inputs["prompt"].strip()
+        elif mode == "Zero-Shot Segmentation":
+            inputs["classes"] = st.text_input(
+                "Classes (comma-separated)",
+                value="plant, weed, soil, path",
+                key=f"ai_classes_{selected.get('id', 'unknown')}",
+            )
+            inputs["negative"] = st.text_input(
+                "Background prompt (optional)",
+                placeholder="e.g. thing, object, stuff",
+                key=f"ai_negative_{selected.get('id', 'unknown')}",
+            )
+            button_disabled = not inputs["classes"].strip()
+        elif mode == "PCA Feature Visualization":
+            inputs["n_clusters"] = st.slider(
+                "K-means clusters",
+                min_value=2,
+                max_value=20,
+                value=6,
+                key=f"ai_clusters_{selected.get('id', 'unknown')}",
+            )
+        elif mode == "Traversability Estimation":
+            inputs["prompt"] = st.text_input(
+                "Traversable prompt",
+                placeholder="e.g. path, road, flat ground",
+                key=f"ai_trav_prompt_{selected.get('id', 'unknown')}",
+                label_visibility="collapsed",
+            )
+            inputs["negatives"] = st.text_input(
+                "Background prompts (optional, comma-separated)",
+                placeholder="e.g. thing, object, stuff, scenery",
+                key=f"ai_trav_negatives_{selected.get('id', 'unknown')}",
+            )
+            button_disabled = not inputs["prompt"].strip()
+
         if st.button(
             "Analyze selected image",
             type="primary",
             use_container_width=True,
-            disabled=not prompt.strip(),
+            disabled=button_disabled,
         ):
             try:
                 with st.spinner("Processing image…"):
-                    result_path = _image_processor(AI_SPACE_ID).process(
-                        selected["attachment_url"],
-                        prompt.strip(),
-                    )
-                st.session_state["ai_result"] = {
-                    "image_id": selected.get("id"),
-                    "source_url": selected.get("attachment_url"),
-                    "path": str(result_path),
-                    "prompt": prompt.strip(),
-                }
+                    if mode == "Open Language Similarity":
+                        result_path = processor.process(
+                            selected["attachment_url"],
+                            inputs["prompt"].strip(),
+                            negatives="",
+                        )
+                        st.session_state["ai_result"] = {
+                            "image_id": selected.get("id"),
+                            "source_url": selected.get("attachment_url"),
+                            "paths": [str(result_path)],
+                            "captions": [f"Similarity map · {inputs['prompt']}"],
+                            "labels": [],
+                            "mode": mode,
+                        }
+                    elif mode == "Zero-Shot Segmentation":
+                        raw = processor.predict(
+                            selected["attachment_url"],
+                            api_name="/run_seg",
+                            classes=inputs["classes"].strip(),
+                            negative=inputs["negative"].strip(),
+                        )
+                        labels = [str(raw[2]), str(raw[3])]
+                        class_scores = parse_segmentation_labels(labels)
+                        st.session_state["ai_result"] = {
+                            "image_id": selected.get("id"),
+                            "source_url": selected.get("attachment_url"),
+                            "paths": [str(raw[0]), str(raw[1])],
+                            "captions": ["Segmentation overlay", "Segmentation map"],
+                            "labels": labels,
+                            "class_scores": class_scores,
+                            "dominant_class": (
+                                max(class_scores, key=class_scores.get)
+                                if class_scores
+                                else None
+                            ),
+                            "classes": inputs["classes"].strip(),
+                            "mode": mode,
+                        }
+                    elif mode == "PCA Feature Visualization":
+                        raw = processor.predict(
+                            selected["attachment_url"],
+                            api_name="/run_pca",
+                            n_clusters=int(inputs["n_clusters"]),
+                        )
+                        st.session_state["ai_result"] = {
+                            "image_id": selected.get("id"),
+                            "source_url": selected.get("attachment_url"),
+                            "paths": [str(raw[0]), str(raw[1]), str(raw[2])],
+                            "captions": [
+                                "PCA visualization 1",
+                                "PCA visualization 2",
+                                "PCA visualization 3",
+                            ],
+                            "labels": [],
+                            "n_clusters": int(inputs["n_clusters"]),
+                            "mode": mode,
+                        }
+                    elif mode == "Traversability Estimation":
+                        result_path = processor.predict(
+                            selected["attachment_url"],
+                            api_name="/run_trav",
+                            prompt=inputs["prompt"].strip(),
+                            negatives=inputs["negatives"].strip(),
+                        )
+                        st.session_state["ai_result"] = {
+                            "image_id": selected.get("id"),
+                            "source_url": selected.get("attachment_url"),
+                            "paths": [str(result_path)],
+                            "captions": [f"Traversability map · {inputs['prompt']}"],
+                            "labels": [],
+                            "mode": mode,
+                        }
             except Exception as exc:
                 st.error(f"AI processing failed: {exc}")
 
     result = st.session_state.get("ai_result")
     if result:
         st.markdown("### Analysis result")
-        source, processed = st.columns(2)
-        with source:
-            with st.container(key="analysis_source"):
-                st.image(
-                    result["source_url"],
-                    caption="Source image",
-                    width="stretch",
-                )
-        with processed:
-            with st.container(key="analysis_processed"):
-                st.image(
-                    result["path"],
-                    caption=f"Similarity map · {result['prompt']}",
-                    width="stretch",
-                )
+        result_cols = st.columns(len(result["paths"]))
+        for idx, (path, caption) in enumerate(zip(result["paths"], result["captions"])):
+            with result_cols[idx]:
+                st.image(path, caption=caption, width=280)
+
+        st.markdown("**Raw output**")
+        if result.get("class_scores"):
+            score_cols = st.columns(len(result["class_scores"]))
+            for idx, (cls, score) in enumerate(result["class_scores"].items()):
+                score_cols[idx].metric(cls, f"{score * 100:.1f}%")
+            if result.get("dominant_class"):
+                st.caption(f"Dominant class: **{result['dominant_class']}**")
+        elif result.get("n_clusters"):
+            st.caption(f"PCA with **{result['n_clusters']}** K-means clusters")
+
+        for label in result.get("labels", []):
+            st.caption(label)
 
     if len(images) > 1:
         st.markdown("**Recent captures**")
@@ -1083,7 +1400,10 @@ def _render_camera() -> None:
 
 
 def _render_assistant() -> None:
-    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
+        unsafe_allow_html=True,
+    )
     title_col, clear_col = st.columns([5, 1])
     with title_col:
         st.markdown("# Assistant")
@@ -1105,7 +1425,7 @@ def _render_chat() -> None:
                     msg.get("name", "tool"),
                     msg.get("args"),
                     msg.get("result"),
-                    show_image=False,
+                    show_image=True,
                 )
             continue
 
@@ -1115,10 +1435,22 @@ def _render_chat() -> None:
                     st.markdown(msg["content"])
             continue
 
+        # Render the model's reasoning as its own collapsible assistant pill,
+        # similar to how tool calls are shown, so the conversation flow is clear.
+        if msg.get("thinking"):
+            with st.chat_message("assistant"):
+                with st.expander("🧠 Thinking", expanded=False):
+                    st.markdown(msg["thinking"])
+
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            for image in msg.get("images", []):
-                st.image(image.get("attachment_url"), use_container_width=True)
+            images = msg.get("images", [])
+            if images:
+                cols = st.columns(min(len(images), 3))
+                for i, image in enumerate(images):
+                    cols[i % len(cols)].image(
+                        image.get("attachment_url"), use_container_width=True
+                    )
 
             proposed_actions = msg.get("proposed_actions", [])
             if proposed_actions and not msg.get("approved") and not msg.get("rejected"):
@@ -1137,21 +1469,27 @@ def _render_chat() -> None:
         if messages and messages[-1].get("role") == "assistant":
             last_assistant = messages[-1]
             proposed = last_assistant.get("proposed_actions", [])
-            pending = proposed and not last_assistant.get("approved") and not last_assistant.get("rejected")
+            pending = (
+                proposed
+                and not last_assistant.get("approved")
+                and not last_assistant.get("rejected")
+            )
             approval = _is_approval(prompt)
             rejection = _is_rejection(prompt)
             if approval or rejection:
                 if pending:
-                    st.session_state["assistant_messages"].append({"role": "user", "content": prompt})
+                    st.session_state["assistant_messages"].append(
+                        {"role": "user", "content": prompt}
+                    )
                     with st.container(key="user_msg_current"):
                         with st.chat_message("user"):
                             st.markdown(prompt)
                     if approval:
                         _execute_proposed_actions(proposed, last_assistant)
                         last_assistant["approved"] = True
-                        last_assistant["content"] += (
-                            f"\n\n✅ Approved and queued {len(proposed)} action(s)."
-                        )
+                        last_assistant[
+                            "content"
+                        ] += f"\n\n✅ Approved and queued {len(proposed)} action(s)."
                     else:
                         last_assistant["rejected"] = True
                         last_assistant["content"] += "\n\n❌ Cancelled."
@@ -1160,7 +1498,9 @@ def _render_chat() -> None:
                     st.toast("No pending proposal to approve or reject.", icon="⚠️")
                     st.rerun()
 
-        st.session_state["assistant_messages"].append({"role": "user", "content": prompt})
+        st.session_state["assistant_messages"].append(
+            {"role": "user", "content": prompt}
+        )
         with st.container(key="user_msg_current"):
             with st.chat_message("user"):
                 st.markdown(prompt)
@@ -1168,41 +1508,73 @@ def _render_chat() -> None:
         thinking = st.empty()
         thinking.caption("🤖 Assistant is thinking…")
         with st.chat_message("assistant"):
-            placeholder = st.empty()
-            live_tools = st.container()
             stream_meta = {"tool_calls": [], "proposed_actions": []}
+            stream_thinking: list[str] = []
             stream_error = None
             accumulated = ""
+            # Preserve the order of streamed text relative to tools/thinking.
+            # Each open segment is a placeholder that gets updated in place.
+            # When a tool or thinking block starts, the current text segment is
+            # closed so subsequent text appears *after* that block.
+            text_segments: list[list[Any, str] | None] = []
+
+            def _current_text_segment() -> list[Any, str]:
+                if not text_segments or text_segments[-1] is None:
+                    ph = st.empty()
+                    text_segments.append([ph, ""])
+                return text_segments[-1]
+
+            def _close_text_segment() -> None:
+                if text_segments and text_segments[-1] is not None:
+                    text_segments.append(None)
+
             try:
                 for event in client.stream(
-                    "POST", "/chat/stream",
+                    "POST",
+                    "/chat/stream",
                     json={"messages": st.session_state["assistant_messages"]},
                     timeout=PLAN_TIMEOUT,
                 ):
                     etype = event.get("type")
                     if etype == "delta":
                         accumulated += event.get("content", "")
-                        placeholder.markdown(accumulated)
+                        seg = _current_text_segment()
+                        seg[1] = accumulated
+                        seg[0].markdown(accumulated)
+                    elif etype == "thinking":
+                        _close_text_segment()
+                        think_text = str(event.get("content", ""))
+                        with st.expander("🧠 Thinking", expanded=False):
+                            st.markdown(think_text)
+                        stream_thinking.append(think_text)
                     elif etype == "tool_call":
+                        _close_text_segment()
                         thinking.caption("🤖 Assistant is using tools…")
                         name = event.get("name")
                         args = event.get("args")
                         result = event.get("result")
-                        st.session_state["assistant_messages"].append({
-                            "role": "tool",
-                            "name": name,
-                            "args": args,
-                            "result": result,
-                        })
-                        if name == "take_photo" and isinstance(result, dict) and result.get("status") == "ok":
+                        st.session_state["assistant_messages"].append(
+                            {
+                                "role": "tool",
+                                "name": name,
+                                "args": args,
+                                "result": result,
+                            }
+                        )
+                        if (
+                            name == "take_photo"
+                            and isinstance(result, dict)
+                            and result.get("status") == "ok"
+                        ):
                             image = _capture_photo_image()
                             if image:
-                                stream_meta.setdefault("images", []).append(image)
-                        with live_tools:
-                            _render_tool_call(name, args, result)
+                                result["image_url"] = image.get("attachment_url")
+                        _render_tool_call(name, args, result)
                     elif etype == "meta":
                         stream_meta["tool_calls"] = event.get("tool_calls", [])
-                        stream_meta["proposed_actions"] = event.get("proposed_actions", [])
+                        stream_meta["proposed_actions"] = event.get(
+                            "proposed_actions", []
+                        )
                     elif etype == "error":
                         stream_error = event.get("error", "stream error")
             except Exception as exc:  # noqa: BLE001
@@ -1211,10 +1583,15 @@ def _render_chat() -> None:
             # If the stream produced nothing useful, fall back to the
             # non-streaming endpoint so the chat still works even when the
             # SSE path is blocked or misbehaving.
-            if not accumulated and not stream_meta["tool_calls"] and not stream_meta["proposed_actions"]:
+            if (
+                not accumulated
+                and not stream_meta["tool_calls"]
+                and not stream_meta["proposed_actions"]
+            ):
                 try:
                     r = client.request(
-                        "POST", "/chat",
+                        "POST",
+                        "/chat",
                         json={"messages": st.session_state["assistant_messages"]},
                         timeout=PLAN_TIMEOUT,
                     )
@@ -1222,50 +1599,62 @@ def _render_chat() -> None:
                         accumulated = str(r.body.get("response", ""))
                         stream_meta["tool_calls"] = r.body.get("tool_calls", []) or []
                         for tc in stream_meta["tool_calls"]:
-                            st.session_state["assistant_messages"].append({
-                                "role": "tool",
-                                "name": tc.get("name"),
-                                "args": tc.get("args"),
-                                "result": tc.get("result"),
-                            })
+                            st.session_state["assistant_messages"].append(
+                                {
+                                    "role": "tool",
+                                    "name": tc.get("name"),
+                                    "args": tc.get("args"),
+                                    "result": tc.get("result"),
+                                }
+                            )
                         stream_meta["proposed_actions"] = [
-                            {"kind": tc["result"].get("kind", tc["name"]),
-                             "params": tc["result"].get("params", tc.get("args", {}))}
+                            {
+                                "kind": tc["result"].get("kind", tc["name"]),
+                                "params": tc["result"].get(
+                                    "params", tc.get("args", {})
+                                ),
+                            }
                             for tc in stream_meta["tool_calls"]
-                            if isinstance(tc.get("result"), dict) and tc["result"].get("status") == "proposed"
+                            if isinstance(tc.get("result"), dict)
+                            and tc["result"].get("status") == "proposed"
                         ]
+                        stream_thinking = [str(r.body.get("thinking", ""))]
                         stream_error = None
+                        if accumulated:
+                            seg = _current_text_segment()
+                            seg[1] = accumulated
+                            seg[0].markdown(accumulated)
                     else:
                         stream_error = f"Fallback failed: HTTP {r.code}: {r.body}"
                 except Exception as exc:  # noqa: BLE001
                     stream_error = f"Fallback failed: {type(exc).__name__}: {exc}"
 
             thinking.empty()
-            if accumulated:
-                placeholder.markdown(accumulated)
             if stream_error:
                 st.error(f"Assistant error: {stream_error}")
 
-            if accumulated or stream_meta["tool_calls"] or stream_meta["proposed_actions"]:
-                analysis_images = [
-                    {"attachment_url": tc["result"]["image_url"]}
-                    for tc in stream_meta["tool_calls"]
-                    if tc.get("name") == "analyze_image"
-                    and isinstance(tc.get("result"), dict)
-                    and tc["result"].get("image_url")
-                ]
+            if (
+                accumulated
+                or stream_meta["tool_calls"]
+                or stream_meta["proposed_actions"]
+            ):
+                # Analysis images are shown inline with their tool calls above,
+                # so we only keep plain photo attachments on the assistant message.
                 photo_images = [
                     {"attachment_url": img.get("attachment_url")}
                     for img in stream_meta.get("images", [])
                     if isinstance(img, dict) and img.get("attachment_url")
                 ]
-                st.session_state["assistant_messages"].append({
-                    "role": "assistant",
-                    "content": accumulated,
-                    "tool_calls": stream_meta["tool_calls"],
-                    "proposed_actions": stream_meta["proposed_actions"],
-                    "images": analysis_images + photo_images,
-                })
+                st.session_state["assistant_messages"].append(
+                    {
+                        "role": "assistant",
+                        "content": accumulated,
+                        "thinking": "".join(stream_thinking),
+                        "tool_calls": stream_meta["tool_calls"],
+                        "proposed_actions": stream_meta["proposed_actions"],
+                        "images": photo_images,
+                    }
+                )
         st.rerun()
 
 
@@ -1332,7 +1721,8 @@ def _execute_proposed_actions(
 
     for action in actions:
         client.request(
-            "POST", "/actions",
+            "POST",
+            "/actions",
             json={"kind": action["kind"], "params": action.get("params", {})},
         )
 
@@ -1343,7 +1733,9 @@ def _execute_proposed_actions(
 
 
 def _render_plan() -> None:
-    st.caption("Describe a task. The LLM builds a step-by-step plan; review it before running.")
+    st.caption(
+        "Describe a task. The LLM builds a step-by-step plan; review it before running."
+    )
 
     if "assistant_plan_response" not in st.session_state:
         st.session_state["assistant_plan_response"] = None
@@ -1376,18 +1768,23 @@ def _render_plan() -> None:
 
     plan_col, _ = st.columns([1, 3])
     preview_clicked = plan_col.button(
-        "Preview plan", type="primary", use_container_width=True,
+        "Preview plan",
+        type="primary",
+        use_container_width=True,
         disabled=not request.strip(),
     )
 
     if preview_clicked and request.strip():
         with st.spinner("Asking the planner…"):
             r = client.request(
-                "POST", "/plan",
+                "POST",
+                "/plan",
                 json={"request": request, "debug": True},
                 timeout=PLAN_TIMEOUT,
             )
-        st.session_state["assistant_plan_response"] = r.body if r.ok else {"error": r.body}
+        st.session_state["assistant_plan_response"] = (
+            r.body if r.ok else {"error": r.body}
+        )
         st.session_state["assistant_plan_status"] = r.code
 
     response = st.session_state.get("assistant_plan_response")
@@ -1432,7 +1829,8 @@ def _render_plan() -> None:
         failed = 0
         for action in actions:
             r = client.request(
-                "POST", "/actions",
+                "POST",
+                "/actions",
                 json={"kind": action["kind"], "params": action.get("params", {})},
             )
             if r.ok:
@@ -1451,7 +1849,10 @@ def _render_plan() -> None:
 
 
 def _render_diagnostics() -> None:
-    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("# Diagnostics")
 
     if st.button("Load /status"):
@@ -1507,13 +1908,20 @@ def _render_diagnostics() -> None:
     if pins:
         st.markdown("**Pin snapshot**")
         st.dataframe(
-            [{"pin": pn, "value": pd.get("value"), "mode": pd.get("mode")} for pn, pd in pins.items()],
-            use_container_width=True, hide_index=True,
+            [
+                {"pin": pn, "value": pd.get("value"), "mode": pd.get("mode")}
+                for pn, pd in pins.items()
+            ],
+            use_container_width=True,
+            hide_index=True,
         )
 
 
 def _render_settings() -> None:
-    st.markdown('<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("# Settings")
 
     st.markdown("**Connection**")
@@ -1527,9 +1935,13 @@ def _render_settings() -> None:
         _refresh_health(client)
         st.rerun()
 
-    st.json({"farmbot": st.session_state.get("farmbot_status", "?"),
-             "api": st.session_state["api_url"],
-             "actions": st.session_state.get("actions", [])})
+    st.json(
+        {
+            "farmbot": st.session_state.get("farmbot_status", "?"),
+            "api": st.session_state["api_url"],
+            "actions": st.session_state.get("actions", []),
+        }
+    )
 
     with st.expander("Raw action"):
         with st.form("raw"):
@@ -1541,20 +1953,22 @@ def _render_settings() -> None:
                 except json.JSONDecodeError as e:
                     st.error(f"Bad JSON: {e}")
                 else:
-                    r = client.request("POST", "/actions", json={"kind": kind, "params": p})
+                    r = client.request(
+                        "POST", "/actions", json={"kind": kind, "params": p}
+                    )
                     st.json(r.body)
 
 
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 renderers = {
-    "Overview":     _render_overview,
-    "Garden":       _render_garden,
-    "Motion":       _render_motion,
-    "Camera":       _render_camera,
-    "I/O":          _render_io,
-    "Assistant":    _render_assistant,
-    "Diagnostics":  _render_diagnostics,
-    "Settings":     _render_settings,
+    "Overview": _render_overview,
+    "Garden": _render_garden,
+    "Motion": _render_motion,
+    "Camera": _render_camera,
+    "I/O": _render_io,
+    "Assistant": _render_assistant,
+    "Diagnostics": _render_diagnostics,
+    "Settings": _render_settings,
 }
 renderers[tab]()
