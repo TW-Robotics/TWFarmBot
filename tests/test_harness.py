@@ -22,7 +22,6 @@ from planning_service.harness import (
     ContextBuilder,
     ReasoningController,
     ToolCategory,
-    ToolDescriptor,
     ToolPolicy,
     ToolRegistry,
 )
