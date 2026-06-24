@@ -27,6 +27,8 @@ from twfarmbot_ml_utils import (
     parse_segmentation_labels,
 )
 
+from . import path_planning
+
 log = logging.getLogger(__name__)
 
 _IMAGE_PROCESSOR: HuggingFaceImageProcessor | None = None
@@ -60,7 +62,10 @@ class AnalyzeImageArgs(BaseModel):
         default=None,
         description=(
             "Public URL of the image to analyse. "
-            "If omitted, the most recent FarmBot camera image is used."
+            "If omitted, the most recent FarmBot camera image is used. "
+            "When checking a specific zone, move the camera to that zone and "
+            "call take_photo first; otherwise the latest image may be from "
+            "somewhere else."
         ),
     )
 
@@ -75,7 +80,10 @@ class SegmentImageArgs(BaseModel):
         default=None,
         description=(
             "Public URL of the image to segment. "
-            "If omitted, the most recent FarmBot camera image is used."
+            "If omitted, the most recent FarmBot camera image is used. "
+            "When checking a specific zone, move the camera to that zone and "
+            "call take_photo first; otherwise the latest image may be from "
+            "somewhere else."
         ),
     )
     negative: str = Field(
@@ -95,7 +103,10 @@ class VisualizeFeaturesArgs(BaseModel):
         default=None,
         description=(
             "Public URL of the image to analyse. "
-            "If omitted, the most recent FarmBot camera image is used."
+            "If omitted, the most recent FarmBot camera image is used. "
+            "When checking a specific zone, move the camera to that zone and "
+            "call take_photo first; otherwise the latest image may be from "
+            "somewhere else."
         ),
     )
 
@@ -111,12 +122,46 @@ class EstimateTraversabilityArgs(BaseModel):
         default=None,
         description=(
             "Public URL of the image to analyse. "
-            "If omitted, the most recent FarmBot camera image is used."
+            "If omitted, the most recent FarmBot camera image is used. "
+            "When checking a specific zone, move the camera to that zone and "
+            "call take_photo first; otherwise the latest image may be from "
+            "somewhere else."
         ),
     )
     negatives: str = Field(
         default="",
         description=("Optional comma-separated background prompts to exclude."),
+    )
+
+
+class PlanPathArgs(BaseModel):
+    start: dict[str, float] = Field(
+        description="Starting point as {'x': ..., 'y': ..., 'z': ...}. If z is omitted, the planning z is used."
+    )
+    target: dict[str, float] = Field(
+        description="Target point as {'x': ..., 'y': ..., 'z': ...}. If z is omitted, the planning z is used."
+    )
+    step_mm: float = Field(
+        default=100.0,
+        description="Maximum distance between waypoints in millimetres.",
+    )
+    z: float = Field(
+        default=0.0,
+        description="Z coordinate to use for all generated waypoints.",
+    )
+
+
+class ScanZoneArgs(BaseModel):
+    zone_id: str = Field(
+        description="Zone id or name to scan, e.g. 'tomato' or 'Herbs Zone'."
+    )
+    step_mm: float = Field(
+        default=200.0,
+        description="Raster spacing in millimetres.",
+    )
+    z: float = Field(
+        default=0.0,
+        description="Z coordinate to use for all generated waypoints.",
     )
 
 
@@ -470,6 +515,43 @@ def build_introspection_tools(
             log.warning("estimate_traversability failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
 
+    @tool(args_schema=PlanPathArgs)
+    def plan_path(
+        start: dict[str, float],
+        target: dict[str, float],
+        step_mm: float = 100.0,
+        z: float = 0.0,
+    ) -> dict[str, Any]:
+        """Generate a straight-line waypoint path between two points.
+
+        Use this when the model needs to know intermediate waypoints before
+        issuing a `move_path` action. Returns `{"waypoints": [...], "count": N}`.
+        """
+        try:
+            waypoints = path_planning.plan_path(start, target, step_mm=step_mm, z=z)
+            return {"waypoints": waypoints, "count": len(waypoints)}
+        except Exception as err:  # noqa: BLE001
+            log.warning("plan_path failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
+    @tool(args_schema=ScanZoneArgs)
+    def scan_zone(
+        zone_id: str,
+        step_mm: float = 200.0,
+        z: float = 0.0,
+    ) -> dict[str, Any]:
+        """Generate a raster waypoint list covering a configured zone.
+
+        Use this to create a photo/monitoring sweep of a bed. Returns
+        `{"waypoints": [...], "count": N, "zone_id": ...}`.
+        """
+        try:
+            waypoints = path_planning.scan_zone(zone_id, step_mm=step_mm, z=z)
+            return {"waypoints": waypoints, "count": len(waypoints), "zone_id": zone_id}
+        except Exception as err:  # noqa: BLE001
+            log.warning("scan_zone failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
     return [
         list_endpoints,
         get_health,
@@ -482,6 +564,8 @@ def build_introspection_tools(
         get_pins,
         get_positions,
         get_images,
+        plan_path,
+        scan_zone,
         analyze_image,
         segment_image,
         visualize_image_features,

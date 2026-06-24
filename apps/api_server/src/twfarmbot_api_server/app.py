@@ -24,6 +24,8 @@ from pydantic import BaseModel, Field
 from farmbot_client import FarmBotConnectionError
 from safety_service import UnsafeActionError, validate
 from twfarmbot_api_server.handlers import register_default_handlers
+from planning_service.config import load_config
+from planning_service.providers import get_provider, list_provider_names
 from twfarmbot_core.actions import (
     ActionRegistry,
     UnknownActionError,
@@ -51,6 +53,10 @@ class PlanPayload(BaseModel):
             "introspection tool calls the model made, for debugging."
         ),
     )
+    model: str | None = Field(
+        default=None,
+        description="Optional model override. Uses the configured default if omitted.",
+    )
 
 
 class ChatPayload(BaseModel):
@@ -61,6 +67,10 @@ class ChatPayload(BaseModel):
     allow_actions: bool = Field(
         default=True,
         description="If false, the model only has read-only introspection tools.",
+    )
+    model: str | None = Field(
+        default=None,
+        description="Optional model override. Uses the configured default if omitted.",
     )
 
 
@@ -102,6 +112,28 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "status": "ok",
             "actions": app.state.registry.kinds(),
             "farmbot": app.state.farmbot_status,
+        }
+
+    @app.get("/providers")
+    def list_providers() -> dict[str, Any]:
+        cfg = load_config()
+        return {
+            "providers": list_provider_names(),
+            "current": cfg.provider,
+        }
+
+    @app.get("/models")
+    def list_models(provider: str | None = None) -> dict[str, Any]:
+        cfg = load_config()
+        try:
+            prov = get_provider(provider or cfg.provider)
+            models = prov.list_models(cfg)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {
+            "provider": provider or cfg.provider,
+            "models": models,
+            "current": cfg.model,
         }
 
     @app.post("/actions")
@@ -159,6 +191,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 registry=app.state.registry,
                 world=world,
                 system_state=system_state,
+                model_name=payload.model,
             )
         except PlanError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
@@ -246,6 +279,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 system_state=system_state,
                 allow_actions=payload.allow_actions,
                 propose_only=True,
+                model_name=payload.model,
             )
         except Exception as err:  # noqa: BLE001
             from planning_service.config import load_config
@@ -289,6 +323,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                     system_state=system_state,
                     allow_actions=payload.allow_actions,
                     propose_only=True,
+                    model_name=payload.model,
                 ):
                     yield f"data: {json.dumps(event)}\n\n"
             except Exception as err:  # noqa: BLE001

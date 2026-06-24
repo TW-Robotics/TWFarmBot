@@ -7,7 +7,7 @@ log_level: INFO
 # the environment, or reference a different env var via api_key_env.
 planning:
   base_url: https://openrouter.ai/api/v1   # OpenAI-compatible endpoint
-  model: deepseek/deepseek-v4-flash      # any model the endpoint exposes
+  model: openai/gpt-oss-safeguard-20b     # any model the endpoint exposes
   api_key_env: PLANNING_LLM_API_KEY  # name of the env var that holds the secret
   timeout_s: 120                       # raise this for slower models
   temperature: 0.0
@@ -15,6 +15,9 @@ planning:
   # OpenRouter use: extra_body: {reasoning: {effort: low}}
   # For native DeepSeek use: extra_body: {thinking: {type: enabled}}
   extra_body: {reasoning: {effort: low}}
+  # Optional W&B Weave project for tracing. Set WEAVE_PROJECT or this field
+  # to enable model/tool-call/token tracing.
+  weave_project: ""
 
 # FarmBot WiFi credentials are read from environment variables
 # (FARMBOT_HOST, FARMBOT_EMAIL, FARMBOT_PASSWORD, optional FARMBOT_TOKEN)
@@ -80,171 +83,11 @@ spatial:
     height: 300
     metadata: {soil_type: sandy}
 
-  entities:
-  - id: herbs
-    kind: plant
-    name: "Herbs"
-    x: 120
-    y: 180
-    z: 0
-    radius_mm: 80
-    metadata: {species: herbs, planted: "2026-05-01"}
-  - id: seeder
-    kind: tool
-    name: "Seeder"
-    x: 300
+  - id: radieschen
+    kind: radischen
+    name: "Radischen Zone"
+    x: 100
     y: 400
-    z: 0
-    radius_mm: 40
-  - id: tomato
-    kind: plant
-    name: tomato
-    x: 1150.0
-    y: 150.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato
-    kind: plant
-    name: tomato
-    x: 1250.0
-    y: 150.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_1
-    kind: plant
-    name: herbs-1
-    x: 850.0
-    y: 225.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_2
-    kind: plant
-    name: herbs-2
-    x: 950.0
-    y: 225.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_3
-    kind: plant
-    name: herbs-3
-    x: 1050.0
-    y: 225.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_4
-    kind: plant
-    name: herbs-4
-    x: 1050.0
-    y: 175.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_5
-    kind: plant
-    name: herbs-5
-    x: 875.0
-    y: 175.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_6
-    kind: plant
-    name: herbs-6
-    x: 950.0
-    y: 175.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_7
-    kind: plant
-    name: herbs-7
-    x: 950.0
-    y: 125.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_8
-    kind: plant
-    name: herbs-8
-    x: 825.0
-    y: 125.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: herbs_9
-    kind: plant
-    name: herbs-9
-    x: 1025.0
-    y: 125.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato_1
-    kind: plant
-    name: tomato-1
-    x: 1550.0
-    y: 275.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato_2
-    kind: plant
-    name: tomato-2
-    x: 1575.0
-    y: 225.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato_3
-    kind: plant
-    name: tomato-3
-    x: 1575.0
-    y: 175.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato_4
-    kind: plant
-    name: tomato-4
-    x: 1550.0
-    y: 125.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato_5
-    kind: plant
-    name: tomato-5
-    x: 1650.0
-    y: 125.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato_6
-    kind: plant
-    name: tomato-6
-    x: 1650.0
-    y: 175.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato_7
-    kind: plant
-    name: tomato-7
-    x: 1650.0
-    y: 225.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
-  - id: tomato_8
-    kind: plant
-    name: tomato-8
-    x: 1650.0
-    y: 275.0
-    z: 0.0
-    radius_mm: 50
-    metadata: {}
+    width: 1000
+    height: 250
+    metadata: {soil_type: sandy}
