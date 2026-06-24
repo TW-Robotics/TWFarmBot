@@ -60,6 +60,27 @@ class MountToolArgs(BaseModel):
     tool_name: str = Field(..., description="Name of the tool to mount.")
 
 
+class Waypoint(BaseModel):
+    x: float = Field(..., description="X coordinate in millimetres.")
+    y: float = Field(..., description="Y coordinate in millimetres.")
+    z: float = Field(..., description="Z coordinate in millimetres.")
+
+
+class MovePathArgs(BaseModel):
+    waypoints: list[Waypoint] = Field(
+        ...,
+        description="Sequence of waypoints to visit.",
+    )
+    speed: float | None = Field(
+        default=None,
+        description="Optional movement speed override.",
+    )
+    photo_at_waypoints: bool = Field(
+        default=False,
+        description="If true, take a photo at every waypoint.",
+    )
+
+
 # ── Tool builder ────────────────────────────────────────────────────────
 
 
@@ -112,6 +133,7 @@ def tool_calls_to_actions(
         args = call.get("args", {})
         if name in {
             "move",
+            "move_path",
             "water",
             "find_home",
             "read_pin",

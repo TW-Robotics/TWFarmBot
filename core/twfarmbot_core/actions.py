@@ -39,6 +39,12 @@ def _summarize_move(params: dict[str, Any]) -> str:
     )
 
 
+def _summarize_move_path(params: dict[str, Any]) -> str:
+    waypoints = params.get("waypoints", [])
+    photo = params.get("photo_at_waypoints", False)
+    return f"🛤️ **move_path** ({len(waypoints)} waypoints){' + 📷' if photo else ''}"
+
+
 def _summarize_water(params: dict[str, Any]) -> str:
     return f"🌊 **water** for {_num(params.get('seconds'))} s"
 
@@ -78,6 +84,7 @@ def _summarize_e_stop(params: dict[str, Any]) -> str:
 
 ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "move": _summarize_move,
+    "move_path": _summarize_move_path,
     "water": _summarize_water,
     "find_home": _summarize_find_home,
     "take_photo": _summarize_take_photo,

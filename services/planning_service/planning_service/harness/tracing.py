@@ -58,14 +58,15 @@ def langchain_tracer() -> Any | None:
 
 @weave.op()  # type: ignore[misc]
 def trace_tool_call(
-    name: str, args: dict[str, Any], result: dict[str, Any]
+    name: str, args: dict[str, Any], result: dict[str, Any], *, latency_s: float
 ) -> dict[str, Any]:
     """Trace a single tool invocation.
 
     This is a no-op at runtime unless Weave has been initialized; the
     decorator simply records inputs/outputs when tracing is active.
     """
-    return {"name": name, "args": args, "result": result}
+    with weave.attributes({"latency_s": latency_s}):
+        return {"name": name, "args": args, "result": result}
 
 
 @weave.op()  # type: ignore[misc]

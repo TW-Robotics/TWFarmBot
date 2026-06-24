@@ -14,6 +14,7 @@ from ..tools import (
     FindHomeArgs,
     MountToolArgs,
     MoveArgs,
+    MovePathArgs,
     ReadPinArgs,
     SendMessageArgs,
     WaterArgs,
@@ -65,6 +66,12 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         requires_approval=False,
         description="Trigger the camera to take a photo.",
     ),
+    "move_path": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=True,
+        safety_rules=("move_path",),
+        description="Move the gantry through a sequence of waypoints, optionally taking photos.",
+    ),
     "send_message": ToolPolicy(
         ToolCategory.READ,
         requires_approval=False,
@@ -80,6 +87,7 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
 
 _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "move": MoveArgs,
+    "move_path": MovePathArgs,
     "water": WaterArgs,
     "find_home": FindHomeArgs,
     "read_pin": ReadPinArgs,
@@ -100,6 +108,8 @@ _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {
     "get_pins": ToolCategory.READ,
     "get_positions": ToolCategory.READ,
     "get_images": ToolCategory.READ,
+    "plan_path": ToolCategory.ANALYZE,
+    "scan_zone": ToolCategory.ANALYZE,
     "analyze_image": ToolCategory.ANALYZE,
     "segment_image": ToolCategory.ANALYZE,
     "visualize_image_features": ToolCategory.ANALYZE,

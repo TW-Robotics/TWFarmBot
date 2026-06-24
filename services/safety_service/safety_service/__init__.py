@@ -82,7 +82,31 @@ def _check_water(action: Action, limits: SafetyLimits) -> None:
         )
 
 
+def _check_move_path(action: Action, limits: SafetyLimits) -> None:
+    waypoints = action.params.get("waypoints")
+    if not isinstance(waypoints, list):
+        raise UnsafeActionError("move_path action needs a list of waypoints")
+    for idx, wp in enumerate(waypoints):
+        if not isinstance(wp, dict):
+            raise UnsafeActionError(f"waypoint {idx} must be an object")
+        for axis in ("x", "y", "z"):
+            if axis not in wp:
+                raise UnsafeActionError(f"waypoint {idx} needs {axis!r}")
+            try:
+                value = float(wp[axis])
+            except (TypeError, ValueError) as err:
+                raise UnsafeActionError(
+                    f"waypoint {idx} {axis!r} must be numeric, got {wp[axis]!r}"
+                ) from err
+            cap = limits.max_axis_mm.get(axis, float("inf"))
+            if abs(value) > cap:
+                raise UnsafeActionError(
+                    f"waypoint {idx} {axis}={value} exceeds |max| {cap} mm"
+                )
+
+
 register("move", _check_move)
+register("move_path", _check_move_path)
 register("water", _check_water)
 
 

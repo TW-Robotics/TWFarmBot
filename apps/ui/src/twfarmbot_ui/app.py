@@ -115,20 +115,20 @@ def _render_tool_call(
         return
 
     if name == "analyze_image" and result.get("image_url"):
-        st.image(result["image_url"], use_container_width=True)
+        st.image(result["image_url"], width=400)
     elif name == "estimate_traversability" and result.get("image_url"):
-        st.image(result["image_url"], use_container_width=True)
+        st.image(result["image_url"], width=400)
     elif name in {"segment_image", "visualize_image_features"} and result.get(
         "image_urls"
     ):
         cols = st.columns(min(len(result["image_urls"]), 3))
         for idx, url in enumerate(result["image_urls"]):
-            cols[idx % len(cols)].image(url, use_container_width=True)
+            cols[idx % len(cols)].image(url, width=300)
         for label_text in result.get("labels", []):
             st.caption(label_text)
     elif result.get("image_url"):
         # Fallback for any other tool that returns a single image (e.g. take_photo).
-        st.image(result["image_url"], use_container_width=True)
+        st.image(result["image_url"], width=400)
 
 
 def _render_proposed_actions_inline(
@@ -1221,7 +1221,7 @@ def _render_camera() -> None:
     img_col, ctrl_col = st.columns([1.6, 1])
 
     with img_col:
-        st.image(selected.get("attachment_url"), use_container_width=True)
+        st.image(selected.get("attachment_url"), width=500)
 
     with ctrl_col:
         st.markdown("**AI analysis**")
@@ -1395,7 +1395,7 @@ def _render_camera() -> None:
             gallery[index % 3].image(
                 image.get("attachment_url"),
                 caption=f"X {image_meta.get('x', '—')} · Y {image_meta.get('y', '—')}",
-                use_container_width=True,
+                width=240,
             )
 
 
@@ -1449,7 +1449,7 @@ def _render_chat() -> None:
                 cols = st.columns(min(len(images), 3))
                 for i, image in enumerate(images):
                     cols[i % len(cols)].image(
-                        image.get("attachment_url"), use_container_width=True
+                        image.get("attachment_url"), width=220
                     )
 
             proposed_actions = msg.get("proposed_actions", [])

@@ -11,12 +11,14 @@ The loop owns:
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 
 from .approval_gate import ApprovalGate
 from .context_builder import ContextBuilder
@@ -33,6 +35,22 @@ def _llm_friendly_result(result: Any) -> Any:
         out["image_url"] = "[image data shown to user in chat]"
         return out
     return result
+
+
+def _normalize_tool_args(value: Any) -> Any:
+    """Recursively convert Pydantic model instances to plain JSON-serializable dicts.
+
+    LangChain validates tool inputs against Pydantic schemas, so nested args
+    (e.g. ``Waypoint`` inside ``move_path``) arrive as model instances. The
+    rest of the harness expects plain dicts.
+    """
+    if isinstance(value, BaseModel):
+        return _normalize_tool_args(value.model_dump())
+    if isinstance(value, list):
+        return [_normalize_tool_args(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _normalize_tool_args(v) for k, v in value.items()}
+    return value
 
 
 @dataclass(frozen=True)
@@ -319,10 +337,13 @@ class AgentLoop:
         tool = tool_map.get(name)
         if tool is None:
             return {"error": f"unknown tool {name!r}"}
+        args = _normalize_tool_args(args)
+        start = time.perf_counter()
         try:
             result = tool.invoke(args)
         except Exception as err:  # noqa: BLE001
             result = {"error": f"{type(err).__name__}: {err}"}
+        latency = time.perf_counter() - start
         if is_enabled():
-            trace_tool_call(name, args, result)
+            trace_tool_call(name, args, _llm_friendly_result(result), latency_s=latency)
         return result
