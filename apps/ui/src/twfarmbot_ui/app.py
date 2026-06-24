@@ -1435,10 +1435,14 @@ def _render_chat() -> None:
                     st.markdown(msg["content"])
             continue
 
-        with st.chat_message(msg["role"]):
-            if msg.get("thinking"):
+        # Render the model's reasoning as its own collapsible assistant pill,
+        # similar to how tool calls are shown, so the conversation flow is clear.
+        if msg.get("thinking"):
+            with st.chat_message("assistant"):
                 with st.expander("🧠 Thinking", expanded=False):
                     st.markdown(msg["thinking"])
+
+        with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             images = msg.get("images", [])
             if images:

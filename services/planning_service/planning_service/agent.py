@@ -27,6 +27,7 @@ def build_base_model(
         api_key=cfg.api_key,
         timeout_s=cfg.timeout_s,
         temperature=cfg.temperature,
+        extra_body=cfg.extra_body,
     )
     return cfg, base_model
 
@@ -47,7 +48,8 @@ def build_tool_set(
     if for_chat:
         execution_tools = (
             build_execution_tools(registry, propose_only=propose_only)
-            if allow_actions else []
+            if allow_actions
+            else []
         )
     else:
         execution_tools = build_tools(registry)
