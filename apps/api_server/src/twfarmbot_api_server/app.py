@@ -263,6 +263,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         return {
             "status": "ok",
             "response": result.response,
+            "thinking": result.thinking,
             "tool_calls": result.tool_calls,
             "messages": result.messages,
         }

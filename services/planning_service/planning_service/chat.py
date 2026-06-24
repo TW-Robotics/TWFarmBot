@@ -35,17 +35,51 @@ class ChatResult:
     proposed_actions: list[dict[str, Any]] = field(default_factory=list)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     messages: list[dict[str, str]] = field(default_factory=list)
+    thinking: str | None = None
 
 
-def _to_langchain_message(message: dict[str, Any]) -> SystemMessage | HumanMessage | AIMessage:
+def _to_langchain_message(
+    message: dict[str, Any], *, include_reasoning: bool = False
+) -> SystemMessage | HumanMessage | AIMessage | None:
     role = message.get("role", "")
     content = message.get("content", "")
     if role == "user":
         return HumanMessage(content=str(content))
     if role == "assistant":
-        return AIMessage(content=str(content))
-    # Unknown roles are treated as system prompts.
-    return SystemMessage(content=str(content))
+        kwargs: dict[str, Any] = {}
+        if include_reasoning:
+            thinking = message.get("thinking")
+            if thinking:
+                kwargs["additional_kwargs"] = {"reasoning_content": str(thinking)}
+        return AIMessage(content=str(content), **kwargs)
+    # Unknown / UI-only roles are not sent back to the model.
+    return None
+
+
+THINK_TAG_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+
+
+def _extract_thinking(message: Any) -> str | None:
+    """Extract reasoning / thinking content from a LangChain message.
+
+    Tries, in order:
+    1. ``<think>...</think>`` tags in the message content.
+    2. Provider-specific metadata fields such as ``reasoning_content``
+       (DeepSeek / OpenRouter) or ``thinking`` (Claude).
+    """
+    content = str(getattr(message, "content", "") or "")
+    match = THINK_TAG_RE.search(content)
+    if match:
+        thinking = match.group(1).strip()
+        return thinking if thinking else None
+
+    for key in ("reasoning_content", "thinking", "reasoning"):
+        value = getattr(message, "response_metadata", {}).get(key) or getattr(
+            message, "additional_kwargs", {}
+        ).get(key)
+        if value:
+            return str(value).strip() or None
+    return None
 
 
 def _llm_friendly_result(result: Any) -> Any:
@@ -95,25 +129,34 @@ def chat(
     chat_model = base_model.bind_tools(all_tools) if all_tools else base_model
     tool_map = {t.name: t for t in all_tools}
 
-    system_prompt = build_chat_system_prompt(registry.kinds(), propose_only=propose_only)
+    system_prompt = build_chat_system_prompt(
+        registry.kinds(), propose_only=propose_only
+    )
     if world is not None:
         world_context = format_world_context(world)
         if world_context:
             system_prompt += "\n\nCurrent world model:\n" + world_context
 
+    include_reasoning = "deepseek" in cfg.model.lower() and "v4" in cfg.model.lower()
     langchain_messages = [SystemMessage(content=system_prompt)]
     for msg in messages:
-        langchain_messages.append(_to_langchain_message(msg))
+        lc_msg = _to_langchain_message(msg, include_reasoning=include_reasoning)
+        if lc_msg is not None:
+            langchain_messages.append(lc_msg)
 
     tool_log: list[dict[str, Any]] = []
     proposed_actions: list[dict[str, Any]] = []
     final_response = ""
+    final_thinking: str | None = None
+    last_response: Any = None
 
     for _ in range(max_iterations):
         response = chat_model.invoke(langchain_messages)
+        last_response = response
         tool_calls = getattr(response, "tool_calls", None) or []
         if not tool_calls:
             final_response = str(response.content or "")
+            final_thinking = _extract_thinking(response)
             break
 
         langchain_messages.append(response)
@@ -131,10 +174,12 @@ def chat(
                     result = {"error": f"{type(err).__name__}: {err}"}
             tool_log.append({"name": name, "args": args, "result": result})
             if isinstance(result, dict) and result.get("status") == "proposed":
-                proposed_actions.append({
-                    "kind": result.get("kind", name),
-                    "params": result.get("params", args),
-                })
+                proposed_actions.append(
+                    {
+                        "kind": result.get("kind", name),
+                        "params": result.get("params", args),
+                    }
+                )
             langchain_messages.append(
                 ToolMessage(
                     content=json.dumps(_llm_friendly_result(result)),
@@ -144,9 +189,15 @@ def chat(
             )
     else:
         # Hit the iteration limit; return the last model text if any.
-        final_response = str(getattr(response, "content", "") or "")
+        final_response = str(getattr(last_response, "content", "") or "")
+        final_thinking = _extract_thinking(last_response)
         if not final_response:
-            final_response = "I ran too many tool calls without finishing. Please try again."
+            final_response = (
+                "I ran too many tool calls without finishing. Please try again."
+            )
+
+    # Strip <think> tags from the visible response so they don't render twice.
+    final_response = THINK_TAG_RE.sub("", final_response).strip()
 
     out_messages = list(messages)
     out_messages.append({"role": "assistant", "content": final_response})
@@ -155,6 +206,7 @@ def chat(
         proposed_actions=proposed_actions,
         tool_calls=tool_log,
         messages=out_messages,
+        thinking=final_thinking,
     )
 
 
@@ -195,15 +247,20 @@ def stream_chat(
     chat_model = base_model.bind_tools(all_tools) if all_tools else base_model
     tool_map = {t.name: t for t in all_tools}
 
-    system_prompt = build_chat_system_prompt(registry.kinds(), propose_only=propose_only)
+    system_prompt = build_chat_system_prompt(
+        registry.kinds(), propose_only=propose_only
+    )
     if world is not None:
         world_context = format_world_context(world)
         if world_context:
             system_prompt += "\n\nCurrent world model:\n" + world_context
 
+    include_reasoning = "deepseek" in cfg.model.lower() and "v4" in cfg.model.lower()
     langchain_messages = [SystemMessage(content=system_prompt)]
     for msg in messages:
-        langchain_messages.append(_to_langchain_message(msg))
+        lc_msg = _to_langchain_message(msg, include_reasoning=include_reasoning)
+        if lc_msg is not None:
+            langchain_messages.append(lc_msg)
 
     tool_log: list[dict[str, Any]] = []
     proposed_actions: list[dict[str, Any]] = []
@@ -231,10 +288,12 @@ def stream_chat(
                     result = {"error": f"{type(err).__name__}: {err}"}
             tool_log.append({"name": name, "args": args, "result": result})
             if isinstance(result, dict) and result.get("status") == "proposed":
-                proposed_actions.append({
-                    "kind": result.get("kind", name),
-                    "params": result.get("params", args),
-                })
+                proposed_actions.append(
+                    {
+                        "kind": result.get("kind", name),
+                        "params": result.get("params", args),
+                    }
+                )
             yield {"type": "tool_call", "name": name, "args": args, "result": result}
             langchain_messages.append(
                 ToolMessage(
@@ -256,7 +315,11 @@ def stream_chat(
         from planning_service import plan as planner_plan
 
         last_user = next(
-            (str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"),
+            (
+                str(m.get("content", ""))
+                for m in reversed(messages)
+                if m.get("role") == "user"
+            ),
             "",
         )
         try:
@@ -274,40 +337,100 @@ def stream_chat(
             proposed_actions = [
                 {"kind": a.kind, "params": a.params} for a in plan_result.actions
             ]
-            tool_log.append({
-                "name": "planner_fallback",
-                "args": {"request": last_user},
-                "result": {
-                    "status": "proposed",
-                    "actions": proposed_actions,
-                    "rationale": plan_result.rationale,
-                },
-            })
+            tool_log.append(
+                {
+                    "name": "planner_fallback",
+                    "args": {"request": last_user},
+                    "result": {
+                        "status": "proposed",
+                        "actions": proposed_actions,
+                        "rationale": plan_result.rationale,
+                    },
+                }
+            )
 
     yield {"type": "meta", "tool_calls": tool_log, "proposed_actions": proposed_actions}
 
+    # If the model exposed thinking/reasoning on the last tool-call turn,
+    # surface it before the answer text stream starts.
+    tool_turn_thinking = (
+        _extract_thinking(last_response) if last_response is not None else None
+    )
+    if tool_turn_thinking:
+        yield {"type": "thinking", "content": tool_turn_thinking}
+
+    buffer = ""
+    streamed_reasoning: list[str] = []
+    streamed_reasoning_emitted = bool(tool_turn_thinking)
     for chunk in chat_model.stream(langchain_messages):
+        reasoning = getattr(chunk, "additional_kwargs", {}).get("reasoning")
+        if reasoning:
+            streamed_reasoning.append(str(reasoning))
         content = getattr(chunk, "content", None)
-        if content:
-            yield {"type": "delta", "content": str(content)}
+        if content and streamed_reasoning and not streamed_reasoning_emitted:
+            yield {"type": "thinking", "content": "".join(streamed_reasoning)}
+            streamed_reasoning_emitted = True
+        if not content:
+            continue
+        buffer += str(content)
+
+        # Extract complete <think>...</think> blocks and keep the rest.
+        while True:
+            start = buffer.find("<think>")
+            end = buffer.find("</think>")
+            if start != -1 and end != -1 and end > start:
+                prefix = buffer[:start]
+                think = buffer[start + 7 : end]
+                suffix = buffer[end + 8 :]
+                if prefix:
+                    yield {"type": "delta", "content": prefix}
+                if think:
+                    yield {"type": "thinking", "content": think}
+                buffer = suffix
+                continue
+            break
+
+        # No open think tag: emit what we have and reset.
+        if "<think>" not in buffer:
+            if buffer:
+                yield {"type": "delta", "content": buffer}
+            buffer = ""
+
+    if buffer:
+        yield {"type": "delta", "content": buffer}
 
 
-
-
-def _response_describes_action(response_text: str, messages: list[dict[str, Any]]) -> bool:
+def _response_describes_action(
+    response_text: str, messages: list[dict[str, Any]]
+) -> bool:
     """Detect when the model described an action but skipped the tool call."""
     text = response_text.lower()
     last_user = next(
-        (str(m.get("content", "")).lower() for m in reversed(messages) if m.get("role") == "user"),
+        (
+            str(m.get("content", "")).lower()
+            for m in reversed(messages)
+            if m.get("role") == "user"
+        ),
         "",
     )
-    action_words = {"move", "water", "irrigate", "find_home", "home", "e_stop", "mount_tool", "dismount_tool"}
+    action_words = {
+        "move",
+        "water",
+        "irrigate",
+        "find_home",
+        "home",
+        "e_stop",
+        "mount_tool",
+        "dismount_tool",
+    }
     if not any(word in last_user or word in text for word in action_words):
         return False
     # Concrete proposal indicators
     if re.search(r"→|->", text):
         return True
-    if re.search(r"\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\)", text):
+    if re.search(
+        r"\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\)", text
+    ):
         return True
     if ("seconds" in text) and ("water" in text or "irrigate" in text):
         return True

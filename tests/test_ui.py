@@ -98,4 +98,13 @@ def test_huggingface_image_processor_calls_gradio_endpoint(
     assert seen["space_id"] == "owner/space"
     assert seen["image"] == {"url": "https://example.test/photo.jpg"}
     assert seen["prompt"] == "green leaves"
-    assert seen["api_name"] == "/run_similarity"
+    assert seen["api_name"] == "/run_sim"
+
+
+def test_parse_segmentation_labels() -> None:
+    from twfarmbot_ml_utils import parse_segmentation_labels
+
+    labels = ["weed (23.4%), soil (45.1%)", "plant (31.5%)"]
+    scores = parse_segmentation_labels(labels)
+
+    assert scores == {"weed": 0.234, "soil": 0.451, "plant": 0.315}

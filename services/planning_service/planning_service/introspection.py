@@ -15,13 +15,17 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
-from twfarmbot_ml_utils import HuggingFaceImageProcessor
+from twfarmbot_ml_utils import (
+    HuggingFaceImageProcessor,
+    parse_segmentation_labels,
+)
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +62,61 @@ class AnalyzeImageArgs(BaseModel):
             "Public URL of the image to analyse. "
             "If omitted, the most recent FarmBot camera image is used."
         ),
+    )
+
+
+class SegmentImageArgs(BaseModel):
+    classes: str = Field(
+        description=(
+            "Comma-separated class names to segment, e.g. " "'plant, weed, soil, path'."
+        ),
+    )
+    image_url: str | None = Field(
+        default=None,
+        description=(
+            "Public URL of the image to segment. "
+            "If omitted, the most recent FarmBot camera image is used."
+        ),
+    )
+    negative: str = Field(
+        default="",
+        description=("Optional background prompt subtracted before softmax."),
+    )
+
+
+class VisualizeFeaturesArgs(BaseModel):
+    n_clusters: int = Field(
+        default=6,
+        ge=2,
+        le=20,
+        description="Number of K-means clusters for PCA visualization (2..20).",
+    )
+    image_url: str | None = Field(
+        default=None,
+        description=(
+            "Public URL of the image to analyse. "
+            "If omitted, the most recent FarmBot camera image is used."
+        ),
+    )
+
+
+class EstimateTraversabilityArgs(BaseModel):
+    prompt: str = Field(
+        description=(
+            "Positive prompt describing traversable terrain, e.g. "
+            "'path', 'road', 'flat ground'."
+        ),
+    )
+    image_url: str | None = Field(
+        default=None,
+        description=(
+            "Public URL of the image to analyse. "
+            "If omitted, the most recent FarmBot camera image is used."
+        ),
+    )
+    negatives: str = Field(
+        default="",
+        description=("Optional comma-separated background prompts to exclude."),
     )
 
 
@@ -108,7 +167,7 @@ def _get_image_processor() -> HuggingFaceImageProcessor:
     """Lazy singleton for the HuggingFace image-analysis client."""
     global _IMAGE_PROCESSOR
     if _IMAGE_PROCESSOR is None:
-        space_id = os.getenv("TWFB_AI_SPACE_ID", "DavidSeyserHF/Eupe-Lang")
+        space_id = os.getenv("TWFB_AI_SPACE_ID", "SimonSchwaiger/resireg-playground")
         _IMAGE_PROCESSOR = HuggingFaceImageProcessor(space_id)
     return _IMAGE_PROCESSOR
 
@@ -121,6 +180,37 @@ def _image_to_data_uri(path: Path) -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
 
+def _parse_class_list(text: str) -> list[str]:
+    """Extract clean class names from a Gradio class list string.
+
+    Handles strings like ``"plants (45.2%), weeds"`` or ``"soil (0%)"``.
+    """
+    if not text:
+        return []
+    items = [part.strip() for part in str(text).split(",")]
+    cleaned: list[str] = []
+    for item in items:
+        if not item:
+            continue
+        name = re.sub(r"\s*\([^)]*\)\s*", "", item).strip()
+        if name and name.lower() not in {"none", "unknown"}:
+            cleaned.append(name)
+    return cleaned
+
+
+def _resolve_image_url(provider: SystemStateProvider, image_url: str | None) -> str:
+    """Return ``image_url`` if given, otherwise the latest camera image URL."""
+    if image_url:
+        return image_url
+    images = provider.get_images(limit=1)
+    if not images:
+        raise ValueError("no camera image available")
+    url = images[0].get("attachment_url")
+    if not url:
+        raise ValueError("latest camera image has no url")
+    return url
+
+
 # ── Tool builder ────────────────────────────────────────────────────────
 
 
@@ -129,7 +219,9 @@ def build_introspection_tools(
 ) -> list[BaseTool]:
     """Build LangChain read-only tools that query the live system."""
 
-    def _safe(name: str, fn: Callable[..., dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+    def _safe(
+        name: str, fn: Callable[..., dict[str, Any]], **kwargs: Any
+    ) -> dict[str, Any]:
         try:
             return fn(**kwargs)
         except Exception as err:  # noqa: BLE001
@@ -147,7 +239,8 @@ def build_introspection_tools(
         endpoints = provider.list_endpoints()
         if prefix:
             endpoints = [
-                e for e in endpoints
+                e
+                for e in endpoints
                 if e.get("method", "").startswith(prefix.upper())
                 or e.get("path", "").startswith(prefix)
             ]
@@ -229,13 +322,18 @@ def build_introspection_tools(
             w = b.get("width", 0)
             h = b.get("height", 0)
             name = zone.get("name") or zone.get("id")
-            out.append({
-                "name": name,
-                "id": zone.get("id"),
-                "kind": zone.get("kind"),
-                "x": x, "y": y, "width": w, "height": h,
-                "center": (round(x + w / 2), round(y + h / 2)),
-            })
+            out.append(
+                {
+                    "name": name,
+                    "id": zone.get("id"),
+                    "kind": zone.get("kind"),
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
+                    "center": (round(x + w / 2), round(y + h / 2)),
+                }
+            )
         return {"zones": out, "count": len(out)}
 
     @tool(args_schema=_NoArgs)
@@ -265,21 +363,17 @@ def build_introspection_tools(
 
     @tool(args_schema=AnalyzeImageArgs)
     def analyze_image(prompt: str, image_url: str | None = None) -> dict[str, Any]:
-        """Run AI image analysis (Resireg-Mini) on a FarmBot camera image.
+        """Run open-language similarity on a FarmBot camera image.
 
         The model decides the prompt, e.g. 'plants', 'weeds', 'dry soil'.
         If ``image_url`` is omitted the latest camera image is used.
         Returns the analysed image as a base64 data URI plus the source URL.
         """
         try:
-            if not image_url:
-                images = provider.get_images(limit=1)
-                if not images:
-                    return {"error": "no camera image available"}
-                image_url = images[0].get("attachment_url")
-                if not image_url:
-                    return {"error": "latest camera image has no url"}
-            result_path = _get_image_processor().process(image_url, prompt)
+            image_url = _resolve_image_url(provider, image_url)
+            result_path = _get_image_processor().process(
+                image_url, prompt, negatives=""
+            )
             return {
                 "image_url": _image_to_data_uri(Path(result_path)),
                 "prompt": prompt,
@@ -287,6 +381,93 @@ def build_introspection_tools(
             }
         except Exception as err:  # noqa: BLE001
             log.warning("analyze_image failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
+    @tool(args_schema=SegmentImageArgs)
+    def segment_image(
+        classes: str, image_url: str | None = None, negative: str = ""
+    ) -> dict[str, Any]:
+        """Run zero-shot segmentation on a FarmBot camera image.
+
+        Provide comma-separated class names like 'plant, weed, soil'.
+        Returns segmentation result images, detected / not-detected class
+        lists, class percentages, and the dominant class.
+        """
+        try:
+            image_url = _resolve_image_url(provider, image_url)
+            result = _get_image_processor().predict(
+                image_url, api_name="/run_seg", classes=classes, negative=negative or ""
+            )
+            if not isinstance(result, tuple) or len(result) < 4:
+                return {"error": "unexpected segmentation result shape"}
+            labels = [str(result[2]), str(result[3])]
+            class_scores = parse_segmentation_labels(labels)
+            dominant = max(class_scores, key=class_scores.get) if class_scores else None
+            return {
+                "image_urls": [
+                    _image_to_data_uri(Path(result[0])),
+                    _image_to_data_uri(Path(result[1])),
+                ],
+                "labels": labels,
+                "class_scores": class_scores,
+                "dominant_class": dominant,
+                "detected_classes": _parse_class_list(str(result[2])),
+                "not_detected_classes": _parse_class_list(str(result[3])),
+                "classes": classes,
+                "source_url": image_url,
+            }
+        except Exception as err:  # noqa: BLE001
+            log.warning("segment_image failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
+    @tool(args_schema=VisualizeFeaturesArgs)
+    def visualize_image_features(
+        n_clusters: int = 6, image_url: str | None = None
+    ) -> dict[str, Any]:
+        """Run PCA feature visualization on a FarmBot camera image.
+
+        Returns three analysis images as base64 data URIs plus the source URL.
+        """
+        try:
+            image_url = _resolve_image_url(provider, image_url)
+            result = _get_image_processor().predict(
+                image_url, api_name="/run_pca", n_clusters=n_clusters
+            )
+            if not isinstance(result, tuple) or len(result) < 3:
+                return {"error": "unexpected PCA result shape"}
+            return {
+                "image_urls": [_image_to_data_uri(Path(p)) for p in result[:3]],
+                "n_clusters": n_clusters,
+                "source_url": image_url,
+            }
+        except Exception as err:  # noqa: BLE001
+            log.warning("visualize_image_features failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
+    @tool(args_schema=EstimateTraversabilityArgs)
+    def estimate_traversability(
+        prompt: str, image_url: str | None = None, negatives: str = ""
+    ) -> dict[str, Any]:
+        """Estimate traversability from a FarmBot camera image.
+
+        Provide a prompt describing traversable terrain like 'path' or
+        'flat ground'. Returns the traversability map as a base64 data URI.
+        """
+        try:
+            image_url = _resolve_image_url(provider, image_url)
+            result_path = _get_image_processor().predict(
+                image_url,
+                api_name="/run_trav",
+                prompt=prompt,
+                negatives=negatives or "",
+            )
+            return {
+                "image_url": _image_to_data_uri(Path(result_path)),
+                "prompt": prompt,
+                "source_url": image_url,
+            }
+        except Exception as err:  # noqa: BLE001
+            log.warning("estimate_traversability failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
 
     return [
@@ -302,6 +483,9 @@ def build_introspection_tools(
         get_positions,
         get_images,
         analyze_image,
+        segment_image,
+        visualize_image_features,
+        estimate_traversability,
     ]
 
 
@@ -313,6 +497,7 @@ class HttpSystemStateProvider(SystemStateProvider):
 
     def __init__(self, base_url: str) -> None:
         import httpx
+
         self._client = httpx.Client(base_url=base_url, timeout=10.0)
         self._endpoints_cache: list[dict[str, str]] | None = None
 
@@ -332,7 +517,11 @@ class HttpSystemStateProvider(SystemStateProvider):
             {"method": "GET", "path": "/positions", "summary": "Named gantry presets"},
             {"method": "GET", "path": "/garden", "summary": "World model snapshot"},
             {"method": "POST", "path": "/actions", "summary": "Dispatch an Action"},
-            {"method": "POST", "path": "/plan", "summary": "LLM plan (preview or execute)"},
+            {
+                "method": "POST",
+                "path": "/plan",
+                "summary": "LLM plan (preview or execute)",
+            },
         ]
         return self._endpoints_cache
 
