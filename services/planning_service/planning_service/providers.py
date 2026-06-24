@@ -28,7 +28,7 @@ class LLMProvider(ABC):
         self, model: str, config: PlannerConfig
     ) -> BaseChatModel:
         """Return a configured LangChain chat model for ``model``."""
-        ...
+        raise NotImplementedError
 
     def list_models(self, config: PlannerConfig) -> list[str]:
         """Return a list of model ids available from this provider."""
