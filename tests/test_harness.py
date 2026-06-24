@@ -11,6 +11,7 @@ from typing import Any, Sequence
 
 import json
 
+import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.messages.tool import ToolCallChunk
@@ -22,6 +23,7 @@ from planning_service.harness import (
     ContextBuilder,
     ReasoningController,
     ToolCategory,
+    ToolDescriptor,
     ToolPolicy,
     ToolRegistry,
 )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
+from typing import Any
 
 import requests
 from langchain_core.language_models import BaseChatModel
@@ -27,7 +28,7 @@ class LLMProvider(ABC):
         self, model: str, config: PlannerConfig
     ) -> BaseChatModel:
         """Return a configured LangChain chat model for ``model``."""
-        raise NotImplementedError
+        ...
 
     def list_models(self, config: PlannerConfig) -> list[str]:
         """Return a list of model ids available from this provider."""
