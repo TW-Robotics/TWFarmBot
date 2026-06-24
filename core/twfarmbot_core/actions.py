@@ -39,6 +39,18 @@ def _summarize_move(params: dict[str, Any]) -> str:
     )
 
 
+def _summarize_move_path(params: dict[str, Any]) -> str:
+    waypoints = params.get("waypoints", [])
+    photo = params.get("photo_at_waypoints", False)
+    water_pin = params.get("water_pin")
+    extras = ""
+    if water_pin is not None:
+        extras += f" 💧 pin {water_pin}"
+    if photo:
+        extras += " 📷"
+    return f"🛤️ **move_path** ({len(waypoints)} waypoints){extras}"
+
+
 def _summarize_water(params: dict[str, Any]) -> str:
     return f"🌊 **water** for {_num(params.get('seconds'))} s"
 
@@ -59,11 +71,6 @@ def _summarize_write_pin(params: dict[str, Any]) -> str:
     return f"✏️ **write_pin** {params.get('pin', '—')} = {params.get('value', '—')}"
 
 
-def _summarize_send_message(params: dict[str, Any]) -> str:
-    msg = str(params.get("message", ""))[:40]
-    return f"💬 **send_message**: {msg}"
-
-
 def _summarize_mount_tool(params: dict[str, Any]) -> str:
     return f"🔧 **mount_tool** {params.get('tool_name', '—')}"
 
@@ -78,12 +85,12 @@ def _summarize_e_stop(params: dict[str, Any]) -> str:
 
 ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "move": _summarize_move,
+    "move_path": _summarize_move_path,
     "water": _summarize_water,
     "find_home": _summarize_find_home,
     "take_photo": _summarize_take_photo,
     "read_pin": _summarize_read_pin,
     "write_pin": _summarize_write_pin,
-    "send_message": _summarize_send_message,
     "mount_tool": _summarize_mount_tool,
     "dismount_tool": _summarize_dismount_tool,
     "e_stop": _summarize_e_stop,

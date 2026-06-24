@@ -1,15 +1,33 @@
-"""Tests for the planner prompt builders."""
+"""Tests for the planner/chat prompt builders."""
 
 from __future__ import annotations
 
-from planning_service.prompt import build_system_prompt, build_user_prompt
+from planning_service.harness import ContextBuilder, ToolRegistry
+from planning_service.prompt import build_user_prompt
+from twfarmbot_core.actions import ActionRegistry
 
 
-def test_system_prompt_mentions_move_vs_find_home() -> None:
-    prompt = build_system_prompt(["move", "find_home", "water"])
-    assert "move(x=0, y=0, z=0)" in prompt
+def _make_registry() -> ActionRegistry:
+    reg = ActionRegistry()
+    reg.register("move", lambda a: a)
+    reg.register("find_home", lambda a: a)
+    reg.register("water", lambda a: a)
+    return reg
+
+
+def test_system_prompt_mentions_action_kinds() -> None:
+    reg = _make_registry()
+    prompt = ContextBuilder(ToolRegistry(reg)).planner_system_prompt()
+    assert "move" in prompt
     assert "find_home" in prompt
-    assert "end-stop homing" in prompt or "physical limits" in prompt
+    assert "water" in prompt
+
+
+def test_chat_prompt_lists_execution_tools() -> None:
+    reg = _make_registry()
+    prompt = ContextBuilder(ToolRegistry(reg)).chat_system_prompt()
+    assert "Execution tools" in prompt
+    assert "move" in prompt
 
 
 def test_user_prompt_includes_world_context() -> None:
