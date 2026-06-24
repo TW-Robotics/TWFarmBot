@@ -19,6 +19,22 @@ class ApiResult:
     code: int
     body: Any
 
+    def error_message(self) -> str:
+        """Return a human-readable backend error from the response body.
+
+        FastAPI errors are shaped like ``{"detail": "..."}``; legacy or
+        connection-failure bodies may use ``{"error": "..."}``. Fall back to
+        the raw body text when neither key is present.
+        """
+        if isinstance(self.body, dict):
+            if "detail" in self.body:
+                return str(self.body["detail"])
+            if "error" in self.body:
+                return str(self.body["error"])
+        if isinstance(self.body, str):
+            return self.body
+        return str(self.body)
+
 
 class ApiClient:
     def __init__(self, base_url: str, timeout: float = 2.0) -> None:
