@@ -18,7 +18,6 @@ from typing import Any
 import altair as alt
 import streamlit as st
 from ruamel.yaml import YAML
-from streamlit_autorefresh import st_autorefresh
 from twfarmbot_ml_utils import (
     HuggingFaceImageProcessor,
     parse_segmentation_labels,
@@ -292,6 +291,81 @@ def _refresh_telemetry(client: ApiClient) -> None:
     _refresh_messages(client)
 
 
+def _time_ago(ts: float) -> str:
+    """Return a human-readable 'X s/min/h ago' string."""
+    if not ts:
+        return "never"
+    delta = time.time() - ts
+    if delta < 1:
+        return "just now"
+    if delta < 60:
+        return f"{int(delta)} s ago"
+    if delta < 3600:
+        return f"{int(delta / 60)} min ago"
+    return f"{int(delta / 3600)} h ago"
+
+
+@st.fragment(run_every=1)
+def _sidebar_auto_refresh(client: ApiClient) -> None:
+    """Refresh position and stats in the background without interrupting analysis."""
+    position_s = max(1, int(st.session_state.get("refresh_position_s", 2)))
+    stats_s = max(1, int(st.session_state.get("refresh_stats_s", 300)))
+
+    now = time.time()
+    if now - st.session_state.get("last_position_refresh", 0) >= position_s:
+        _refresh_position(client)
+        st.session_state["last_position_refresh"] = now
+    if now - st.session_state.get("last_stats_refresh", 0) >= stats_s:
+        _refresh_health(client)
+        d = client.request("GET", "/status")
+        st.session_state["diag"] = (
+            d.body.get("state", {}) if d.ok and isinstance(d.body, dict) else {}
+        )
+        info_for_history = (st.session_state.get("diag") or {}).get(
+            "informational_settings", {}
+        ) or {}
+        st.session_state["history"].append(
+            {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "cpu": _float(info_for_history.get("cpu_usage")),
+                "memory": _float(info_for_history.get("memory_usage")),
+                "disk": _float(info_for_history.get("disk_usage")),
+                "wifi": _float(info_for_history.get("wifi_level_percent")),
+                "soc": _float(info_for_history.get("soc_temp")),
+                "uptime": _float(info_for_history.get("uptime")),
+            }
+        )
+        st.session_state["history"] = st.session_state["history"][-60:]
+        st.session_state["last_stats_refresh"] = now
+
+    fb = st.session_state.get("farmbot_status", "?")
+    pill_css = "ok" if fb == "connected" else ("warn" if fb == "skipped" else "bad")
+    st.markdown(f'<span class="pill {pill_css}">● {fb}</span>', unsafe_allow_html=True)
+    st.caption(
+        f"X {st.session_state.get('pos_x', '—')} · "
+        f"Y {st.session_state.get('pos_y', '—')} · "
+        f"Z {st.session_state.get('pos_z', '—')} mm "
+        f"· updated {_time_ago(st.session_state.get('last_position_refresh', 0))}"
+    )
+    if st.button("↻ Refresh", use_container_width=True):
+        _refresh_telemetry(client)
+        st.rerun(scope="fragment")
+
+
+@st.fragment(run_every=1)
+def _camera_auto_refresh(client: ApiClient) -> None:
+    """Refresh the camera gallery in the background without interrupting analysis."""
+    camera_s = int(st.session_state.get("refresh_camera_s", 0))
+    if camera_s > 0:
+        now = time.time()
+        if now - st.session_state.get("last_camera_refresh", 0) >= camera_s:
+            r = client.request("GET", "/images", timeout=10.0)
+            if r.ok and isinstance(r.body, dict):
+                st.session_state["camera_images"] = r.body.get("images", [])
+                _persist_session()
+            st.session_state["last_camera_refresh"] = now
+
+
 TABS = [
     "Overview",
     "Garden",
@@ -561,40 +635,12 @@ if "farmbot_status" not in st.session_state:
 # Auto-refresh settings (persisted via the normal session save).
 st.session_state.setdefault("refresh_position_s", 2)
 st.session_state.setdefault("refresh_stats_s", 300)
+st.session_state.setdefault("refresh_camera_s", 0)
 st.session_state.setdefault("last_position_refresh", 0.0)
 st.session_state.setdefault("last_stats_refresh", 0.0)
+st.session_state.setdefault("last_camera_refresh", 0.0)
 st.session_state.setdefault("history", [])
-
-position_interval_ms = max(1, int(st.session_state["refresh_position_s"])) * 1000
-stats_interval_ms = max(1, int(st.session_state["refresh_stats_s"])) * 1000
-st_autorefresh(interval=min(position_interval_ms, stats_interval_ms), key="auto_refresh")
-
-now = time.time()
-if now - st.session_state["last_position_refresh"] >= st.session_state["refresh_position_s"]:
-    _refresh_position(client)
-    st.session_state["last_position_refresh"] = now
-if now - st.session_state["last_stats_refresh"] >= st.session_state["refresh_stats_s"]:
-    _refresh_health(client)
-    d = client.request("GET", "/status")
-    st.session_state["diag"] = (
-        d.body.get("state", {}) if d.ok and isinstance(d.body, dict) else {}
-    )
-    info_for_history = (st.session_state.get("diag") or {}).get(
-        "informational_settings", {}
-    ) or {}
-    st.session_state["history"].append(
-        {
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "cpu": _float(info_for_history.get("cpu_usage")),
-            "memory": _float(info_for_history.get("memory_usage")),
-            "disk": _float(info_for_history.get("disk_usage")),
-            "wifi": _float(info_for_history.get("wifi_level_percent")),
-            "soc": _float(info_for_history.get("soc_temp")),
-            "uptime": _float(info_for_history.get("uptime")),
-        }
-    )
-    st.session_state["history"] = st.session_state["history"][-60:]
-    st.session_state["last_stats_refresh"] = now
+st.session_state.setdefault("camera_images", [])
 
 # ── sidebar  ──────────────────────────────────────────────────────────────────
 
@@ -618,17 +664,7 @@ with st.sidebar:
     )
 
     st.divider()
-    fb = st.session_state.get("farmbot_status", "?")
-    pill_css = "ok" if fb == "connected" else ("warn" if fb == "skipped" else "bad")
-    st.markdown(f'<span class="pill {pill_css}">● {fb}</span>', unsafe_allow_html=True)
-    st.caption(
-        f"X {st.session_state.get('pos_x', '—')} · "
-        f"Y {st.session_state.get('pos_y', '—')} · "
-        f"Z {st.session_state.get('pos_z', '—')} mm"
-    )
-    if st.button("↻ Refresh", use_container_width=True):
-        _refresh_telemetry(client)
-        st.rerun()
+    _sidebar_auto_refresh(client)
 
     st.divider()
     if st.button("🛑 ESTOP", type="primary", use_container_width=True):
@@ -653,6 +689,9 @@ def _render_overview() -> None:
     row[0].metric("X · mm", st.session_state.get("pos_x", "—"))
     row[1].metric("Y · mm", st.session_state.get("pos_y", "—"))
     row[2].metric("Z · mm", st.session_state.get("pos_z", "—"))
+    st.caption(
+        f"Position updated {_time_ago(st.session_state.get('last_position_refresh', 0))}"
+    )
 
     # ── System status ──────────────────────────────────────────────────────────
     st.markdown("### System status")
@@ -701,6 +740,9 @@ def _render_overview() -> None:
     status_cols[2].metric("Wi-Fi", f"{_num(info.get('wifi_level_percent'))}%")
     status_cols[3].metric("Sync", info.get("sync_status", "—"))
     status_cols[4].metric("Busy", "Yes" if info.get("busy") else "No")
+    st.caption(
+        f"Stats updated {_time_ago(st.session_state.get('last_stats_refresh', 0))}"
+    )
 
     # ── Resources over time ────────────────────────────────────────────────────
     st.markdown("### Resources over time")
@@ -1280,6 +1322,8 @@ def _render_camera() -> None:
     )
     st.markdown("# Camera")
 
+    _camera_auto_refresh(client)
+
     capture, refresh, _ = st.columns([1, 1, 4])
     if capture.button("📷 Take photo", type="primary", use_container_width=True):
         r = client.request(
@@ -1287,19 +1331,22 @@ def _render_camera() -> None:
         )
         if r.ok:
             st.toast("Capture queued", icon="📷")
+            # Fetch the gallery so the new capture appears as soon as it is ready.
+            rg = client.request("GET", "/images", timeout=10.0)
+            if rg.ok and isinstance(rg.body, dict):
+                st.session_state["camera_images"] = rg.body.get("images", [])
+                _persist_session()
         else:
             st.error(r.error_message())
     if refresh.button("↻ Refresh gallery", use_container_width=True):
-        st.session_state["images"] = client.request(
-            "GET", "/images", params={"refresh": "true"}, timeout=10.0
-        )
+        r = client.request("GET", "/images", params={"refresh": "true"}, timeout=10.0)
+        if r.ok and isinstance(r.body, dict):
+            st.session_state["camera_images"] = r.body.get("images", [])
+            _persist_session()
+        else:
+            st.error(r.error_message())
 
-    result = st.session_state.get("images")
-    images = (
-        result.body.get("images", [])
-        if result and result.ok and isinstance(result.body, dict)
-        else []
-    )
+    images = st.session_state.get("camera_images", [])
     if not images:
         st.info("Refresh the gallery to load FarmBot photos.")
         return
@@ -1995,6 +2042,8 @@ def _restore_session() -> None:
     st.session_state["executed_plans"] = snapshot.get("executed_plans", [])
     st.session_state["refresh_position_s"] = snapshot.get("refresh_position_s", 2)
     st.session_state["refresh_stats_s"] = snapshot.get("refresh_stats_s", 300)
+    st.session_state["refresh_camera_s"] = snapshot.get("refresh_camera_s", 0)
+    st.session_state["camera_images"] = snapshot.get("camera_images", [])
 
 
 def _persist_session() -> None:
@@ -2021,6 +2070,8 @@ def _persist_session() -> None:
     )
     snapshot["refresh_position_s"] = st.session_state.get("refresh_position_s", 2)
     snapshot["refresh_stats_s"] = st.session_state.get("refresh_stats_s", 300)
+    snapshot["refresh_camera_s"] = st.session_state.get("refresh_camera_s", 0)
+    snapshot["camera_images"] = st.session_state.get("camera_images", [])
     snapshot["executed_plans"] = st.session_state.get("executed_plans", [])
     history.save_session(snapshot)
 
@@ -2409,7 +2460,7 @@ def _render_settings() -> None:
         st.rerun()
 
     st.markdown("**Auto-refresh intervals**")
-    pos_col, stats_col = st.columns(2)
+    pos_col, stats_col, cam_col = st.columns(3)
     with pos_col:
         pos_interval = st.number_input(
             "Position refresh (s)",
@@ -2426,12 +2477,22 @@ def _render_settings() -> None:
             value=int(st.session_state["refresh_stats_s"]),
             step=10,
         )
+    with cam_col:
+        cam_interval = st.number_input(
+            "Camera refresh (s, 0 = off)",
+            min_value=0,
+            max_value=3600,
+            value=int(st.session_state.get("refresh_camera_s", 0)),
+            step=10,
+        )
     if (
         pos_interval != st.session_state["refresh_position_s"]
         or stats_interval != st.session_state["refresh_stats_s"]
+        or cam_interval != st.session_state.get("refresh_camera_s", 0)
     ):
         st.session_state["refresh_position_s"] = int(pos_interval)
         st.session_state["refresh_stats_s"] = int(stats_interval)
+        st.session_state["refresh_camera_s"] = int(cam_interval)
         _persist_session()
         st.rerun()
 
