@@ -18,6 +18,7 @@ from typing import Any
 import altair as alt
 import streamlit as st
 from ruamel.yaml import YAML
+from streamlit_autorefresh import st_autorefresh
 from twfarmbot_ml_utils import (
     HuggingFaceImageProcessor,
     parse_segmentation_labels,
@@ -556,6 +557,44 @@ if "farmbot_status" not in st.session_state:
     _refresh_health(client)
     _refresh_position(client)
     st.session_state.setdefault("messages", [])
+
+# Auto-refresh settings (persisted via the normal session save).
+st.session_state.setdefault("refresh_position_s", 2)
+st.session_state.setdefault("refresh_stats_s", 300)
+st.session_state.setdefault("last_position_refresh", 0.0)
+st.session_state.setdefault("last_stats_refresh", 0.0)
+st.session_state.setdefault("history", [])
+
+position_interval_ms = max(1, int(st.session_state["refresh_position_s"])) * 1000
+stats_interval_ms = max(1, int(st.session_state["refresh_stats_s"])) * 1000
+st_autorefresh(interval=min(position_interval_ms, stats_interval_ms), key="auto_refresh")
+
+now = time.time()
+if now - st.session_state["last_position_refresh"] >= st.session_state["refresh_position_s"]:
+    _refresh_position(client)
+    st.session_state["last_position_refresh"] = now
+if now - st.session_state["last_stats_refresh"] >= st.session_state["refresh_stats_s"]:
+    _refresh_health(client)
+    d = client.request("GET", "/status")
+    st.session_state["diag"] = (
+        d.body.get("state", {}) if d.ok and isinstance(d.body, dict) else {}
+    )
+    info_for_history = (st.session_state.get("diag") or {}).get(
+        "informational_settings", {}
+    ) or {}
+    st.session_state["history"].append(
+        {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "cpu": _float(info_for_history.get("cpu_usage")),
+            "memory": _float(info_for_history.get("memory_usage")),
+            "disk": _float(info_for_history.get("disk_usage")),
+            "wifi": _float(info_for_history.get("wifi_level_percent")),
+            "soc": _float(info_for_history.get("soc_temp")),
+            "uptime": _float(info_for_history.get("uptime")),
+        }
+    )
+    st.session_state["history"] = st.session_state["history"][-60:]
+    st.session_state["last_stats_refresh"] = now
 
 # ── sidebar  ──────────────────────────────────────────────────────────────────
 
@@ -1954,6 +1993,8 @@ def _restore_session() -> None:
         "assistant_selected_model"
     )
     st.session_state["executed_plans"] = snapshot.get("executed_plans", [])
+    st.session_state["refresh_position_s"] = snapshot.get("refresh_position_s", 2)
+    st.session_state["refresh_stats_s"] = snapshot.get("refresh_stats_s", 300)
 
 
 def _persist_session() -> None:
@@ -1978,6 +2019,8 @@ def _persist_session() -> None:
     snapshot["assistant_selected_model"] = st.session_state.get(
         "assistant_selected_model"
     )
+    snapshot["refresh_position_s"] = st.session_state.get("refresh_position_s", 2)
+    snapshot["refresh_stats_s"] = st.session_state.get("refresh_stats_s", 300)
     snapshot["executed_plans"] = st.session_state.get("executed_plans", [])
     history.save_session(snapshot)
 
@@ -2363,6 +2406,33 @@ def _render_settings() -> None:
     if url != st.session_state["api_url"]:
         st.session_state["api_url"] = url
         st.cache_resource.clear()
+        st.rerun()
+
+    st.markdown("**Auto-refresh intervals**")
+    pos_col, stats_col = st.columns(2)
+    with pos_col:
+        pos_interval = st.number_input(
+            "Position refresh (s)",
+            min_value=1,
+            max_value=300,
+            value=int(st.session_state["refresh_position_s"]),
+            step=1,
+        )
+    with stats_col:
+        stats_interval = st.number_input(
+            "Stats refresh (s)",
+            min_value=10,
+            max_value=3600,
+            value=int(st.session_state["refresh_stats_s"]),
+            step=10,
+        )
+    if (
+        pos_interval != st.session_state["refresh_position_s"]
+        or stats_interval != st.session_state["refresh_stats_s"]
+    ):
+        st.session_state["refresh_position_s"] = int(pos_interval)
+        st.session_state["refresh_stats_s"] = int(stats_interval)
+        _persist_session()
         st.rerun()
 
     if st.button("Health check"):

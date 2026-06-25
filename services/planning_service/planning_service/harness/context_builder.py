@@ -40,8 +40,9 @@ Guidelines:
   provide, then state what analysis was run and that the images are shown to
   the user.
 - Some actions require user approval (see tool list). When a tool returns a
-  proposed-action marker, say the proposal briefly, note that it requires
-  approval, and stop — the interface shows Approve/Reject buttons.
+  proposed-action marker, the interface shows Approve/Reject buttons. For
+  multi-step tasks, call ALL required action tools in a single turn so the
+  full plan is shown at once; do not propose one step at a time.
 - When a question depends on the live garden state, do not rely on a single
   tool result. Gather and cross-check evidence across multiple tools and
   reason about the combined picture. For example:
@@ -59,11 +60,13 @@ Guidelines:
 _PROPOSE_ONLY_APPENDIX = """
 IMPORTANT: You are in proposal mode. When the user asks you to perform one
 or more actions (move, water, take_photo, etc.), you MUST call the
-corresponding action tool to register the proposal. The tool will return a
-proposed-action marker; do NOT describe the action in text without calling
-the tool first. State the proposal briefly, note that it requires approval,
-and stop. Do NOT ask the user a yes/no approval question and do NOT say the
-action is done — the interface shows Approve/Reject buttons.
+corresponding action tool(s) to register the proposal(s). If the request
+involves multiple steps, call ALL required action tools in the correct order
+within the same turn. Each tool will return a proposed-action marker; collect
+them, briefly state the full plan, note that it requires approval, and stop.
+Do NOT describe the action in text without calling the tool first. Do NOT ask
+the user a yes/no approval question and do NOT say the action is done — the
+interface shows Approve/Reject buttons for the whole plan.
 """
 
 _PLANNER_HEADER = """You are a task planner for an autonomous farm robot.
