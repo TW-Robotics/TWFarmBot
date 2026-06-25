@@ -26,6 +26,7 @@ from twfarmbot_ml_utils import (
 from twfarmbot_core.actions import summarize_action
 
 from twfarmbot_ui.client import ApiClient, ApiResult
+from twfarmbot_ui import history
 
 # ── config ────────────────────────────────────────────────────────────────────
 
@@ -115,20 +116,20 @@ def _render_tool_call(
         return
 
     if name == "analyze_image" and result.get("image_url"):
-        st.image(result["image_url"], width=400)
+        st.image(result["image_url"], use_container_width=True)
     elif name == "estimate_traversability" and result.get("image_url"):
-        st.image(result["image_url"], width=400)
+        st.image(result["image_url"], use_container_width=True)
     elif name in {"segment_image", "visualize_image_features"} and result.get(
         "image_urls"
     ):
         cols = st.columns(min(len(result["image_urls"]), 3))
         for idx, url in enumerate(result["image_urls"]):
-            cols[idx % len(cols)].image(url, width=300)
+            cols[idx % len(cols)].image(url, use_container_width=True)
         for label_text in result.get("labels", []):
             st.caption(label_text)
     elif result.get("image_url"):
         # Fallback for any other tool that returns a single image (e.g. take_photo).
-        st.image(result["image_url"], width=400)
+        st.image(result["image_url"], use_container_width=True)
 
 
 def _render_proposed_actions_inline(
@@ -147,10 +148,12 @@ def _render_proposed_actions_inline(
                 results = _execute_proposed_actions(actions, message, wait=True)
             message["approved"] = True
             message["content"] += "\n\n" + _format_execution_results(results)
+            _persist_session()
             st.rerun()
         if reject_col.button("✕ Reject", key=f"reject_{idx}", use_container_width=True):
             message["rejected"] = True
             message["content"] += "\n\n❌ Cancelled."
+            _persist_session()
             st.rerun()
 
 
@@ -295,6 +298,7 @@ TABS = [
     "Camera",
     "I/O",
     "Assistant",
+    "History",
     "Diagnostics",
     "Settings",
 ]
@@ -437,6 +441,18 @@ st.markdown(
   .card-label { font-size: .66rem; font-weight: 700; letter-spacing: .09em;
                 text-transform: uppercase; opacity: .5; }
   .card-value { font-size: 1.3rem; font-weight: 650; margin-top: .4rem; }
+  .sensor-value {
+    background: var(--secondary-background-color);
+    border: 1px solid rgba(128,128,128,0.10);
+    border-radius: 9px;
+    padding: .55rem .75rem;
+    font-size: 1.25rem;
+    font-weight: 650;
+    min-height: 2.2rem;
+    display: flex;
+    align-items: center;
+    margin-top: .4rem;
+  }
   .empty { opacity: .4; font-size: .8rem; }
   div[data-testid="stMetric"] {
     background: var(--secondary-background-color);
@@ -463,13 +479,15 @@ st.markdown(
   .st-key-analysis_source img,
   .st-key-analysis_processed img {
     width: 100% !important;
-    height: 320px !important;
+    max-height: 70vh !important;
     object-fit: contain !important;
     background: var(--secondary-background-color);
     border-radius: 9px;
   }
-  [data-testid="stChatMessage"] img {
-    max-width: 480px !important;
+  [data-testid="stChatMessage"] img,
+  [data-testid="stImage"] img {
+    max-width: 100% !important;
+    max-height: 70vh !important;
     border-radius: 9px;
   }
   [data-testid="stChatMessage"] {
@@ -1099,34 +1117,44 @@ def _render_io() -> None:
     # ── Sensors ───────────────────────────────────────────────────────────────
     sensors = [p for p in named if p.get("kind") == "sensor"]
     if sensors:
-        st.markdown("## Sensors")
+        st.markdown("### 🔍 Sensors")
         cols = st.columns(min(3, len(sensors)))
         for i, s in enumerate(sensors):
             with cols[i]:
-                st.caption(f"{s['label']} · pin {s['pin']} · {s.get('mode', 'analog')}")
-                if st.button("Read", key=f"sensor_{i}", use_container_width=True):
-                    r = client.request(
-                        "GET",
-                        f"/pin/{s['pin']}",
-                        params={"mode": s.get("mode", "analog")},
+                with st.container(border=True, height=170):
+                    mode = s.get("mode", "analog")
+                    st.markdown(
+                        f"**{s['label']}**  <span class='pill'>{mode}</span>",
+                        unsafe_allow_html=True,
                     )
-                    st.session_state[f"sv_{s['pin']}"] = (
-                        r.body.get("value") if r.ok else "—"
+                    st.caption(f"pin {s['pin']}")
+                    if st.button("Read", key=f"sensor_{i}", use_container_width=True):
+                        r = client.request(
+                            "GET",
+                            f"/pin/{s['pin']}",
+                            params={"mode": mode},
+                        )
+                        st.session_state[f"sv_{s['pin']}"] = (
+                            r.body.get("value") if r.ok else "—"
+                        )
+                    sensor_value = st.session_state.get(f"sv_{s['pin']}", "—")
+                    st.markdown(
+                        f"<div class='sensor-value'>{sensor_value}</div>",
+                        unsafe_allow_html=True,
                     )
-                st.metric("Value", st.session_state.get(f"sv_{s['pin']}", "—"))
     elif named:
         st.info("No sensor pins configured.")
 
     st.divider()
 
     # ── Actuators ─────────────────────────────────────────────────────────────
-    st.markdown("## Actuators")
+    st.markdown("### ⚡ Actuators")
     a, b = st.columns(2)
     with a:
-        st.markdown("**Irrigation**")
-        with st.form("water"):
-            secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5)
-            if st.form_submit_button("Water", use_container_width=True):
+        with st.container(border=True, height=320):
+            st.markdown("**💧 Irrigation**")
+            secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5, key="water_secs")
+            if st.button("Water", use_container_width=True, type="primary"):
                 r = client.request(
                     "POST",
                     "/actions",
@@ -1136,43 +1164,62 @@ def _render_io() -> None:
                     st.success("Queued")
                 else:
                     st.error(r.error_message())
+            st.caption("Runs the pump for the selected duration.")
 
     with b:
-        st.markdown("**Peripheral control**")
-        outputs = [p for p in named if p.get("kind") != "sensor"]
-        if not outputs:
-            st.info("No output pins configured.")
-        else:
-            sel = st.selectbox(
-                "Output",
-                outputs,
-                format_func=lambda p: f"{p['label']} · pin {p['pin']}",
-            )
-            if sel:
-                mode = sel.get("mode", "digital")
-                high_mode = st.segmented_control(
-                    "HIGH mode", ["Timed", "Keep on"], default="Timed"
+        with st.container(border=True, height=320):
+            st.markdown("**🔌 Peripheral control**")
+            outputs = [p for p in named if p.get("kind") != "sensor"]
+            if not outputs:
+                st.info("No output pins configured.")
+            else:
+                sel = st.selectbox(
+                    "Output",
+                    outputs,
+                    format_func=lambda p: f"{p['label']} · pin {p['pin']}",
+                    label_visibility="collapsed",
                 )
-                if high_mode == "Timed":
-                    high_secs = st.number_input(
-                        "Seconds to stay HIGH",
-                        0.1,
-                        300.0,
-                        2.0,
-                        0.5,
-                        key="high_secs",
+                if sel:
+                    mode = sel.get("mode", "digital")
+                    st.markdown(
+                        f"<span class='pill'>{mode}</span>",
+                        unsafe_allow_html=True,
                     )
-                else:
-                    high_secs = None
 
-                off, on = st.columns(2)
-                if off.button("Set LOW", use_container_width=True):
-                    _do_pin_write(client, sel["pin"], 0, mode)
-                if on.button("Set HIGH", use_container_width=True):
-                    if high_mode == "Timed" and high_secs is not None:
-                        _do_pin_pulse(client, sel["pin"], high_secs, mode)
+                    if mode == "analog":
+                        val_col, btn_col = st.columns([4, 1])
+                        with val_col:
+                            analog_value = st.slider(
+                                "PWM value",
+                                min_value=0,
+                                max_value=255,
+                                value=0,
+                                key=f"analog_value_{sel['pin']}",
+                            )
+                        with btn_col:
+                            st.markdown("<div style='height:27px'></div>", unsafe_allow_html=True)
+                            if st.button("Apply", use_container_width=True):
+                                _do_pin_write(client, sel["pin"], analog_value, mode)
                     else:
-                        _do_pin_write(client, sel["pin"], 1, mode)
+                        pulse = st.toggle("Timed pulse", value=True)
+                        if pulse:
+                            pulse_secs = st.number_input(
+                                "Seconds",
+                                0.1,
+                                300.0,
+                                2.0,
+                                0.5,
+                                key=f"pulse_secs_{sel['pin']}",
+                            )
+
+                        off, on = st.columns(2)
+                        if off.button("⏻ OFF", use_container_width=True):
+                            _do_pin_write(client, sel["pin"], 0, mode)
+                        if on.button("⏻ ON", use_container_width=True, type="primary"):
+                            if pulse and pulse_secs is not None:
+                                _do_pin_pulse(client, sel["pin"], pulse_secs, mode)
+                            else:
+                                _do_pin_write(client, sel["pin"], 1, mode)
 
 
 def _render_camera() -> None:
@@ -1220,7 +1267,7 @@ def _render_camera() -> None:
     img_col, ctrl_col = st.columns([1.6, 1])
 
     with img_col:
-        st.image(selected.get("attachment_url"), width=500)
+        st.image(selected.get("attachment_url"), use_container_width=True)
 
     with ctrl_col:
         st.markdown("**AI analysis**")
@@ -1371,7 +1418,7 @@ def _render_camera() -> None:
         result_cols = st.columns(len(result["paths"]))
         for idx, (path, caption) in enumerate(zip(result["paths"], result["captions"])):
             with result_cols[idx]:
-                st.image(path, caption=caption, width=280)
+                st.image(path, caption=caption, use_container_width=True)
 
         st.markdown("**Raw output**")
         if result.get("class_scores"):
@@ -1472,10 +1519,13 @@ def _render_assistant() -> None:
     with clear_col:
         if st.button("Clear chat", use_container_width=True):
             st.session_state["assistant_messages"] = []
+            _persist_session()
             st.rerun()
+    _render_session_controls()
     selected_model = _render_model_picker()
     st.session_state["assistant_selected_model"] = selected_model
     _render_chat()
+    _persist_session()
 
 
 def _render_chat() -> None:
@@ -1556,9 +1606,11 @@ def _render_chat() -> None:
                     else:
                         last_assistant["rejected"] = True
                         last_assistant["content"] += "\n\n❌ Cancelled."
+                    _persist_session()
                     st.rerun()
                 else:
                     st.toast("No pending proposal to approve or reject.", icon="⚠️")
+                    _persist_session()
                     st.rerun()
 
         st.session_state["assistant_messages"].append(
@@ -1724,6 +1776,7 @@ def _render_chat() -> None:
                         "images": photo_images,
                     }
                 )
+        _persist_session()
         st.rerun()
 
 
@@ -1833,6 +1886,163 @@ def _format_execution_results(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# ── session persistence ───────────────────────────────────────────────────────
+
+
+def _has_session_state() -> bool:
+    """Return True if any chat/plan state has been initialised."""
+    return (
+        "assistant_messages" in st.session_state
+        or "assistant_plan_response" in st.session_state
+        or "executed_plans" in st.session_state
+    )
+
+
+def _is_session_empty() -> bool:
+    """Return True if the current session has nothing worth saving."""
+    messages = st.session_state.get("assistant_messages") or []
+    plan_response = st.session_state.get("assistant_plan_response")
+    executed = st.session_state.get("executed_plans") or []
+    return not messages and not plan_response and not executed
+
+
+def _restore_session() -> None:
+    """Load the latest or URL-specified session on first app load."""
+    if _has_session_state():
+        return
+
+    session_id = st.query_params.get("session")
+    if isinstance(session_id, list):
+        session_id = session_id[0] if session_id else None
+
+    snapshot: dict[str, Any] | None = None
+    if session_id:
+        snapshot = history.load_session(session_id)
+    if snapshot is None:
+        sessions = history.list_sessions(limit=1)
+        if sessions:
+            snapshot = history.load_session(sessions[0]["session_id"])
+
+    if snapshot is None:
+        snapshot = history.empty_snapshot()
+
+    st.session_state["assistant_session_id"] = snapshot["session_id"]
+    st.session_state["assistant_session_label"] = snapshot.get("label")
+    st.session_state["assistant_messages"] = snapshot.get("assistant_messages", [])
+    st.session_state["assistant_plan_request"] = snapshot.get(
+        "assistant_plan_request", ""
+    )
+    st.session_state["assistant_plan_response"] = snapshot.get(
+        "assistant_plan_response"
+    )
+    st.session_state["assistant_plan_status"] = snapshot.get(
+        "assistant_plan_status"
+    )
+    st.session_state["assistant_selected_model"] = snapshot.get(
+        "assistant_selected_model"
+    )
+    st.session_state["executed_plans"] = snapshot.get("executed_plans", [])
+
+
+def _persist_session() -> None:
+    """Save the current chat/plan state to disk."""
+    if _is_session_empty():
+        return
+    snapshot = history.empty_snapshot(
+        session_id=st.session_state.get("assistant_session_id")
+    )
+    snapshot["label"] = st.session_state.get("assistant_session_label")
+    snapshot["created_at"] = st.session_state.get(
+        "assistant_session_created_at", snapshot["created_at"]
+    )
+    snapshot["assistant_messages"] = st.session_state.get("assistant_messages", [])
+    snapshot["assistant_plan_request"] = st.session_state.get(
+        "assistant_plan_request", ""
+    )
+    snapshot["assistant_plan_response"] = st.session_state.get(
+        "assistant_plan_response"
+    )
+    snapshot["assistant_plan_status"] = st.session_state.get("assistant_plan_status")
+    snapshot["assistant_selected_model"] = st.session_state.get(
+        "assistant_selected_model"
+    )
+    snapshot["executed_plans"] = st.session_state.get("executed_plans", [])
+    history.save_session(snapshot)
+
+
+def _render_session_controls() -> None:
+    """Render session management widgets inside the Assistant tab."""
+    with st.expander("🗂️ Session", expanded=False):
+        current_label = st.text_input(
+            "Session label",
+            value=st.session_state.get("assistant_session_label") or "",
+            key="assistant_session_label_input",
+            placeholder="e.g. watering experiment",
+        )
+        st.session_state["assistant_session_label"] = (
+            current_label.strip() or None
+        )
+
+        new_col, save_col = st.columns([1, 1])
+        if new_col.button("New session", use_container_width=True):
+            _persist_session()
+            new_id = history.new_session_id()
+            st.session_state["assistant_session_id"] = new_id
+            st.session_state["assistant_session_label"] = None
+            st.session_state["assistant_messages"] = []
+            st.session_state["assistant_plan_request"] = ""
+            st.session_state["assistant_plan_response"] = None
+            st.session_state["assistant_plan_status"] = None
+            st.session_state["executed_plans"] = []
+            st.query_params.pop("session", None)
+            st.rerun()
+        if save_col.button("Save now", use_container_width=True):
+            _persist_session()
+            st.toast("Session saved", icon="💾")
+
+        sessions = history.list_sessions(limit=20)
+        if sessions:
+            st.divider()
+            st.markdown("**Previous sessions**")
+        for sess in sessions:
+            if sess["session_id"] == st.session_state.get("assistant_session_id"):
+                continue
+            label = sess["label"] or sess["session_id"]
+            preview = sess["preview"]
+            c1, c2, c3 = st.columns([3, 1, 1])
+            c1.caption(f"{label}" + (f" · {preview}" if preview else ""))
+            if c2.button("Load", key=f"load_sess_{sess['session_id']}", use_container_width=True):
+                snapshot = history.load_session(sess["session_id"])
+                if snapshot is None:
+                    st.error("Session not found")
+                    continue
+                st.session_state["assistant_session_id"] = snapshot["session_id"]
+                st.session_state["assistant_session_label"] = snapshot.get("label")
+                st.session_state["assistant_messages"] = snapshot.get(
+                    "assistant_messages", []
+                )
+                st.session_state["assistant_plan_request"] = snapshot.get(
+                    "assistant_plan_request", ""
+                )
+                st.session_state["assistant_plan_response"] = snapshot.get(
+                    "assistant_plan_response"
+                )
+                st.session_state["assistant_plan_status"] = snapshot.get(
+                    "assistant_plan_status"
+                )
+                st.session_state["assistant_selected_model"] = snapshot.get(
+                    "assistant_selected_model"
+                )
+                st.session_state["executed_plans"] = snapshot.get(
+                    "executed_plans", []
+                )
+                st.query_params["session"] = snapshot["session_id"]
+                st.rerun()
+            if c3.button("🗑", key=f"del_sess_{sess['session_id']}", use_container_width=True):
+                history.delete_session(sess["session_id"])
+                st.rerun()
+
+
 def _render_plan() -> None:
     st.caption(
         "Describe a task. The LLM builds a step-by-step plan; review it before running."
@@ -1894,6 +2104,7 @@ def _render_plan() -> None:
             r.body if r.ok else {"error": r.body}
         )
         st.session_state["assistant_plan_status"] = r.code
+        _persist_session()
 
     response = st.session_state.get("assistant_plan_response")
     status = st.session_state.get("assistant_plan_status")
@@ -1934,16 +2145,25 @@ def _render_plan() -> None:
     if clear_col.button("Clear", use_container_width=True):
         st.session_state["assistant_plan_response"] = None
         st.session_state["assistant_plan_status"] = None
+        _persist_session()
         st.rerun()
 
     if run_col.button("Run plan", type="primary", use_container_width=True):
         queued = 0
         failed = 0
+        action_results: list[dict[str, Any]] = []
         for action in actions:
             r = client.request(
                 "POST",
                 "/actions",
                 json={"kind": action["kind"], "params": action.get("params", {})},
+            )
+            action_results.append(
+                {
+                    "kind": action["kind"],
+                    "ok": r.ok,
+                    "detail": r.error_message() if not r.ok else None,
+                }
             )
             if r.ok:
                 queued += 1
@@ -1955,9 +2175,99 @@ def _render_plan() -> None:
             st.success(f"Plan queued · {queued} action(s)")
         else:
             st.warning(f"Plan partially queued · {queued} ok, {failed} failed")
+        executed = st.session_state.get("executed_plans") or []
+        executed.append(
+            {
+                "request": response.get("request", ""),
+                "actions": actions,
+                "results": action_results,
+                "queued_at": datetime.now().isoformat(),
+                "status": "ok" if failed == 0 else ("partial" if queued > 0 else "failed"),
+            }
+        )
+        st.session_state["executed_plans"] = executed
         st.session_state["assistant_plan_response"] = None
         st.session_state["assistant_plan_status"] = None
+        _persist_session()
         st.rerun()
+
+
+def _render_history() -> None:
+    st.markdown(
+        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("# History")
+
+    sessions = history.list_sessions(limit=50)
+    if not sessions:
+        st.info("No saved sessions yet. Chat and plans are saved automatically.")
+        return
+
+    st.markdown("## Chat sessions")
+    for sess in sessions:
+        label = sess["label"] or sess["session_id"]
+        updated = sess["updated_at"][:19].replace("T", " ") if sess["updated_at"] else ""
+        c1, c2 = st.columns([4, 1])
+        with c1:
+            st.markdown(f"**{label}**")
+            st.caption(
+                f"Updated {updated}" + (f" · {sess['preview']}" if sess["preview"] else "")
+            )
+        if c2.button("Load", key=f"hist_load_{sess['session_id']}", use_container_width=True):
+            snapshot = history.load_session(sess["session_id"])
+            if snapshot is None:
+                st.error("Session not found")
+            else:
+                st.session_state["assistant_session_id"] = snapshot["session_id"]
+                st.session_state["assistant_session_label"] = snapshot.get("label")
+                st.session_state["assistant_messages"] = snapshot.get(
+                    "assistant_messages", []
+                )
+                st.session_state["assistant_plan_request"] = snapshot.get(
+                    "assistant_plan_request", ""
+                )
+                st.session_state["assistant_plan_response"] = snapshot.get(
+                    "assistant_plan_response"
+                )
+                st.session_state["assistant_plan_status"] = snapshot.get(
+                    "assistant_plan_status"
+                )
+                st.session_state["assistant_selected_model"] = snapshot.get(
+                    "assistant_selected_model"
+                )
+                st.session_state["executed_plans"] = snapshot.get("executed_plans", [])
+                st.query_params["session"] = snapshot["session_id"]
+                st.rerun()
+
+    executed = st.session_state.get("executed_plans") or []
+    if executed:
+        st.markdown("## Executed plans")
+        for idx, plan in enumerate(reversed(executed), start=1):
+            with st.container(border=True):
+                queued_at = plan.get("queued_at", "")
+                ts = queued_at[:19].replace("T", " ") if queued_at else ""
+                status = plan.get("status", "unknown")
+                status_emoji = {"ok": "✅", "partial": "⚠️", "failed": "❌"}.get(
+                    status, "❓"
+                )
+                st.markdown(
+                    f"{status_emoji} **Plan {idx}** · {plan.get('request', '')}"
+                )
+                st.caption(f"{ts} · {len(plan.get('actions', []))} action(s) · {status}")
+                with st.expander("Actions"):
+                    for action in plan.get("actions", []):
+                        st.markdown(f"• {_action_summary(action)}")
+                results = plan.get("results", [])
+                if results:
+                    with st.expander("Results"):
+                        for res in results:
+                            icon = "✅" if res.get("ok") else "❌"
+                            detail = res.get("detail")
+                            line = f"{icon} {_action_summary({'kind': res['kind'], 'params': {}})}"
+                            if detail:
+                                line += f" — {detail}"
+                            st.markdown(line)
 
 
 def _render_diagnostics() -> None:
@@ -2080,7 +2390,11 @@ renderers = {
     "Camera": _render_camera,
     "I/O": _render_io,
     "Assistant": _render_assistant,
+    "History": _render_history,
     "Diagnostics": _render_diagnostics,
     "Settings": _render_settings,
 }
+
+# Restore the latest or URL-specified chat/plan session on first load.
+_restore_session()
 renderers[tab]()

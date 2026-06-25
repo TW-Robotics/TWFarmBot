@@ -14,3 +14,6 @@ build/
 .DS_Store
 .idea/
 .vscode/
+
+# Runtime UI session data
+data/ui_sessions/
