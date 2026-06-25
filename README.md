@@ -2,6 +2,10 @@
 
 Implementation of the FarmBot at UAS Technikum Wien.
 
+[![Pylint](https://github.com/TW-Robotics/TWFarmBot/actions/workflows/pylint.yml/badge.svg)](https://github.com/TW-Robotics/TWFarmBot/actions/workflows/pylint.yml)
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
+[![Issues](https://img.shields.io/github/issues/TW-Robotics/TWFarmBot)](https://github.com/TW-Robotics/TWFarmBot/issues)
+
 This repository is a **monorepo** for the FarmBot system: the physical robot
 integration, sensor pipelines, irrigation/vision/planning services, the API and
 worker apps, and the student projects and experiments that build on top of
