@@ -39,13 +39,31 @@ class FindHomeArgs(BaseModel):
 
 class ReadPinArgs(BaseModel):
     pin: int = Field(..., description="GPIO pin number to read.")
-    mode: str = Field(default="digital", description="'digital' or 'analog'.")
+    mode: str = Field(
+        default="digital",
+        description=(
+            "'digital' or 'analog'. If omitted, default to the mode configured "
+            "for this pin in the system config."
+        ),
+    )
 
 
 class WritePinArgs(BaseModel):
     pin: int = Field(..., description="GPIO pin number to write.")
-    value: int = Field(..., description="0 or 1.")
-    mode: str = Field(default="digital", description="'digital' or 'analog'.")
+    value: int = Field(
+        ...,
+        description=(
+            "Value to write. For digital pins use 0 or 1. For analog pins use "
+            "0..255 (PWM)."
+        ),
+    )
+    mode: str = Field(
+        default="digital",
+        description=(
+            "'digital' or 'analog'. If omitted, default to the mode configured "
+            "for this pin in the system config."
+        ),
+    )
 
 
 class MountToolArgs(BaseModel):
