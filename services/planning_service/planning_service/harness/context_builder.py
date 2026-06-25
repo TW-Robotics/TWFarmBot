@@ -11,6 +11,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from spatial_service import format_world_context
+from twfarmbot_core.config import load_yaml_config
 
 from .tool_policy import ToolCategory
 from .tool_registry import ToolRegistry
@@ -112,6 +113,7 @@ class ContextBuilder:
     def chat_system_prompt(self) -> str:
         parts = [_CHAT_HEADER]
         parts.append(self._render_tool_section())
+        parts.append(_format_pin_context())
         parts.append(_CHAT_FOOTER)
         if self._propose_only:
             parts.append(_PROPOSE_ONLY_APPENDIX)
@@ -125,6 +127,7 @@ class ContextBuilder:
     def planner_system_prompt(self) -> str:
         parts = [_PLANNER_HEADER]
         parts.append(self._render_tool_section(for_planner=True))
+        parts.append(_format_pin_context())
         parts.append(_PLANNER_FOOTER)
         return "\n".join(parts)
 
@@ -225,3 +228,37 @@ class ContextBuilder:
                 lines.append(f"- `{d.name}` — {d.policy.description}{approval}")
 
         return "\n".join(lines)
+
+
+def _format_pin_context() -> str:
+    """Load named pins from config and format them for the system prompt."""
+    try:
+        pins = load_yaml_config().get("pins", []) or []
+    except Exception:  # noqa: BLE001
+        pins = []
+    if not pins:
+        return ""
+    lines = ["\nConfigured GPIO pins (single source of truth):"]
+    for p in pins:
+        label = p.get("label", "unknown")
+        pin = p.get("pin", "?")
+        mode = p.get("mode", "digital")
+        kind = p.get("kind", "io")
+        group = p.get("group", "")
+        group_text = f" · {group}" if group else ""
+        presets = p.get("presets") or {}
+        preset_text = ""
+        if presets:
+            preset_items = ", ".join(
+                f"{v}={lbl}" for v, lbl in sorted(presets.items(), key=lambda x: int(x[0]))
+            )
+            preset_text = f" · presets: {preset_items}"
+        lines.append(
+            f"- pin {pin} · {label} · mode={mode} · kind={kind}{group_text}{preset_text}"
+        )
+    lines.append(
+        "When calling read_pin or write_pin, use the configured mode for the pin "
+        "unless the user explicitly asks for a different mode. For analog pins, "
+        "use the named preset values when the user refers to them."
+    )
+    return "\n".join(lines)
