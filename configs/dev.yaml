@@ -38,15 +38,16 @@ safety:
 watering:
   pump_pin: 7
 
-# Named pins for the UI: label → {pin, mode, kind, group}.
+# Named pins for the UI: label → {pin, mode, kind, group, presets}.
 #   kind: "valve" | "servo" | "sensor" | "io"
 #   group: shown as a column header in the pin grid
+#   presets (optional): value → label map for analog pins, e.g. {0: "Off", 120: "Cut"}
 # Every pin number must be unique; a single GPIO can't drive a valve and
 # read a sensor at the same time.
 pins:
 - {label: "Pump", pin: 7, mode: digital, kind: valve, group: "Water"}
 - {label: "Water solenoid", pin: 8, mode: digital, kind: valve, group: "Water"}
-- {label: "Cutting end effector", pin: 4, mode: analog, kind: io, group: "Tools"}
+- {label: "Cutting end effector", pin: 4, mode: analog, kind: io, group: "Tools", presets: {0: "Off", 120: "Cut", 255: "Max"}}
 - {label: "Tool servo", pin: 10, mode: digital, kind: servo, group: "Tools"}
 - {label: "Soil sensor", pin: 14, mode: analog, kind: sensor, group: "Sensors"}
 - {label: "Light sensor", pin: 15, mode: analog, kind: sensor, group: "Sensors"}

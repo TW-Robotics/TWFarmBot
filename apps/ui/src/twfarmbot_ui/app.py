@@ -1121,7 +1121,7 @@ def _render_io() -> None:
         cols = st.columns(min(3, len(sensors)))
         for i, s in enumerate(sensors):
             with cols[i]:
-                with st.container(border=True, height=170):
+                with st.container(border=True):
                     mode = s.get("mode", "analog")
                     st.markdown(
                         f"**{s['label']}**  <span class='pill'>{mode}</span>",
@@ -1151,7 +1151,7 @@ def _render_io() -> None:
     st.markdown("### ⚡ Actuators")
     a, b = st.columns(2)
     with a:
-        with st.container(border=True, height=320):
+        with st.container(border=True):
             st.markdown("**💧 Irrigation**")
             secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5, key="water_secs")
             if st.button("Water", use_container_width=True, type="primary"):
@@ -1167,7 +1167,7 @@ def _render_io() -> None:
             st.caption("Runs the pump for the selected duration.")
 
     with b:
-        with st.container(border=True, height=320):
+        with st.container(border=True):
             st.markdown("**🔌 Peripheral control**")
             outputs = [p for p in named if p.get("kind") != "sensor"]
             if not outputs:
@@ -1187,6 +1187,18 @@ def _render_io() -> None:
                     )
 
                     if mode == "analog":
+                        presets = sel.get("presets") or {}
+                        if presets:
+                            st.caption("Presets")
+                            preset_cols = st.columns(len(presets))
+                            for idx, (pval, plabel) in enumerate(sorted(presets.items(), key=lambda x: int(x[0]))):
+                                if preset_cols[idx].button(
+                                    f"{plabel} ({pval})",
+                                    use_container_width=True,
+                                    key=f"preset_{sel['pin']}_{pval}",
+                                ):
+                                    _do_pin_write(client, sel["pin"], int(pval), mode)
+
                         val_col, btn_col = st.columns([4, 1])
                         with val_col:
                             analog_value = st.slider(
