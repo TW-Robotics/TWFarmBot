@@ -116,20 +116,20 @@ def _render_tool_call(
         return
 
     if name == "analyze_image" and result.get("image_url"):
-        st.image(result["image_url"], width=400)
+        st.image(result["image_url"], use_container_width=True)
     elif name == "estimate_traversability" and result.get("image_url"):
-        st.image(result["image_url"], width=400)
+        st.image(result["image_url"], use_container_width=True)
     elif name in {"segment_image", "visualize_image_features"} and result.get(
         "image_urls"
     ):
         cols = st.columns(min(len(result["image_urls"]), 3))
         for idx, url in enumerate(result["image_urls"]):
-            cols[idx % len(cols)].image(url, width=300)
+            cols[idx % len(cols)].image(url, use_container_width=True)
         for label_text in result.get("labels", []):
             st.caption(label_text)
     elif result.get("image_url"):
         # Fallback for any other tool that returns a single image (e.g. take_photo).
-        st.image(result["image_url"], width=400)
+        st.image(result["image_url"], use_container_width=True)
 
 
 def _render_proposed_actions_inline(
@@ -441,6 +441,18 @@ st.markdown(
   .card-label { font-size: .66rem; font-weight: 700; letter-spacing: .09em;
                 text-transform: uppercase; opacity: .5; }
   .card-value { font-size: 1.3rem; font-weight: 650; margin-top: .4rem; }
+  .sensor-value {
+    background: var(--secondary-background-color);
+    border: 1px solid rgba(128,128,128,0.10);
+    border-radius: 9px;
+    padding: .55rem .75rem;
+    font-size: 1.25rem;
+    font-weight: 650;
+    min-height: 2.2rem;
+    display: flex;
+    align-items: center;
+    margin-top: .4rem;
+  }
   .empty { opacity: .4; font-size: .8rem; }
   div[data-testid="stMetric"] {
     background: var(--secondary-background-color);
@@ -467,13 +479,15 @@ st.markdown(
   .st-key-analysis_source img,
   .st-key-analysis_processed img {
     width: 100% !important;
-    height: 320px !important;
+    max-height: 70vh !important;
     object-fit: contain !important;
     background: var(--secondary-background-color);
     border-radius: 9px;
   }
-  [data-testid="stChatMessage"] img {
-    max-width: 480px !important;
+  [data-testid="stChatMessage"] img,
+  [data-testid="stImage"] img {
+    max-width: 100% !important;
+    max-height: 70vh !important;
     border-radius: 9px;
   }
   [data-testid="stChatMessage"] {
@@ -1103,34 +1117,44 @@ def _render_io() -> None:
     # ── Sensors ───────────────────────────────────────────────────────────────
     sensors = [p for p in named if p.get("kind") == "sensor"]
     if sensors:
-        st.markdown("## Sensors")
+        st.markdown("### 🔍 Sensors")
         cols = st.columns(min(3, len(sensors)))
         for i, s in enumerate(sensors):
             with cols[i]:
-                st.caption(f"{s['label']} · pin {s['pin']} · {s.get('mode', 'analog')}")
-                if st.button("Read", key=f"sensor_{i}", use_container_width=True):
-                    r = client.request(
-                        "GET",
-                        f"/pin/{s['pin']}",
-                        params={"mode": s.get("mode", "analog")},
+                with st.container(border=True, height=170):
+                    mode = s.get("mode", "analog")
+                    st.markdown(
+                        f"**{s['label']}**  <span class='pill'>{mode}</span>",
+                        unsafe_allow_html=True,
                     )
-                    st.session_state[f"sv_{s['pin']}"] = (
-                        r.body.get("value") if r.ok else "—"
+                    st.caption(f"pin {s['pin']}")
+                    if st.button("Read", key=f"sensor_{i}", use_container_width=True):
+                        r = client.request(
+                            "GET",
+                            f"/pin/{s['pin']}",
+                            params={"mode": mode},
+                        )
+                        st.session_state[f"sv_{s['pin']}"] = (
+                            r.body.get("value") if r.ok else "—"
+                        )
+                    sensor_value = st.session_state.get(f"sv_{s['pin']}", "—")
+                    st.markdown(
+                        f"<div class='sensor-value'>{sensor_value}</div>",
+                        unsafe_allow_html=True,
                     )
-                st.metric("Value", st.session_state.get(f"sv_{s['pin']}", "—"))
     elif named:
         st.info("No sensor pins configured.")
 
     st.divider()
 
     # ── Actuators ─────────────────────────────────────────────────────────────
-    st.markdown("## Actuators")
+    st.markdown("### ⚡ Actuators")
     a, b = st.columns(2)
     with a:
-        st.markdown("**Irrigation**")
-        with st.form("water"):
-            secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5)
-            if st.form_submit_button("Water", use_container_width=True):
+        with st.container(border=True, height=320):
+            st.markdown("**💧 Irrigation**")
+            secs = st.number_input("Seconds", 0.1, 300.0, 2.0, 0.5, key="water_secs")
+            if st.button("Water", use_container_width=True, type="primary"):
                 r = client.request(
                     "POST",
                     "/actions",
@@ -1140,43 +1164,62 @@ def _render_io() -> None:
                     st.success("Queued")
                 else:
                     st.error(r.error_message())
+            st.caption("Runs the pump for the selected duration.")
 
     with b:
-        st.markdown("**Peripheral control**")
-        outputs = [p for p in named if p.get("kind") != "sensor"]
-        if not outputs:
-            st.info("No output pins configured.")
-        else:
-            sel = st.selectbox(
-                "Output",
-                outputs,
-                format_func=lambda p: f"{p['label']} · pin {p['pin']}",
-            )
-            if sel:
-                mode = sel.get("mode", "digital")
-                high_mode = st.segmented_control(
-                    "HIGH mode", ["Timed", "Keep on"], default="Timed"
+        with st.container(border=True, height=320):
+            st.markdown("**🔌 Peripheral control**")
+            outputs = [p for p in named if p.get("kind") != "sensor"]
+            if not outputs:
+                st.info("No output pins configured.")
+            else:
+                sel = st.selectbox(
+                    "Output",
+                    outputs,
+                    format_func=lambda p: f"{p['label']} · pin {p['pin']}",
+                    label_visibility="collapsed",
                 )
-                if high_mode == "Timed":
-                    high_secs = st.number_input(
-                        "Seconds to stay HIGH",
-                        0.1,
-                        300.0,
-                        2.0,
-                        0.5,
-                        key="high_secs",
+                if sel:
+                    mode = sel.get("mode", "digital")
+                    st.markdown(
+                        f"<span class='pill'>{mode}</span>",
+                        unsafe_allow_html=True,
                     )
-                else:
-                    high_secs = None
 
-                off, on = st.columns(2)
-                if off.button("Set LOW", use_container_width=True):
-                    _do_pin_write(client, sel["pin"], 0, mode)
-                if on.button("Set HIGH", use_container_width=True):
-                    if high_mode == "Timed" and high_secs is not None:
-                        _do_pin_pulse(client, sel["pin"], high_secs, mode)
+                    if mode == "analog":
+                        val_col, btn_col = st.columns([4, 1])
+                        with val_col:
+                            analog_value = st.slider(
+                                "PWM value",
+                                min_value=0,
+                                max_value=255,
+                                value=0,
+                                key=f"analog_value_{sel['pin']}",
+                            )
+                        with btn_col:
+                            st.markdown("<div style='height:27px'></div>", unsafe_allow_html=True)
+                            if st.button("Apply", use_container_width=True):
+                                _do_pin_write(client, sel["pin"], analog_value, mode)
                     else:
-                        _do_pin_write(client, sel["pin"], 1, mode)
+                        pulse = st.toggle("Timed pulse", value=True)
+                        if pulse:
+                            pulse_secs = st.number_input(
+                                "Seconds",
+                                0.1,
+                                300.0,
+                                2.0,
+                                0.5,
+                                key=f"pulse_secs_{sel['pin']}",
+                            )
+
+                        off, on = st.columns(2)
+                        if off.button("⏻ OFF", use_container_width=True):
+                            _do_pin_write(client, sel["pin"], 0, mode)
+                        if on.button("⏻ ON", use_container_width=True, type="primary"):
+                            if pulse and pulse_secs is not None:
+                                _do_pin_pulse(client, sel["pin"], pulse_secs, mode)
+                            else:
+                                _do_pin_write(client, sel["pin"], 1, mode)
 
 
 def _render_camera() -> None:
@@ -1224,7 +1267,7 @@ def _render_camera() -> None:
     img_col, ctrl_col = st.columns([1.6, 1])
 
     with img_col:
-        st.image(selected.get("attachment_url"), width=500)
+        st.image(selected.get("attachment_url"), use_container_width=True)
 
     with ctrl_col:
         st.markdown("**AI analysis**")
@@ -1375,7 +1418,7 @@ def _render_camera() -> None:
         result_cols = st.columns(len(result["paths"]))
         for idx, (path, caption) in enumerate(zip(result["paths"], result["captions"])):
             with result_cols[idx]:
-                st.image(path, caption=caption, width=280)
+                st.image(path, caption=caption, use_container_width=True)
 
         st.markdown("**Raw output**")
         if result.get("class_scores"):
