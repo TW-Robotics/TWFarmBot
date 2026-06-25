@@ -7,14 +7,14 @@ log_level: INFO
 # the environment, or reference a different env var via api_key_env.
 planning:
   base_url: https://openrouter.ai/api/v1   # OpenAI-compatible endpoint
-  model: openai/gpt-oss-safeguard-20b     # any model the endpoint exposes
+  model: openai/gpt-4o-mini             # tool-calling model
   api_key_env: PLANNING_LLM_API_KEY  # name of the env var that holds the secret
   timeout_s: 120                       # raise this for slower models
   temperature: 0.0
-  # Provider-specific request body extensions. For DeepSeek V4 reasoning on
-  # OpenRouter use: extra_body: {reasoning: {effort: low}}
+  # Provider-specific request body extensions. Only needed for reasoning models.
+  # For DeepSeek V4 on OpenRouter use: extra_body: {reasoning: {effort: low}}
   # For native DeepSeek use: extra_body: {thinking: {type: enabled}}
-  extra_body: {reasoning: {effort: low}}
+  extra_body: {}
   # Optional W&B Weave project for tracing. Set WEAVE_PROJECT or this field
   # to enable model/tool-call/token tracing.
   weave_project: ""
@@ -46,6 +46,7 @@ watering:
 pins:
 - {label: "Pump", pin: 7, mode: digital, kind: valve, group: "Water"}
 - {label: "Water solenoid", pin: 8, mode: digital, kind: valve, group: "Water"}
+- {label: "Cutting end effector", pin: 4, mode: analog, kind: io, group: "Tools"}
 - {label: "Tool servo", pin: 10, mode: digital, kind: servo, group: "Tools"}
 - {label: "Soil sensor", pin: 14, mode: analog, kind: sensor, group: "Sensors"}
 - {label: "Light sensor", pin: 15, mode: analog, kind: sensor, group: "Sensors"}
