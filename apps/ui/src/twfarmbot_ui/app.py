@@ -366,6 +366,31 @@ def _camera_auto_refresh(client: ApiClient) -> None:
             st.session_state["last_camera_refresh"] = now
 
 
+@st.fragment(run_every=1)
+def _garden_live_pose(client: ApiClient) -> None:
+    """Update the robot/camera pose on the garden map in the background."""
+    position_s = max(1, int(st.session_state.get("refresh_position_s", 2)))
+    now = time.time()
+    if now - st.session_state.get("last_garden_pose_refresh", 0) >= position_s:
+        pos = client.get_position() or {}
+        world = st.session_state.get("garden_world")
+        if world:
+            world["robot"] = {
+                "x": pos.get("x", 0),
+                "y": pos.get("y", 0),
+                "z": pos.get("z", 0),
+            }
+            cam_offset = world.get("camera", {}).get("position") or {}
+            world["camera"] = world.get("camera", {})
+            world["camera"]["position"] = {
+                "x": pos.get("x", 0) + cam_offset.get("x", 0),
+                "y": pos.get("y", 0) + cam_offset.get("y", 0),
+                "z": pos.get("z", 0) + cam_offset.get("z", 0),
+            }
+            st.session_state["garden_world"] = world
+        st.session_state["last_garden_pose_refresh"] = now
+
+
 TABS = [
     "Overview",
     "Garden",
@@ -633,14 +658,16 @@ if "farmbot_status" not in st.session_state:
     st.session_state.setdefault("messages", [])
 
 # Auto-refresh settings (persisted via the normal session save).
-st.session_state.setdefault("refresh_position_s", 2)
+st.session_state.setdefault("refresh_position_s", 45)
 st.session_state.setdefault("refresh_stats_s", 300)
 st.session_state.setdefault("refresh_camera_s", 0)
 st.session_state.setdefault("last_position_refresh", 0.0)
 st.session_state.setdefault("last_stats_refresh", 0.0)
 st.session_state.setdefault("last_camera_refresh", 0.0)
+st.session_state.setdefault("last_garden_pose_refresh", 0.0)
 st.session_state.setdefault("history", [])
 st.session_state.setdefault("camera_images", [])
+st.session_state.setdefault("garden_world", None)
 
 # ── sidebar  ──────────────────────────────────────────────────────────────────
 
@@ -860,12 +887,22 @@ def _render_garden() -> None:
     )
     st.markdown("# Garden map")
 
-    result = client.request("GET", "/garden")
-    if not result.ok or not isinstance(result.body, dict):
-        st.error(f"Garden model unavailable: {result.error_message()}")
-        return
+    refresh_col, _ = st.columns([1, 4])
+    if refresh_col.button("↻ Refresh map", use_container_width=True):
+        st.session_state["garden_world"] = None
 
-    world = result.body
+    world = st.session_state.get("garden_world")
+    if world is None:
+        result = client.request("GET", "/garden")
+        if not result.ok or not isinstance(result.body, dict):
+            st.error(f"Garden model unavailable: {result.error_message()}")
+            return
+        world = result.body
+        st.session_state["garden_world"] = world
+        _persist_session()
+
+    _garden_live_pose(client)
+
     bounds = world.get("bounds", {})
     camera = world.get("camera", {})
     robot = world.get("robot", {})
@@ -2044,6 +2081,7 @@ def _restore_session() -> None:
     st.session_state["refresh_stats_s"] = snapshot.get("refresh_stats_s", 300)
     st.session_state["refresh_camera_s"] = snapshot.get("refresh_camera_s", 0)
     st.session_state["camera_images"] = snapshot.get("camera_images", [])
+    st.session_state["garden_world"] = snapshot.get("garden_world")
 
 
 def _persist_session() -> None:
@@ -2072,6 +2110,7 @@ def _persist_session() -> None:
     snapshot["refresh_stats_s"] = st.session_state.get("refresh_stats_s", 300)
     snapshot["refresh_camera_s"] = st.session_state.get("refresh_camera_s", 0)
     snapshot["camera_images"] = st.session_state.get("camera_images", [])
+    snapshot["garden_world"] = st.session_state.get("garden_world")
     snapshot["executed_plans"] = st.session_state.get("executed_plans", [])
     history.save_session(snapshot)
 
