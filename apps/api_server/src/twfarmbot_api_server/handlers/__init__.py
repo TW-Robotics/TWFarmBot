@@ -6,7 +6,6 @@ Adding a new action kind = one new file here + one line in __init__.py.
 from __future__ import annotations
 
 from twfarmbot_core.actions import ActionRegistry
-from twfarmbot_core.domain import Action
 
 
 def register_default_handlers(registry: ActionRegistry) -> None:

@@ -56,7 +56,7 @@ def langchain_tracer() -> Any | None:
         return None
 
 
-@weave.op()  # type: ignore[misc]
+@weave.op()
 def trace_tool_call(
     name: str, args: dict[str, Any], result: dict[str, Any], *, latency_s: float
 ) -> dict[str, Any]:
@@ -69,7 +69,7 @@ def trace_tool_call(
         return {"name": name, "args": args, "result": result}
 
 
-@weave.op()  # type: ignore[misc]
+@weave.op()
 def trace_model_invoke(response: Any, *, latency_s: float, model: str) -> Any:
     """Trace a non-streaming model response.
 
@@ -83,7 +83,7 @@ def trace_model_invoke(response: Any, *, latency_s: float, model: str) -> Any:
         return response
 
 
-@weave.op()  # type: ignore[misc]
+@weave.op()
 def trace_model_stream(chunks: list[Any], *, latency_s: float, model: str) -> list[Any]:
     """Trace a streaming model response.
 

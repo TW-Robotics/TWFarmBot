@@ -200,7 +200,7 @@ class ToolRegistry:
                     name=name,
                     args_schema=schema,
                     policy=policy,
-                    execute=lambda args, t=lc_tool: t.invoke(args),  # type: ignore[arg-type]
+                    execute=lambda args, t=lc_tool: t.invoke(args),
                     is_introspection=True,
                 )
             )

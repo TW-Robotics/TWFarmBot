@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
-from typing import Any
 
 import requests
 from langchain_core.language_models import BaseChatModel
@@ -24,13 +23,11 @@ class LLMProvider(ABC):
     name: str
 
     @abstractmethod
-    def build_chat_model(
-        self, model: str, config: PlannerConfig
-    ) -> BaseChatModel:
+    def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
         """Return a configured LangChain chat model for ``model``."""
         ...
 
-    def list_models(self, config: PlannerConfig) -> list[str]:
+    def list_models(self, _config: PlannerConfig) -> list[str]:
         """Return a list of model ids available from this provider."""
         return []
 
@@ -62,9 +59,7 @@ class OpenRouterProvider(LLMProvider):
 
     name = "openrouter"
 
-    def build_chat_model(
-        self, model: str, config: PlannerConfig
-    ) -> BaseChatModel:
+    def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
         return build_chat_model(
             base_url=config.base_url,
             model=model,
@@ -102,9 +97,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
     name = "local"
 
-    def build_chat_model(
-        self, model: str, config: PlannerConfig
-    ) -> BaseChatModel:
+    def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
         return build_chat_model(
             base_url=config.base_url,
             model=model,

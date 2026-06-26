@@ -37,7 +37,7 @@ from .introspection import (
 )
 from .parser import PlanError, _extract_json, parse_plan
 from .prompt import PlannerResponse
-from .tools import build_tools, extract_tool_calls, tool_calls_to_actions
+from .tools import build_tools
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +78,9 @@ def plan(
     inside ``plan()``; they are validated and returned for the caller to
     execute or preview.
     """
-    cfg, base_model = build_base_model(model=model, config=config, model_name=model_name)
+    cfg, base_model = build_base_model(
+        model=model, config=config, model_name=model_name
+    )
     registry = registry or get_default_registry()
 
     tool_registry = ToolRegistry(registry, system_state)
@@ -136,7 +138,7 @@ def _extract_actions(
     actions: list[Action] = []
     for call in tool_calls:
         name = call.get("name")
-        if name not in known:
+        if not isinstance(name, str) or name not in known:
             continue
         result = call.get("result", {})
         params = (

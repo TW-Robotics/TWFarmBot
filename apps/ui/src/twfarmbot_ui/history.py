@@ -17,9 +17,7 @@ from typing import Any
 
 def session_data_dir() -> Path:
     """Return the directory used to store session JSON files."""
-    path = Path(
-        os.getenv("TWFB_UI_DATA_DIR", Path.cwd() / "data" / "ui_sessions")
-    )
+    path = Path(os.getenv("TWFB_UI_DATA_DIR", Path.cwd() / "data" / "ui_sessions"))
     path.mkdir(parents=True, exist_ok=True)
     return path
 

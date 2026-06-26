@@ -18,7 +18,6 @@ __all__ = [
     "AgentTurnResult",
     "ApprovalGate",
     "ContextBuilder",
-    "Event",
     "ProposedResult",
     "ReasoningController",
     "ToolCategory",

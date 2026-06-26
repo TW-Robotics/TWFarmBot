@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 
 def test_api_client_returns_ok_on_2xx(monkeypatch: "pytest.MonkeyPatch") -> None:
     import httpx

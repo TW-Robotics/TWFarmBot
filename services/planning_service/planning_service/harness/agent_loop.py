@@ -13,24 +13,27 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Generator, Iterator, Sequence
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
 from .approval_gate import ApprovalGate
-
-# Absolute safety backstop to prevent a misbehaving model from looping forever.
-# This is not a user-facing iteration budget; normal flows stop as soon as the
-# model returns text instead of tool calls.
-_MAX_TOOL_TURNS = 100
 from .context_builder import ContextBuilder
 from .reasoning_controller import ReasoningController
 from .tool_policy import ToolCategory, ToolDescriptor
 from .tool_registry import ToolRegistry
 from .tracing import is_enabled, timed_invoke, timed_stream, trace_tool_call
+
+if TYPE_CHECKING:
+    from langchain_core.messages import BaseMessage
+
+# Absolute safety backstop to prevent a misbehaving model from looping forever.
+# This is not a user-facing iteration budget; normal flows stop as soon as the
+# model returns text instead of tool calls.
+_MAX_TOOL_TURNS = 100
 
 
 def _llm_friendly_result(result: Any) -> Any:
@@ -73,7 +76,7 @@ class AgentLoop:
 
     def __init__(
         self,
-        model: BaseChatModel,
+        model: Runnable,
         tool_registry: ToolRegistry,
         approval_gate: ApprovalGate,
         context_builder: ContextBuilder,
@@ -208,8 +211,8 @@ class AgentLoop:
         yield {"type": "meta", "tool_calls": tool_log, "proposed_actions": proposed}
 
     def _stream_turn(
-        self, lc_messages: list[BaseMessage]
-    ) -> tuple[AIMessage, list[dict[str, Any]]]:
+        self, lc_messages: Sequence[BaseMessage]
+    ) -> Generator[dict[str, Any], None, tuple[AIMessage, list[dict[str, Any]]]]:
         """Stream one model turn and return the final message + tool calls.
 
         Yields content/thinking deltas as they arrive. When the turn ends with

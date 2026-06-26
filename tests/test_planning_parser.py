@@ -71,7 +71,7 @@ def test_multiple_actions_in_order() -> None:
         '{"actions": ['
         '{"kind": "water", "params": {"seconds": 30}},'
         '{"kind": "move", "params": {"x": 0, "y": 0, "z": 0}}'
-        ']}'
+        "]}"
     )
     out = parse_plan(text, _registry())
     assert len(out) == 2

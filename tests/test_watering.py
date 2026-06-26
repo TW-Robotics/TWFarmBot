@@ -24,6 +24,7 @@ class _StubWaterBackend:
 @pytest.fixture(autouse=True)
 def _stub_water_backend():
     import watering_service as ws
+
     stub = _StubWaterBackend()
     ws._backend = stub
     yield stub
@@ -31,6 +32,7 @@ def _stub_water_backend():
 
 
 # ---------- safety_service --------------------------------------------------
+
 
 def test_validate_water_passes_within_limits() -> None:
     action = Action(kind="water", params={"seconds": 10})
@@ -71,6 +73,7 @@ def test_water_rejects_unsafe(_stub_water_backend: _StubWaterBackend) -> None:
 
 
 # ---------- /actions endpoint ----------------------------------------------
+
 
 def test_api_health() -> None:
     client = TestClient(app)

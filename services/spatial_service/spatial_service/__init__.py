@@ -146,7 +146,7 @@ def format_world_context(world: GardenWorld | Mapping[str, Any] | None = None) -
             meta_part = f", metadata={meta_text}" if meta_text else ""
             lines.append(
                 f"- {name!r} (kind={zone.get('kind')}, id={zone.get('id')}, "
-                f"bounds x={x}..{x+w}, y={y}..{y+h}, "
+                f"bounds x={x}..{x + w}, y={y}..{y + h}, "
                 f"centre=({cx}, {cy}){meta_part})"
             )
 
@@ -177,7 +177,7 @@ def format_world_context(world: GardenWorld | Mapping[str, Any] | None = None) -
 
 def get_snapshot(robot_position: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Return the configured world plus optional live robot position.
-    
+
     If robot_position is provided and camera_offset is configured,
     the camera position is computed as robot_position + camera_offset.
     """

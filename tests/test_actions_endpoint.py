@@ -53,7 +53,7 @@ def test_post_action_returns_502_on_farmbot_connection_error(
     def explode(action: Action) -> Action:
         raise FarmBotConnectionError("broker down")
 
-    monkeypatch.setattr(client.app.state.registry, "dispatch", explode)
+    monkeypatch.setattr(client.app.state.registry, "dispatch", explode)  # type: ignore[attr-defined]
     r = client.post("/actions", json={"kind": "noop", "params": {}})
     assert r.status_code == 502
     detail = r.json()["detail"]
@@ -67,7 +67,7 @@ def test_post_action_returns_500_with_real_error_message(
     def explode(action: Action) -> Action:
         raise RuntimeError("handler exploded")
 
-    monkeypatch.setattr(client.app.state.registry, "dispatch", explode)
+    monkeypatch.setattr(client.app.state.registry, "dispatch", explode)  # type: ignore[attr-defined]
     r = client.post("/actions", json={"kind": "noop", "params": {}})
     assert r.status_code == 500
     detail = r.json()["detail"]

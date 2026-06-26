@@ -35,9 +35,8 @@ class ChatResult:
     thinking: str | None = None
 
 
-
 def _make_loop(
-    messages: list[dict[str, Any]],
+    _messages: list[dict[str, Any]],
     *,
     registry: ActionRegistry,
     world: Any = None,
@@ -48,7 +47,9 @@ def _make_loop(
     propose_only: bool = False,
     model_name: str | None = None,
 ) -> AgentLoop:
-    cfg, base_model = build_base_model(model=model, config=config, model_name=model_name)
+    cfg, base_model = build_base_model(
+        model=model, config=config, model_name=model_name
+    )
     tool_registry = ToolRegistry(registry, system_state)
     approval_gate = ApprovalGate(registry)
     context_builder = ContextBuilder(

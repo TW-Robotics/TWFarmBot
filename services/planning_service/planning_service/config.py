@@ -71,9 +71,7 @@ def load_config(
     planning = _load_planning_block(yaml_path, yaml_data)
 
     provider = (
-        os.getenv("PLANNING_LLM_PROVIDER")
-        or planning.get("provider")
-        or "openrouter"
+        os.getenv("PLANNING_LLM_PROVIDER") or planning.get("provider") or "openrouter"
     ).lower()
     base_url = (
         os.getenv("PLANNING_LLM_BASE_URL")
@@ -87,11 +85,12 @@ def load_config(
         or planning.get("timeout_s")
         or DEFAULT_TIMEOUT_S
     )
-    temperature = float(
+    raw_temperature = (
         os.getenv("PLANNING_LLM_TEMPERATURE")
         if os.getenv("PLANNING_LLM_TEMPERATURE") is not None
-        else planning.get("temperature", DEFAULT_TEMPERATURE)
+        else planning.get("temperature") or DEFAULT_TEMPERATURE
     )
+    temperature = float(str(raw_temperature))
     extra_body = planning.get("extra_body")
     if extra_body is not None and not isinstance(extra_body, dict):
         extra_body = None

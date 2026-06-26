@@ -84,9 +84,15 @@ class FarmBotBackend:
             self._bot().write_pin(pin_number=pin, value=0, mode=mode)
             log.info("farmbot: write_pin pin=%s value=0 mode=%s", pin, mode)
 
-    def control_peripheral(self, peripheral_name: str, value: int, mode: str | None = None) -> None:
-        log.info("farmbot: control_peripheral %s=%s mode=%s", peripheral_name, value, mode)
-        self._bot().control_peripheral(peripheral_name=peripheral_name, value=value, mode=mode)
+    def control_peripheral(
+        self, peripheral_name: str, value: int, mode: str | None = None
+    ) -> None:
+        log.info(
+            "farmbot: control_peripheral %s=%s mode=%s", peripheral_name, value, mode
+        )
+        self._bot().control_peripheral(
+            peripheral_name=peripheral_name, value=value, mode=mode
+        )
 
     # -------- Tools -------------------------------------------------------
 
@@ -125,7 +131,11 @@ class FarmBotBackend:
         """Return the FarmBot's ``state.last_messages`` (or ``None``)."""
         bot = self._bot()
         cached_messages = getattr(bot, "cached_last_messages", None)
-        return cached_messages() if callable(cached_messages) else getattr(bot.state, "last_messages", None)
+        return (
+            cached_messages()
+            if callable(cached_messages)
+            else getattr(bot.state, "last_messages", None)
+        )
 
     def take_photo(self) -> None:
         log.info("farmbot: take_photo")
@@ -156,11 +166,13 @@ class FarmBotBackend:
                 for image in self._images_cache
                 if image.get("id") is not None
             }
-            cached_by_id.update({
-                image.get("id"): image
-                for image in images
-                if isinstance(image, dict) and image.get("id") is not None
-            })
+            cached_by_id.update(
+                {
+                    image.get("id"): image
+                    for image in images
+                    if isinstance(image, dict) and image.get("id") is not None
+                }
+            )
             self._images_cache = sorted(
                 cached_by_id.values(),
                 key=lambda image: image.get("created_at", ""),
@@ -175,9 +187,16 @@ class FarmBotBackend:
 
     # -------- Feedback / control ----------------------------------------
 
-    def send_message(self, message: str, message_type: str = "info", channels: list[str] | None = None) -> None:
+    def send_message(
+        self,
+        message: str,
+        message_type: str = "info",
+        channels: list[str] | None = None,
+    ) -> None:
         log.info("farmbot: send_message %s: %s", message_type, message)
-        self._bot().send_message(message_str=message, message_type=message_type, channels=channels)
+        self._bot().send_message(
+            message_str=message, message_type=message_type, channels=channels
+        )
 
     def toast(self, message: str, message_type: str = "info") -> None:
         log.info("farmbot: toast %s: %s", message_type, message)
