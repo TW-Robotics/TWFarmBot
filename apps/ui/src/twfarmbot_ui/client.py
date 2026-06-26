@@ -62,7 +62,9 @@ class ApiClient:
                 body = r.text
             return ApiResult(ok=r.is_success, code=r.status_code, body=body)
         except httpx.HTTPError as err:
-            return ApiResult(ok=False, code=0, body={"error": f"{type(err).__name__}: {err}"})
+            return ApiResult(
+                ok=False, code=0, body={"error": f"{type(err).__name__}: {err}"}
+            )
 
     def stream(
         self,

@@ -9,6 +9,7 @@ from pathlib import Path
 
 def main() -> None:
     from twfarmbot_core.logging import configure_logging
+
     configure_logging()
 
     app_path = Path(__file__).parent / "app.py"

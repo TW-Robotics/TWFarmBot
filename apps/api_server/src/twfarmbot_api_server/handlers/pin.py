@@ -26,9 +26,7 @@ def handle_read_pin(action: Action) -> Action:
     pin = int(action.params["pin"])
     mode = _pin_mode(pin, action.params.get("mode"))
     value = farmbot.backend.read_pin(pin, mode)
-    return Action(kind=action.kind, params={
-        "pin": pin, "mode": mode, "value": value
-    })
+    return Action(kind=action.kind, params={"pin": pin, "mode": mode, "value": value})
 
 
 def handle_write_pin(action: Action) -> Action:

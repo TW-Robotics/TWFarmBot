@@ -14,13 +14,13 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from safety_service import UnsafeActionError
 
-from planning_service import PlanError, plan
+from planning_service import plan
 
 
 class _ToolAwareFake(FakeListChatModel):
     """``FakeListChatModel`` that supports ``bind_tools`` (returns self)."""
 
-    def bind_tools(
+    def bind_tools(  # type: ignore[override]
         self,
         tools: Sequence[BaseTool],
         **kwargs: Any,
@@ -72,16 +72,14 @@ def test_plan_returns_actions_from_fake_model() -> None:
 
 def test_plan_extracts_json_from_markdown_fence() -> None:
     fake = _ToolAwareFake(
-        responses=[
-            '```json\n'
-            '{"actions": [{"kind": "take_photo", "params": {}}]}\n'
-            '```'
-        ]
+        responses=['```json\n{"actions": [{"kind": "take_photo", "params": {}}]}\n```']
     )
     result = plan("snap a pic", model=fake)
-    assert result.actions == [__import__("twfarmbot_core.domain", fromlist=["Action"]).Action(
-        kind="take_photo", params={}
-    )]
+    assert result.actions == [
+        __import__("twfarmbot_core.domain", fromlist=["Action"]).Action(
+            kind="take_photo", params={}
+        )
+    ]
 
 
 def test_plan_propagates_safety_violation() -> None:
@@ -108,9 +106,7 @@ def test_plan_returns_empty_plan_on_unparseable_output() -> None:
 
 def test_plan_uses_world_context_when_provided(world: SimpleNamespace) -> None:
     fake = _ToolAwareFake(
-        responses=[
-            '{"actions": [{"kind": "water", "params": {"seconds": 30}}]}'
-        ]
+        responses=['{"actions": [{"kind": "water", "params": {"seconds": 30}}]}']
     )
     result = plan("water the tomato zone", world=world, model=fake)
     assert len(result.actions) == 1
@@ -139,7 +135,7 @@ def test_plan_accepts_tool_calls_when_model_provides_them() -> None:
     reg.register("water", lambda a: a)
 
     class ToolCallFake(_ToolAwareFake):
-        def invoke(self, *_args: Any, **_kwargs: Any) -> AIMessage:  # type: ignore[override]
+        def invoke(self, *_args: Any, **_kwargs: Any) -> AIMessage:
             return AIMessage(
                 content="",
                 tool_calls=[

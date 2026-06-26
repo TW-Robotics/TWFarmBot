@@ -25,12 +25,14 @@ class _StubBackend:
         return ["msg1", "msg2"]
 
     def get_images(self, limit=10, refresh=False):
-        return [{
-            "id": 1,
-            "created_at": "2026-06-18T10:36:51.909Z",
-            "attachment_url": "https://example.test/photo.jpg",
-            "meta": {"x": 2.2, "y": 99.4, "z": 0.0},
-        }][:limit]
+        return [
+            {
+                "id": 1,
+                "created_at": "2026-06-18T10:36:51.909Z",
+                "attachment_url": "https://example.test/photo.jpg",
+                "meta": {"x": 2.2, "y": 99.4, "z": 0.0},
+            }
+        ][:limit]
 
     def _bot(self):
         return _StubBot()

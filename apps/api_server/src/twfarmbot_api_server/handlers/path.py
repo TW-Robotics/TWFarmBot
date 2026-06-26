@@ -20,15 +20,15 @@ _MAX_PATH_WAIT_S = 300.0
 _POSITION_POLL_INTERVAL_S = 0.5
 
 
-def _execute_moves(waypoints: list[dict[str, Any]], speed: float | None, photo: bool) -> None:
+def _execute_moves(
+    waypoints: list[dict[str, Any]], speed: float | None, photo: bool
+) -> None:
     """Issue all waypoint moves (and optional photos) sequentially."""
     for wp in waypoints:
         x = float(wp["x"])
         y = float(wp["y"])
         z = float(wp["z"])
-        farmbot.backend.move(
-            x, y, z, speed=float(speed) if speed is not None else None
-        )
+        farmbot.backend.move(x, y, z, speed=float(speed) if speed is not None else None)
         if photo:
             farmbot.backend.take_photo()
 

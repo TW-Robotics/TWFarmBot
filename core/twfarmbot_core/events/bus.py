@@ -17,7 +17,9 @@ class EventBus:
         self._subscribers[topic].append(fn)
 
     def publish(self, topic: str, payload: dict) -> None:
-        event = Event(topic=topic, payload=payload, occurred_at=datetime.now(timezone.utc))
+        event = Event(
+            topic=topic, payload=payload, occurred_at=datetime.now(timezone.utc)
+        )
         for fn in self._subscribers.get(topic, []):
             fn(event)
 

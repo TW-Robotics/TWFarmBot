@@ -146,7 +146,7 @@ class ContextBuilder:
         )
         if world_context:
             system += "\n\nCurrent world model:\n" + world_context
-        out: list[SystemMessage | HumanMessage | AIMessage] = [
+        out: list[SystemMessage | HumanMessage | AIMessage | ToolMessage] = [
             SystemMessage(content=system)
         ]
         for msg in messages:
@@ -174,7 +174,9 @@ class ContextBuilder:
                 )
         return out
 
-    def planner_messages(self, request: str) -> list[SystemMessage | HumanMessage]:
+    def planner_messages(
+        self, request: str
+    ) -> list[SystemMessage | HumanMessage | ToolMessage]:
         system = self.planner_system_prompt()
         world_context = (
             format_world_context(self._world) if self._world is not None else None
@@ -253,7 +255,8 @@ def _format_pin_context() -> str:
         preset_text = ""
         if presets:
             preset_items = ", ".join(
-                f"{v}={lbl}" for v, lbl in sorted(presets.items(), key=lambda x: int(x[0]))
+                f"{v}={lbl}"
+                for v, lbl in sorted(presets.items(), key=lambda x: int(x[0]))
             )
             preset_text = f" · presets: {preset_items}"
         lines.append(

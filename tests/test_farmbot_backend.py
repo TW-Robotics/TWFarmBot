@@ -17,6 +17,7 @@ from watering_service.backends import farmbot
 
 # ---------- helpers --------------------------------------------------------
 
+
 class _FakeBot:
     """Mimics ``farmbot.Farmbot`` — every method records its call and returns."""
 
@@ -27,6 +28,7 @@ class _FakeBot:
         def _call(*args, **kwargs):
             self.calls.append((name, {"args": args, **kwargs}))
             return {"ok": True, "method": name, "args": args, "kwargs": kwargs}
+
         return _call
 
 
@@ -43,12 +45,14 @@ def _new_backend(monkeypatch: pytest.MonkeyPatch, pump_pin: int | None = None) -
     if pump_pin is not None:
         monkeypatch.setenv("FARMBOT_PUMP_PIN", str(pump_pin))
     from watering_service.backends import farmbot
+
     # Force a fresh instance so the singleton doesn't shadow test pins
     fb = farmbot.FarmBotBackend()
     return fb
 
 
 # ---------- backend: water -------------------------------------------------
+
 
 def test_backend_water_opens_then_closes_pin(fake_bot, monkeypatch):
     backend = _new_backend(monkeypatch, pump_pin=13)
@@ -62,6 +66,7 @@ def test_backend_water_opens_then_closes_pin(fake_bot, monkeypatch):
 
 
 # ---------- backend: primitives -------------------------------------------
+
 
 def test_backend_move(fake_bot, monkeypatch):
     backend = _new_backend(monkeypatch, {})
@@ -139,12 +144,12 @@ def test_backend_image_refresh_merges_new_records(monkeypatch):
 
 # ---------- handlers -------------------------------------------------------
 
+
 def test_handler_water_translates_args(monkeypatch):
     from twfarmbot_api_server.handlers import watering as h
 
     seen = []
-    monkeypatch.setattr("watering_service.water",
-                        lambda seconds: seen.append(seconds))
+    monkeypatch.setattr("watering_service.water", lambda seconds: seen.append(seconds))
 
     out = h.handle_water(Action(kind="water", params={"seconds": 7}))
     assert seen == [7.0]
@@ -195,14 +200,15 @@ def test_handler_send_message_translates(monkeypatch):
     monkeypatch.setattr(farmbot, "backend", _StubBackend())
 
     h.handle_send_message(Action(kind="send_message", params={"message": "hi"}))
-    h.handle_send_message(Action(
-        kind="send_message", params={"message": "warn", "type": "warn"}
-    ))
+    h.handle_send_message(
+        Action(kind="send_message", params={"message": "warn", "type": "warn"})
+    )
     assert seen == [("hi", "info", None), ("warn", "warn", None)]
 
 
 def test_handler_e_stop_calls_backend(monkeypatch):
     from twfarmbot_api_server.handlers import feedback as h
+
     importlib = __import__("importlib")
     importlib.reload(h)
 
@@ -220,6 +226,7 @@ def test_handler_e_stop_calls_backend(monkeypatch):
 
 def test_handler_find_home_calls_backend(monkeypatch):
     from twfarmbot_api_server.handlers import find_home as h
+
     importlib = __import__("importlib")
     importlib.reload(h)
 
@@ -251,6 +258,7 @@ def test_handler_take_photo_calls_backend(monkeypatch):
 
 # ---------- safety: move rule ----------------------------------------------
 
+
 def test_safety_rejects_move_outside_bounds():
     from safety_service import SafetyLimits, UnsafeActionError, validate
 
@@ -263,5 +271,7 @@ def test_safety_accepts_move_within_bounds():
     from safety_service import SafetyLimits, validate
 
     limits = SafetyLimits(max_axis_mm={"x": 1000, "y": 1000, "z": 1000})
-    out = validate(Action(kind="move", params={"x": 500, "y": 500, "z": 500}), limits=limits)
+    out = validate(
+        Action(kind="move", params={"x": 500, "y": 500, "z": 500}), limits=limits
+    )
     assert out.kind == "move"

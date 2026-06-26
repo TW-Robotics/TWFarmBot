@@ -11,7 +11,6 @@ from typing import Any, Sequence
 
 import json
 
-import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.messages.tool import ToolCallChunk
@@ -23,21 +22,18 @@ from planning_service.harness import (
     ContextBuilder,
     ReasoningController,
     ToolCategory,
-    ToolDescriptor,
-    ToolPolicy,
     ToolRegistry,
 )
 from twfarmbot_core.actions import ActionRegistry
-from twfarmbot_core.domain import Action
 
 
 class _ToolAwareFake(FakeListChatModel):
     """Fake model that supports ``bind_tools`` and can emit tool_calls."""
 
-    _custom_responses: list[Any]
+    _custom_responses: list[Any] | None = None
     _custom_index: int = 0
 
-    def bind_tools(
+    def bind_tools(  # type: ignore[override]
         self,
         tools: Sequence[BaseTool],
         **kwargs: Any,
@@ -50,12 +46,11 @@ class _ToolAwareFake(FakeListChatModel):
         self._custom_index = 0
 
     def invoke(self, *_args: Any, **_kwargs: Any) -> AIMessage:
-        if not getattr(self, "_custom_responses", None):
+        custom_responses = getattr(self, "_custom_responses", None)
+        if not custom_responses:
             return super().invoke(*_args, **_kwargs)
-        response = self._custom_responses[self._custom_index]
-        self._custom_index = min(
-            self._custom_index + 1, len(self._custom_responses) - 1
-        )
+        response = custom_responses[self._custom_index]
+        self._custom_index = min(self._custom_index + 1, len(custom_responses) - 1)
         if isinstance(response, AIMessage):
             return response
         return AIMessage(content=str(response))

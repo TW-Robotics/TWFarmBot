@@ -56,7 +56,19 @@ dev = [
     "pytest>=9.1.0",
     "httpx>=0.27",
     "pylint>=3.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
 ] 
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+no_warn_return_any = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = "twfarmbot_ui.app"
+disable_error_code = ["union-attr", "index", "arg-type", "call-overload", "var-annotated"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]

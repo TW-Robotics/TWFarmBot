@@ -20,7 +20,7 @@ import json
 import re
 from typing import Iterable
 
-from safety_service import UnsafeActionError, validate as safety_validate
+from safety_service import validate as safety_validate
 from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 
@@ -58,9 +58,7 @@ def _extract_json(text: str) -> dict:
                 try:
                     return json.loads(candidate)
                 except json.JSONDecodeError as err:
-                    raise PlanError(
-                        f"planner output is not valid JSON: {err}"
-                    ) from err
+                    raise PlanError(f"planner output is not valid JSON: {err}") from err
     raise PlanError(f"planner output has unbalanced braces: {text!r}")
 
 

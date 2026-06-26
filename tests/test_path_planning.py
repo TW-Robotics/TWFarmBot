@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from planning_service import path_planning
 from planning_service.harness import ToolRegistry
-from planning_service.introspection import InMemorySystemStateProvider, build_introspection_tools
+from planning_service.introspection import (
+    InMemorySystemStateProvider,
+    build_introspection_tools,
+)
 from safety_service import UnsafeActionError, validate
 from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
@@ -84,7 +86,9 @@ def test_move_path_safety_rejects_out_of_bounds() -> None:
 def test_move_path_safety_accepts_valid_waypoints() -> None:
     action = Action(
         kind="move_path",
-        params={"waypoints": [{"x": 0, "y": 0, "z": 0}, {"x": 500, "y": 200, "z": 100}]},
+        params={
+            "waypoints": [{"x": 0, "y": 0, "z": 0}, {"x": 500, "y": 200, "z": 100}]
+        },
     )
     assert validate(action) is action
 

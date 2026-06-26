@@ -9,9 +9,9 @@ that don't support tool calling.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from twfarmbot_core.actions import ActionRegistry

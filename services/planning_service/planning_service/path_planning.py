@@ -140,7 +140,9 @@ def scan_zone(
         xs = list(_raster_x_line(x_start, x_end, step, reverse))
         for x in xs:
             x_clamped = _clamp(x, bounds.x, bounds.x + bounds.width)
-            waypoints.append({"x": round(x_clamped, 2), "y": round(y_clamped, 2), "z": z})
+            waypoints.append(
+                {"x": round(x_clamped, 2), "y": round(y_clamped, 2), "z": z}
+            )
         reverse = not reverse
         if y >= y_end - 1e-6:
             break
@@ -149,7 +151,9 @@ def scan_zone(
     return waypoints
 
 
-def _raster_x_line(x_start: float, x_end: float, step: float, reverse: bool) -> Sequence[float]:
+def _raster_x_line(
+    x_start: float, x_end: float, step: float, reverse: bool
+) -> Sequence[float]:
     """Return X coordinates for one raster row."""
     if x_start > x_end:
         return []
