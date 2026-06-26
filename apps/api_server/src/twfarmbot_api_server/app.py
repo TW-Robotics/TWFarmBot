@@ -363,14 +363,15 @@ def _dispatch_queued(registry: ActionRegistry, action: Action) -> None:
 
 
 def _world_snapshot() -> Any:
-    """Build a world-model-like object from the spatial service.
+    """Build a world-model snapshot including the last known robot position."""
+    from spatial_service import get_snapshot
+    from watering_service.backends import farmbot
 
-    The planner's ``world`` parameter accepts any object with a
-    ``to_dict()`` method, so we just return the GardenWorld directly.
-    """
-    from spatial_service import load_world
-
-    return load_world()
+    try:
+        xyz = farmbot.backend.get_xyz()
+    except Exception:  # noqa: BLE001
+        xyz = None
+    return get_snapshot(xyz)
 
 
 def _refresh_position() -> None:

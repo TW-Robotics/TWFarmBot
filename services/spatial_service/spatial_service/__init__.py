@@ -96,36 +96,83 @@ def load_world(path: str | Path = DEFAULT_CONFIG) -> GardenWorld:
 
 
 def format_world_context(world: GardenWorld | Mapping[str, Any] | None = None) -> str:
-    """Render a compact, model-friendly summary of the world model.
+    """Render a rich, model-friendly summary of the world model.
 
-    Mirrors the YAML: name, id, kind, bounds, entity positions. Nothing
-    derived, nothing invented — the model does the arithmetic if it needs
-    a center.
+    Includes zones with computed centres, entities with positions, garden
+    bounds, camera offset, and the last known robot/camera positions if they
+    are present in the snapshot.
     """
     if world is None:
         world = load_world()
     snapshot = world.to_dict() if hasattr(world, "to_dict") else dict(world)
     lines: list[str] = []
-    for zone in snapshot.get("zones", []):
-        bounds = zone.get("bounds", {})
-        x = bounds.get("x", 0)
-        y = bounds.get("y", 0)
-        w = bounds.get("width", 0)
-        h = bounds.get("height", 0)
-        name = zone.get("name", zone.get("id"))
+
+    bounds = snapshot.get("bounds", {})
+    lines.append(
+        f"Garden bounds: x={bounds.get('x', 0)}, y={bounds.get('y', 0)}, "
+        f"width={bounds.get('width', 0)}, height={bounds.get('height', 0)}. "
+        f"All coordinates are in millimetres."
+    )
+
+    camera = snapshot.get("camera", {})
+    cam_pos = camera.get("position") or snapshot.get("camera_offset", {})
+    lines.append(
+        f"Camera offset from robot origin: "
+        f"x={cam_pos.get('x', 0)}, y={cam_pos.get('y', 0)}, z={cam_pos.get('z', 0)}. "
+        f"When the robot is at (x,y,z), the camera is at robot + offset."
+    )
+
+    robot = snapshot.get("robot")
+    if robot:
         lines.append(
-            f"- zone {name!r} "
-            f"(kind={zone.get('kind')}, id={zone.get('id')}, "
-            f"x={x}, y={y}, width={w}, height={h})"
+            f"Last known robot position: "
+            f"x={robot.get('x', 0)}, y={robot.get('y', 0)}, z={robot.get('z', 0)}."
         )
-    for entity in snapshot.get("entities", []):
-        pos = entity.get("position", {})
-        lines.append(
-            f"- entity {entity.get('name', entity.get('id'))!r} "
-            f"(kind={entity.get('kind')}, id={entity.get('id')}, "
-            f"x={pos.get('x')}, y={pos.get('y')}, z={pos.get('z')})"
-        )
-    return "\n".join(lines) if lines else "(no zones or entities configured)"
+
+    zones = snapshot.get("zones", [])
+    if zones:
+        lines.append("\nZones (move to the centre when asked to go to a zone):")
+        for zone in zones:
+            bounds = zone.get("bounds", {})
+            x = float(bounds.get("x", 0))
+            y = float(bounds.get("y", 0))
+            w = float(bounds.get("width", 0))
+            h = float(bounds.get("height", 0))
+            cx = round(x + w / 2)
+            cy = round(y + h / 2)
+            name = zone.get("name", zone.get("id"))
+            meta = zone.get("metadata", {})
+            meta_text = ", ".join(f"{k}={v}" for k, v in meta.items())
+            meta_part = f", metadata={meta_text}" if meta_text else ""
+            lines.append(
+                f"- {name!r} (kind={zone.get('kind')}, id={zone.get('id')}, "
+                f"bounds x={x}..{x+w}, y={y}..{y+h}, "
+                f"centre=({cx}, {cy}){meta_part})"
+            )
+
+    entities = snapshot.get("entities", [])
+    if entities:
+        lines.append("\nPlants / objects:")
+        for entity in entities:
+            pos = entity.get("position", {})
+            meta = entity.get("metadata", {})
+            meta_text = ", ".join(f"{k}={v}" for k, v in meta.items())
+            meta_part = f", metadata={meta_text}" if meta_text else ""
+            lines.append(
+                f"- {entity.get('name', entity.get('id'))!r} "
+                f"(kind={entity.get('kind')}, id={entity.get('id')}, "
+                f"x={pos.get('x')}, y={pos.get('y')}, z={pos.get('z')}, "
+                f"radius_mm={entity.get('radius_mm', 20)}{meta_part})"
+            )
+
+    if not zones and not entities:
+        lines.append("(no zones or entities configured)")
+
+    lines.append(
+        "\nWhen the user refers to a zone or plant by name, move to its centre "
+        "or position first, then perform the requested action (photo, cut, water, etc.)."
+    )
+    return "\n".join(lines)
 
 
 def get_snapshot(robot_position: Mapping[str, Any] | None = None) -> dict[str, Any]:
