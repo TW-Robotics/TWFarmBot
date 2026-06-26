@@ -7,7 +7,6 @@ indirection from YAML).
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -61,9 +60,7 @@ def test_yaml_block_used_when_env_unset(
     assert cfg.temperature == 0.3
 
 
-def test_env_overrides_yaml(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_env_overrides_yaml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PLANNING_LLM_BASE_URL", "https://override.example/v1")
     monkeypatch.setenv("PLANNING_LLM_MODEL", "override-model")
     monkeypatch.setenv("PLANNING_LLM_TIMEOUT_S", "5")
@@ -86,10 +83,7 @@ def test_api_key_resolved_from_indirected_env(
     monkeypatch.delenv("PLANNING_LLM_API_KEY", raising=False)
     monkeypatch.setenv("MY_PLANNER_KEY", "secret-from-env")
     yaml_file = tmp_path / "cfg.yaml"
-    yaml_file.write_text(
-        "planning:\n"
-        "  api_key_env: MY_PLANNER_KEY\n"
-    )
+    yaml_file.write_text("planning:\n  api_key_env: MY_PLANNER_KEY\n")
     cfg = load_config(yaml_path=yaml_file)
     assert cfg.api_key == "secret-from-env"
 
@@ -100,10 +94,7 @@ def test_api_key_direct_env_wins(
     monkeypatch.setenv("PLANNING_LLM_API_KEY", "direct-key")
     monkeypatch.setenv("MY_PLANNER_KEY", "indirected-key")
     yaml_file = tmp_path / "cfg.yaml"
-    yaml_file.write_text(
-        "planning:\n"
-        "  api_key_env: MY_PLANNER_KEY\n"
-    )
+    yaml_file.write_text("planning:\n  api_key_env: MY_PLANNER_KEY\n")
     cfg = load_config(yaml_path=yaml_file)
     assert cfg.api_key == "direct-key"
 

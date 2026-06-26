@@ -64,15 +64,13 @@ def test_plan_execute_dispatches_and_returns_results(
         dispatched.append(action)
         return action
 
-    monkeypatch.setattr(client.app.state.registry, "dispatch", recording_dispatch)
+    monkeypatch.setattr(client.app.state.registry, "dispatch", recording_dispatch)  # type: ignore[attr-defined]
 
     r = client.post("/plan?execute=true", json={"request": "snap a pic"})
     assert r.status_code == 200
     body = r.json()
     assert body["actions"] == [{"kind": "take_photo", "params": {}}]
-    assert body["results"] == [
-        {"kind": "take_photo", "status": "ok", "params": {}}
-    ]
+    assert body["results"] == [{"kind": "take_photo", "status": "ok", "params": {}}]
     assert len(dispatched) == 1
 
 

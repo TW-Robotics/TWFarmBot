@@ -88,6 +88,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     app.state.farmbot_status = "unknown"  # updated by main() at boot
 
     from twfarmbot_api_server.read import router as read_router
+
     app.include_router(read_router)
 
     @app.on_event("startup")
@@ -142,12 +143,16 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         log.info("POST /actions kind=%s params=%s", action.kind, action.params)
         if not wait:
             if action.kind not in app.state.registry.kinds():
-                raise HTTPException(status_code=404, detail=f"unknown action kind: {action.kind}")
+                raise HTTPException(
+                    status_code=404, detail=f"unknown action kind: {action.kind}"
+                )
             try:
                 validate(action)
             except UnsafeActionError as err:
                 raise HTTPException(status_code=400, detail=str(err)) from err
-            app.state.action_executor.submit(_dispatch_queued, app.state.registry, action)
+            app.state.action_executor.submit(
+                _dispatch_queued, app.state.registry, action
+            )
             return {
                 "status": "queued",
                 "action": {"kind": action.kind, "params": action.params},
@@ -164,9 +169,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 detail=f"FarmBot not connected: {err}",
             ) from err
         except Exception as err:  # noqa: BLE001 — surface real cause to the UI
-            log.exception(
-                "action failed kind=%s params=%s", action.kind, action.params
-            )
+            log.exception("action failed kind=%s params=%s", action.kind, action.params)
             raise HTTPException(
                 status_code=500,
                 detail=f"{type(err).__name__}: {err}",
@@ -214,11 +217,12 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             # LLM timeouts, network errors, missing API keys, etc. all
             # land here. Surface the type + message in the HTTP response
             # so the UI's debug expander shows the real cause.
-            from planning_service.config import load_config
             cfg = load_config()
             log.exception("planner call failed for request=%r", payload.request)
             raise HTTPException(
-                status_code=504 if "timeout" in str(err).lower() or "Timeout" in type(err).__name__ else 500,
+                status_code=504
+                if "timeout" in str(err).lower() or "Timeout" in type(err).__name__
+                else 500,
                 detail=(
                     f"planner call to {cfg.base_url}/{cfg.model} failed: "
                     f"{type(err).__name__}: {err}. "
@@ -248,27 +252,36 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 try:
                     app.state.registry.dispatch(action)
                     results.append(
-                        {"kind": action.kind, "status": "ok",
-                         "params": action.params}
+                        {"kind": action.kind, "status": "ok", "params": action.params}
                     )
                 except UnknownActionError as err:
                     results.append(
-                        {"kind": action.kind, "status": "error",
-                         "error": f"unknown: {err}"}
+                        {
+                            "kind": action.kind,
+                            "status": "error",
+                            "error": f"unknown: {err}",
+                        }
                     )
                 except UnsafeActionError as err:
                     results.append(
-                        {"kind": action.kind, "status": "error",
-                         "error": f"unsafe: {err}"}
+                        {
+                            "kind": action.kind,
+                            "status": "error",
+                            "error": f"unsafe: {err}",
+                        }
                     )
                 except Exception as err:  # noqa: BLE001 — surface as per-action error, don't 500
                     log.exception(
                         "planner action failed kind=%s params=%s",
-                        action.kind, action.params,
+                        action.kind,
+                        action.params,
                     )
                     results.append(
-                        {"kind": action.kind, "status": "error",
-                         "error": f"{type(err).__name__}: {err}"}
+                        {
+                            "kind": action.kind,
+                            "status": "error",
+                            "error": f"{type(err).__name__}: {err}",
+                        }
                     )
             body["results"] = results
         return body
@@ -276,7 +289,11 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     @app.post("/chat")
     def post_chat(payload: ChatPayload) -> dict[str, Any]:
         """Conversational assistant that can read state and execute actions."""
-        log.info("POST /chat messages=%d allow_actions=%s", len(payload.messages), payload.allow_actions)
+        log.info(
+            "POST /chat messages=%d allow_actions=%s",
+            len(payload.messages),
+            payload.allow_actions,
+        )
         try:
             from planning_service import ChatResult, chat as planner_chat
             from planning_service.introspection import HttpSystemStateProvider
@@ -295,11 +312,12 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 model_name=payload.model,
             )
         except Exception as err:  # noqa: BLE001
-            from planning_service.config import load_config
             cfg = load_config()
             log.exception("chat call failed")
             raise HTTPException(
-                status_code=504 if "timeout" in str(err).lower() or "Timeout" in type(err).__name__ else 500,
+                status_code=504
+                if "timeout" in str(err).lower() or "Timeout" in type(err).__name__
+                else 500,
                 detail=(
                     f"chat call to {cfg.base_url}/{cfg.model} failed: "
                     f"{type(err).__name__}: {err}. "
@@ -356,7 +374,9 @@ def _dispatch_queued(registry: ActionRegistry, action: Action) -> None:
     try:
         registry.dispatch(action)
     except Exception:  # noqa: BLE001
-        log.exception("queued action failed kind=%s params=%s", action.kind, action.params)
+        log.exception(
+            "queued action failed kind=%s params=%s", action.kind, action.params
+        )
     finally:
         if action.kind in {"move", "find_home"}:
             _refresh_position()
@@ -444,14 +464,17 @@ app = create_app()
 
 def main() -> None:
     from twfarmbot_core.config import load_settings
+
     settings = load_settings()
     configure_logging(settings.log_level)
     logging.getLogger("twfarmbot.api_server").info(
         "Starting TWFarmBot API server in env=%s (actions=%s)",
-        settings.env, app.state.registry.kinds(),
+        settings.env,
+        app.state.registry.kinds(),
     )
     connect_to_farmbot(required=True)
     import uvicorn
+
     uvicorn.run("twfarmbot_api_server.app:app", host="0.0.0.0", port=8000, reload=False)
 
 

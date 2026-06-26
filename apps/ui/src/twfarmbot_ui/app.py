@@ -65,7 +65,7 @@ def _float(value: Any, default: float = 0.0) -> float:
 _NUMBER_RE = re.compile(r"^\s*-?\d+(?:[.,]\d+)?\s*$")
 
 
-def _parse_number(value: Any, default: float = 0.0) -> float | None:
+def _parse_number(value: Any) -> float | None:
     """Parse a user-typed number, accepting both '.' and ',' as decimals.
 
     Returns ``None`` on invalid input rather than silently defaulting — a
@@ -203,7 +203,7 @@ def _load_config_yaml() -> tuple[YAML, Any, Path]:
     yaml.preserve_quotes = True
     yaml.default_flow_style = False
     path = Path(_CONFIG_PATH)
-    with path.open() as fh:
+    with path.open(encoding="utf-8") as fh:
         data = yaml.load(fh)
     return yaml, data, path
 
@@ -229,7 +229,7 @@ def _add_garden_entity(x: float, y: float, kind: str, name: str) -> None:
         "metadata": {},
     }
     entities.append(entity)
-    with path.open("w") as fh:
+    with path.open("w", encoding="utf-8") as fh:
         yaml.dump(data, fh)
 
 
@@ -1042,7 +1042,7 @@ def _render_garden() -> None:
 
     map_col, details = st.columns([2.3, 1])
     with map_col:
-        event = st.altair_chart(
+        st.altair_chart(
             (bounds_chart + zones_chart + points_chart + click_layer)
             .properties(height=520)
             .interactive(),
@@ -1160,23 +1160,35 @@ def _render_motion() -> None:
     # D-pad
     _, u, _ = st.columns(3)
     if u.button("▲ Y+", use_container_width=True):
-        _do_move(client, cur_x, cur_y + step, cur_z, f"Y+{step:.0f}")
-    l, m, r = st.columns(3)
-    if l.button("◀ X−", use_container_width=True):
-        _do_move(client, cur_x - step, cur_y, cur_z, f"X-{step:.0f}")
+        _do_move(
+            client, float(cur_x), float(cur_y + step), float(cur_z), f"Y+{step:.0f}"
+        )
+    left, m, right = st.columns(3)
+    if left.button("◀ X−", use_container_width=True):
+        _do_move(
+            client, float(cur_x - step), float(cur_y), float(cur_z), f"X-{step:.0f}"
+        )
     if m.button("🏠 Home", use_container_width=True):
-        _do_move(client, 0, 0, 0, "Home")
-    if r.button("X+ ▶", use_container_width=True):
-        _do_move(client, cur_x + step, cur_y, cur_z, f"X+{step:.0f}")
+        _do_move(client, 0.0, 0.0, 0.0, "Home")
+    if right.button("X+ ▶", use_container_width=True):
+        _do_move(
+            client, float(cur_x + step), float(cur_y), float(cur_z), f"X+{step:.0f}"
+        )
     _, d, _ = st.columns(3)
     if d.button("▼ Y−", use_container_width=True):
-        _do_move(client, cur_x, cur_y - step, cur_z, f"Y-{step:.0f}")
+        _do_move(
+            client, float(cur_x), float(cur_y - step), float(cur_z), f"Y-{step:.0f}"
+        )
 
     zl, zr = st.columns(2)
     if zl.button("⬆ Z+", use_container_width=True):
-        _do_move(client, cur_x, cur_y, cur_z + step, f"Z+{step:.0f}")
+        _do_move(
+            client, float(cur_x), float(cur_y), float(cur_z + step), f"Z+{step:.0f}"
+        )
     if zr.button("⬇ Z−", use_container_width=True):
-        _do_move(client, cur_x, cur_y, cur_z - step, f"Z-{step:.0f}")
+        _do_move(
+            client, float(cur_x), float(cur_y), float(cur_z - step), f"Z-{step:.0f}"
+        )
 
     st.divider()
     with st.form("absolute"):
@@ -1194,19 +1206,21 @@ def _render_motion() -> None:
                     "Use a plain number like '123' or '123.4' (comma also accepted)."
                 )
             else:
-                _do_move(client, x, y, z)
+                _do_move(client, float(x), float(y), float(z))
 
     if st.button("Find home"):
-        r = client.request("POST", "/actions", json={"kind": "find_home", "params": {}})
-        if r.ok:
+        resp = client.request(
+            "POST", "/actions", json={"kind": "find_home", "params": {}}
+        )
+        if resp.ok:
             st.toast("Homing queued")
         else:
-            st.error(r.error_message())
+            st.error(resp.error_message())
 
     # Presets
     if "presets" not in st.session_state:
-        r = client.request("GET", "/positions")
-        st.session_state["presets"] = r.body.get("positions", []) if r.ok else []
+        resp = client.request("GET", "/positions")
+        st.session_state["presets"] = resp.body.get("positions", []) if resp.ok else []
     presets = st.session_state["presets"]
     if presets:
         st.markdown("**Locations**")
@@ -1309,7 +1323,9 @@ def _render_io() -> None:
                         if presets:
                             st.caption("Presets")
                             preset_cols = st.columns(len(presets))
-                            for idx, (pval, plabel) in enumerate(sorted(presets.items(), key=lambda x: int(x[0]))):
+                            for idx, (pval, plabel) in enumerate(
+                                sorted(presets.items(), key=lambda x: int(x[0]))
+                            ):
                                 if preset_cols[idx].button(
                                     f"{plabel} ({pval})",
                                     use_container_width=True,
@@ -1327,11 +1343,15 @@ def _render_io() -> None:
                                 key=f"analog_value_{sel['pin']}",
                             )
                         with btn_col:
-                            st.markdown("<div style='height:27px'></div>", unsafe_allow_html=True)
+                            st.markdown(
+                                "<div style='height:27px'></div>",
+                                unsafe_allow_html=True,
+                            )
                             if st.button("Apply", use_container_width=True):
                                 _do_pin_write(client, sel["pin"], analog_value, mode)
                     else:
                         pulse = st.toggle("Timed pulse", value=True)
+                        pulse_secs: float | None = None
                         if pulse:
                             pulse_secs = st.number_input(
                                 "Seconds",
@@ -1392,8 +1412,7 @@ def _render_camera() -> None:
         "Research image",
         images,
         format_func=lambda image: (
-            f"{image.get('created_at', 'Unknown time')} · "
-            f"image {image.get('id', '—')}"
+            f"{image.get('created_at', 'Unknown time')} · image {image.get('id', '—')}"
         ),
     )
 
@@ -1635,11 +1654,14 @@ def _render_model_picker() -> str | None:
                 key="assistant_model",
             )
         else:
-            selected_model = st.text_input(
-                "Model",
-                value=st.session_state.get("assistant_model", ""),
-                key="assistant_model",
-            ) or None
+            selected_model = (
+                st.text_input(
+                    "Model",
+                    value=st.session_state.get("assistant_model", ""),
+                    key="assistant_model",
+                )
+                or None
+            )
     return selected_model
 
 
@@ -1697,9 +1719,7 @@ def _render_chat() -> None:
             if images:
                 cols = st.columns(min(len(images), 3))
                 for i, image in enumerate(images):
-                    cols[i % len(cols)].image(
-                        image.get("attachment_url"), width=220
-                    )
+                    cols[i % len(cols)].image(image.get("attachment_url"), width=220)
 
             proposed_actions = msg.get("proposed_actions", [])
             if proposed_actions and not msg.get("approved") and not msg.get("rejected"):
@@ -1735,9 +1755,13 @@ def _render_chat() -> None:
                             st.markdown(prompt)
                     if approval:
                         with st.spinner("Executing actions…"):
-                            results = _execute_proposed_actions(proposed, last_assistant, wait=True)
+                            results = _execute_proposed_actions(
+                                proposed, last_assistant, wait=True
+                            )
                         last_assistant["approved"] = True
-                        last_assistant["content"] += "\n\n" + _format_execution_results(results)
+                        last_assistant["content"] += "\n\n" + _format_execution_results(
+                            results
+                        )
                     else:
                         last_assistant["rejected"] = True
                         last_assistant["content"] += "\n\n❌ Cancelled."
@@ -1758,7 +1782,10 @@ def _render_chat() -> None:
         thinking = st.empty()
         thinking.caption("🤖 Assistant is thinking…")
         with st.chat_message("assistant"):
-            stream_meta = {"tool_calls": [], "proposed_actions": []}
+            stream_meta: dict[str, list[Any]] = {
+                "tool_calls": [],
+                "proposed_actions": [],
+            }
             stream_thinking: list[str] = []
             stream_error = None
             accumulated = ""
@@ -1766,13 +1793,15 @@ def _render_chat() -> None:
             # Each open segment is a placeholder that gets updated in place.
             # When a tool or thinking block starts, the current text segment is
             # closed so subsequent text appears *after* that block.
-            text_segments: list[list[Any, str] | None] = []
+            text_segments: list[list[Any] | None] = []
 
-            def _current_text_segment() -> list[Any, str]:
+            def _current_text_segment() -> list[Any]:
                 if not text_segments or text_segments[-1] is None:
                     ph = st.empty()
                     text_segments.append([ph, ""])
-                return text_segments[-1]
+                seg = text_segments[-1]
+                assert seg is not None
+                return seg
 
             def _close_text_segment() -> None:
                 if text_segments and text_segments[-1] is not None:
@@ -1995,7 +2024,11 @@ def _execute_proposed_actions(
                 "kind": action["kind"],
                 "ok": r.ok,
                 "status": "ok" if r.ok else "error",
-                "detail": r.body if isinstance(r.body, str) else r.body.get("detail") if isinstance(r.body, dict) else str(r.body),
+                "detail": r.body
+                if isinstance(r.body, str)
+                else r.body.get("detail")
+                if isinstance(r.body, dict)
+                else str(r.body),
             }
         )
 
@@ -2070,9 +2103,7 @@ def _restore_session() -> None:
     st.session_state["assistant_plan_response"] = snapshot.get(
         "assistant_plan_response"
     )
-    st.session_state["assistant_plan_status"] = snapshot.get(
-        "assistant_plan_status"
-    )
+    st.session_state["assistant_plan_status"] = snapshot.get("assistant_plan_status")
     st.session_state["assistant_selected_model"] = snapshot.get(
         "assistant_selected_model"
     )
@@ -2124,9 +2155,7 @@ def _render_session_controls() -> None:
             key="assistant_session_label_input",
             placeholder="e.g. watering experiment",
         )
-        st.session_state["assistant_session_label"] = (
-            current_label.strip() or None
-        )
+        st.session_state["assistant_session_label"] = current_label.strip() or None
 
         new_col, save_col = st.columns([1, 1])
         if new_col.button("New session", use_container_width=True):
@@ -2156,7 +2185,9 @@ def _render_session_controls() -> None:
             preview = sess["preview"]
             c1, c2, c3 = st.columns([3, 1, 1])
             c1.caption(f"{label}" + (f" · {preview}" if preview else ""))
-            if c2.button("Load", key=f"load_sess_{sess['session_id']}", use_container_width=True):
+            if c2.button(
+                "Load", key=f"load_sess_{sess['session_id']}", use_container_width=True
+            ):
                 snapshot = history.load_session(sess["session_id"])
                 if snapshot is None:
                     st.error("Session not found")
@@ -2178,12 +2209,12 @@ def _render_session_controls() -> None:
                 st.session_state["assistant_selected_model"] = snapshot.get(
                     "assistant_selected_model"
                 )
-                st.session_state["executed_plans"] = snapshot.get(
-                    "executed_plans", []
-                )
+                st.session_state["executed_plans"] = snapshot.get("executed_plans", [])
                 st.query_params["session"] = snapshot["session_id"]
                 st.rerun()
-            if c3.button("🗑", key=f"del_sess_{sess['session_id']}", use_container_width=True):
+            if c3.button(
+                "🗑", key=f"del_sess_{sess['session_id']}", use_container_width=True
+            ):
                 history.delete_session(sess["session_id"])
                 st.rerun()
 
@@ -2327,7 +2358,9 @@ def _render_plan() -> None:
                 "actions": actions,
                 "results": action_results,
                 "queued_at": datetime.now().isoformat(),
-                "status": "ok" if failed == 0 else ("partial" if queued > 0 else "failed"),
+                "status": "ok"
+                if failed == 0
+                else ("partial" if queued > 0 else "failed"),
             }
         )
         st.session_state["executed_plans"] = executed
@@ -2352,14 +2385,19 @@ def _render_history() -> None:
     st.markdown("## Chat sessions")
     for sess in sessions:
         label = sess["label"] or sess["session_id"]
-        updated = sess["updated_at"][:19].replace("T", " ") if sess["updated_at"] else ""
+        updated = (
+            sess["updated_at"][:19].replace("T", " ") if sess["updated_at"] else ""
+        )
         c1, c2 = st.columns([4, 1])
         with c1:
             st.markdown(f"**{label}**")
             st.caption(
-                f"Updated {updated}" + (f" · {sess['preview']}" if sess["preview"] else "")
+                f"Updated {updated}"
+                + (f" · {sess['preview']}" if sess["preview"] else "")
             )
-        if c2.button("Load", key=f"hist_load_{sess['session_id']}", use_container_width=True):
+        if c2.button(
+            "Load", key=f"hist_load_{sess['session_id']}", use_container_width=True
+        ):
             snapshot = history.load_session(sess["session_id"])
             if snapshot is None:
                 st.error("Session not found")
@@ -2399,7 +2437,9 @@ def _render_history() -> None:
                 st.markdown(
                     f"{status_emoji} **Plan {idx}** · {plan.get('request', '')}"
                 )
-                st.caption(f"{ts} · {len(plan.get('actions', []))} action(s) · {status}")
+                st.caption(
+                    f"{ts} · {len(plan.get('actions', []))} action(s) · {status}"
+                )
                 with st.expander("Actions"):
                     for action in plan.get("actions", []):
                         st.markdown(f"• {_action_summary(action)}")
@@ -2451,24 +2491,24 @@ def _render_diagnostics() -> None:
         st.markdown(
             f'<div class="card"><div class="card-label">Resources</div>'
             f'<div class="card-value">CPU {info.get("cpu_usage", "—")}%</div>'
-            f'<div>Memory {info.get("memory_usage", "—")}% · Disk {info.get("disk_usage", "—")}%</div>'
-            f'<div>SoC {info.get("soc_temp", "—")} °C</div></div>',
+            f"<div>Memory {info.get('memory_usage', '—')}% · Disk {info.get('disk_usage', '—')}%</div>"
+            f"<div>SoC {info.get('soc_temp', '—')} °C</div></div>",
             unsafe_allow_html=True,
         )
     with res[1]:
         st.markdown(
             f'<div class="card"><div class="card-label">Axis state</div>'
             f'<div class="card-value">X {axes.get("x", "—")}</div>'
-            f'<div>Y {axes.get("y", "—")} · Z {axes.get("z", "—")}</div>'
-            f'<div>Busy: {info.get("busy", "—")}</div></div>',
+            f"<div>Y {axes.get('y', '—')} · Z {axes.get('z', '—')}</div>"
+            f"<div>Busy: {info.get('busy', '—')}</div></div>",
             unsafe_allow_html=True,
         )
     with res[2]:
         st.markdown(
             f'<div class="card"><div class="card-label">Network</div>'
             f'<div class="card-value">{info.get("wifi_level", "—")} dBm</div>'
-            f'<div>{info.get("private_ip", "—")}</div>'
-            f'<div>Sync: {info.get("sync_status", "—")}</div></div>',
+            f"<div>{info.get('private_ip', '—')}</div>"
+            f"<div>Sync: {info.get('sync_status', '—')}</div></div>",
             unsafe_allow_html=True,
         )
 

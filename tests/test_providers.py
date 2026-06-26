@@ -43,7 +43,7 @@ def test_providers_build_model() -> None:
     openrouter = OpenRouterProvider()
     model = openrouter.build_chat_model("openai/gpt-4o", cfg)
     assert model is not None
-    assert model.model_name == "openai/gpt-4o"
+    assert model.model_name == "openai/gpt-4o"  # type: ignore[attr-defined]
 
     local_cfg = PlannerConfig(
         provider="local",
@@ -56,7 +56,7 @@ def test_providers_build_model() -> None:
     local = OpenAICompatibleProvider()
     local_model = local.build_chat_model("qwen2.5", local_cfg)
     assert local_model is not None
-    assert local_model.model_name == "qwen2.5"
+    assert local_model.model_name == "qwen2.5"  # type: ignore[attr-defined]
 
 
 def test_providers_endpoints(client) -> None:  # noqa: ANN001

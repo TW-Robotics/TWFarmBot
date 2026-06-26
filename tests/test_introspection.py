@@ -71,7 +71,7 @@ def test_list_zones_computes_centre() -> None:
 
 def test_introspection_tool_swallows_provider_errors() -> None:
     class Broken(InMemorySystemStateProvider):
-        def get_position(self):  # type: ignore[override]
+        def get_position(self):
             raise RuntimeError("nope")
 
     tools = {t.name: t for t in build_introspection_tools(Broken())}

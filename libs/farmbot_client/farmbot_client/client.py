@@ -20,9 +20,9 @@ class FarmBotConnectionError(RuntimeError):
 class FarmBotCredentials:
     email: str
     password: str
-    server: str = "https://my.farm.bot"   # REST API host for token issuance
-    host: str = "farmbot.farm.bot"         # MQTT broker (cloud default)
-    token: str | None = None               # optional pre-fetched token JSON
+    server: str = "https://my.farm.bot"  # REST API host for token issuance
+    host: str = "farmbot.farm.bot"  # MQTT broker (cloud default)
+    token: str | None = None  # optional pre-fetched token JSON
 
 
 def connect(
@@ -51,7 +51,9 @@ def connect(
             fb.state.verbosity = "debug"
         try:
             if creds.token is None:
-                result = fb.api.get_token(creds.email, creds.password, server=creds.server)
+                result = fb.api.get_token(
+                    creds.email, creds.password, server=creds.server
+                )
                 if not isinstance(result, dict) or "token" not in result:
                     raise FarmBotConnectionError(
                         f"auth failed for {creds.email!r}: {result}"

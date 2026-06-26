@@ -23,7 +23,9 @@ def client() -> TestClient:
     return TestClient(create_app())
 
 
-def test_assistant_preview_shape(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_assistant_preview_shape(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """UI renders the plan by iterating response['actions']."""
 
     def fake_plan(request: str, **_kwargs: Any) -> PlanResult:
@@ -63,7 +65,9 @@ def test_assistant_execute_returns_per_action_results(
 
     monkeypatch.setattr("planning_service.plan", fake_plan)
     monkeypatch.setattr(
-        client.app.state.registry, "dispatch", lambda a: a,
+        client.app.state.registry,  # type: ignore[attr-defined]
+        "dispatch",
+        lambda a: a,
     )
 
     r = client.post("/plan?execute=true", json={"request": "snap a pic"})

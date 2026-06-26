@@ -17,7 +17,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
@@ -28,6 +28,8 @@ from twfarmbot_ml_utils import (
 )
 
 from . import path_planning
+
+_T = TypeVar("_T")
 
 log = logging.getLogger(__name__)
 
@@ -73,7 +75,7 @@ class AnalyzeImageArgs(BaseModel):
 class SegmentImageArgs(BaseModel):
     classes: str = Field(
         description=(
-            "Comma-separated class names to segment, e.g. " "'plant, weed, soil, path'."
+            "Comma-separated class names to segment, e.g. 'plant, weed, soil, path'."
         ),
     )
     image_url: str | None = Field(
@@ -264,9 +266,7 @@ def build_introspection_tools(
 ) -> list[BaseTool]:
     """Build LangChain read-only tools that query the live system."""
 
-    def _safe(
-        name: str, fn: Callable[..., dict[str, Any]], **kwargs: Any
-    ) -> dict[str, Any]:
+    def _safe(name: str, fn: Callable[..., _T], **kwargs: Any) -> _T | dict[str, Any]:
         try:
             return fn(**kwargs)
         except Exception as err:  # noqa: BLE001
@@ -320,7 +320,7 @@ def build_introspection_tools(
         return _safe("get_status", lambda: provider.get_status())
 
     @tool(args_schema=_NoArgs)
-    def get_messages(limit: int = 20) -> dict[str, Any]:
+    def get_messages(limit: int = 20) -> list[dict[str, Any]] | dict[str, Any]:
         """Return the most recent MQTT messages from the FarmBot.
 
         `limit` caps how many are returned (default 20). Useful to see
@@ -389,7 +389,7 @@ def build_introspection_tools(
         Use this to confirm what actions are available before planning.
         """
         # Kept as a separate tool from list_endpoints for clarity.
-        return list_endpoints.invoke({})  # type: ignore[attr-defined]
+        return list_endpoints.invoke({})
 
     @tool(args_schema=_NoArgs)
     def get_pins() -> dict[str, Any]:
@@ -447,7 +447,11 @@ def build_introspection_tools(
                 return {"error": "unexpected segmentation result shape"}
             labels = [str(result[2]), str(result[3])]
             class_scores = parse_segmentation_labels(labels)
-            dominant = max(class_scores, key=class_scores.get) if class_scores else None
+            dominant = (
+                max(class_scores.items(), key=lambda item: item[1])[0]
+                if class_scores
+                else None
+            )
             return {
                 "image_urls": [
                     _image_to_data_uri(Path(result[0])),

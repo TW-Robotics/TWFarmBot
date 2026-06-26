@@ -28,7 +28,9 @@ def get_position() -> dict[str, Any]:
     try:
         xyz = farmbot.backend.get_xyz()
     except Exception as err:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"farmbot read failed: {err}") from err
+        raise HTTPException(
+            status_code=502, detail=f"farmbot read failed: {err}"
+        ) from err
     return {"xyz": xyz}
 
 
@@ -37,7 +39,9 @@ def get_status(path: str | None = None) -> dict[str, Any]:
     try:
         state = farmbot.backend._bot().read_status(path=path)
     except Exception as err:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"farmbot read failed: {err}") from err
+        raise HTTPException(
+            status_code=502, detail=f"farmbot read failed: {err}"
+        ) from err
     return {"path": path, "state": state}
 
 
@@ -46,7 +50,9 @@ def get_pin(pin: int, mode: str = "digital") -> dict[str, Any]:
     try:
         value = farmbot.backend.read_pin(pin, mode)
     except Exception as err:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"farmbot read failed: {err}") from err
+        raise HTTPException(
+            status_code=502, detail=f"farmbot read failed: {err}"
+        ) from err
     return {"pin": pin, "mode": mode, "value": value}
 
 
@@ -55,7 +61,9 @@ def get_messages() -> dict[str, Any]:
     try:
         last = farmbot.backend.get_last_messages()
     except Exception as err:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"farmbot read failed: {err}") from err
+        raise HTTPException(
+            status_code=502, detail=f"farmbot read failed: {err}"
+        ) from err
     return {"last_messages": last}
 
 
@@ -66,7 +74,9 @@ def get_images(limit: int = 10, refresh: bool = False) -> dict[str, Any]:
     try:
         images = farmbot.backend.get_images(limit, refresh=refresh)
     except Exception as err:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"farmbot image read failed: {err}") from err
+        raise HTTPException(
+            status_code=502, detail=f"farmbot image read failed: {err}"
+        ) from err
     return {"images": images}
 
 
@@ -88,4 +98,6 @@ def get_garden() -> dict[str, Any]:
     try:
         return get_snapshot(farmbot.backend.get_xyz())
     except Exception as err:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"garden read failed: {err}") from err
+        raise HTTPException(
+            status_code=502, detail=f"garden read failed: {err}"
+        ) from err

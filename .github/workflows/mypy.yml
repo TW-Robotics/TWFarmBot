@@ -1,9 +1,9 @@
-name: Pylint
+name: Mypy
 
 on: [push, pull_request]
 
 jobs:
-  lint:
+  typecheck:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -15,6 +15,5 @@ jobs:
       uses: astral-sh/setup-uv@v5
     - name: Install dependencies
       run: uv sync --all-packages
-    - name: Analysing the code with pylint
-      run: |
-        uv run pylint $(git ls-files '*.py') --fail-under=7.0
+    - name: Run mypy
+      run: uv run mypy apps/ services/ libs/ core/ tests/

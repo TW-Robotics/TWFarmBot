@@ -14,10 +14,13 @@ from __future__ import annotations
 import logging
 import os
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from safety_service import UnsafeActionError, validate as safety_validate
 from twfarmbot_core.config import load_yaml_config
+
+if TYPE_CHECKING:
+    from twfarmbot_core.domain.action import Action
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +38,7 @@ def _pump_pin() -> int:
 def _load_backend() -> Any:
     name = os.getenv("WATERING_BACKEND", "farmbot")
     module = import_module(f"watering_service.backends.{name}")
-    return module.backend  # type: ignore[attr-defined]
+    return module.backend
 
 
 _backend: Any | None = None
@@ -49,7 +52,7 @@ def get_backend() -> Any:
     return _backend
 
 
-def water(seconds: float) -> object:
+def water(seconds: float) -> Action:
     """Validate then execute a watering action. Returns the executed Action."""
     from twfarmbot_core.domain.action import Action
 

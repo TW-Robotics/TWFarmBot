@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from safety_service import UnsafeActionError, validate as safety_validate
+from safety_service import validate as safety_validate
 
 from .domain import Action
 
