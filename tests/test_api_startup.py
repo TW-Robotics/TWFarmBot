@@ -29,7 +29,7 @@ def test_health_reports_unknown_farmbot_before_boot(client: TestClient) -> None:
 
 def test_connect_to_farmbot_marks_status(monkeypatch: pytest.MonkeyPatch) -> None:
     """When get_farmbot succeeds, status flips to 'connected'."""
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", lambda: object())
+    monkeypatch.setattr("farmbot_gateway.get_farmbot", object)
     test_app = create_app()
     app_module.app = test_app  # so connect_to_farmbot updates the right instance
     try:
