@@ -10,6 +10,7 @@ FarmBot implementation at UAS Technikum Wien — an open research platform for a
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Mypy](https://img.shields.io/badge/types-mypy-blue.svg)](https://mypy-lang.org/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Contributors](https://img.shields.io/github/contributors/TW-Robotics/TWFarmBot)](https://github.com/TW-Robotics/TWFarmBot/graphs/contributors)
 [![Last Commit](https://img.shields.io/github/last-commit/TW-Robotics/TWFarmBot)](https://github.com/TW-Robotics/TWFarmBot/commits/main)
 [![Issues](https://img.shields.io/github/issues/TW-Robotics/TWFarmBot)](https://github.com/TW-Robotics/TWFarmBot/issues)
@@ -110,6 +111,10 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design, a
 | `apps/worker/` | `twfarmbot-worker` | Background jobs / experiments |
 
 Each subpackage has its own `pyproject.toml` and can be developed independently.
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 or later** — see [`LICENSE`](LICENSE) for the full text.
 
 ## Contributing
 
