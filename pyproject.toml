@@ -3,7 +3,13 @@ name = "twfarmbot"
 version = "0.1.0"
 description = "Implementation of the FarmBot at UAS Technikum Wien"
 readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.10"
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+]
 dependencies = [
     "twfarmbot-core",
     "twfarmbot-ml-utils",
