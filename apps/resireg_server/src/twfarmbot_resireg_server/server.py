@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import os
 import re
 import time
@@ -47,11 +48,12 @@ from .resireg_cli import (
 # ------------------------------------------------------------------
 # Globals
 # ------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 setup_pi5()
-print(f"Loading {MODEL_ID}...")
+logger.info(f"Loading {MODEL_ID}...")
 model = AutoModel.from_pretrained(MODEL_ID, trust_remote_code=True).eval()
 model._load_preprocessors()
-print("Model loaded.")
+logger.info("Model loaded.")
 
 app = FastAPI(title="ReSiReg-Mini Pi 5 Server", version="0.1.0")
 
