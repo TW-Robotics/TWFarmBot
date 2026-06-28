@@ -1832,7 +1832,7 @@ def _render_chat() -> None:
         thinking = st.empty()
         thinking.caption("🤖 Assistant is thinking…")
         with st.chat_message("assistant"):
-            stream_meta: dict[str, list[Any]] = {
+            stream_meta: dict[str, Any] = {
                 "tool_calls": [],
                 "proposed_actions": [],
             }

@@ -62,38 +62,45 @@ def parse_args() -> argparse.Namespace:
         description="Run ReSiReg inference modes via the local server."
     )
     parser.add_argument(
-        "--image", "-i",
+        "--image",
+        "-i",
         required=True,
         help="Path or URL to the input image.",
     )
     parser.add_argument(
-        "--mode", "-m",
+        "--mode",
+        "-m",
         choices=["traverse", "segment", "similarity", "language"],
         default="traverse",
         help="Inference mode to run (default: traverse).",
     )
     parser.add_argument(
-        "--positive", "-p",
+        "--positive",
+        "-p",
         default="wooden bridge",
         help="Positive prompt (used by traverse, similarity, language).",
     )
     parser.add_argument(
-        "--negative", "-n",
+        "--negative",
+        "-n",
         default="tree,water",
         help="Negative prompt(s) separated by commas.",
     )
     parser.add_argument(
-        "--classes", "-c",
+        "--classes",
+        "-c",
         default="wooden bridge,tree,water",
         help="Comma-separated class list for segmentation mode.",
     )
     parser.add_argument(
-        "--url", "-u",
+        "--url",
+        "-u",
         default="http://localhost:8080",
         help="Base URL of the ReSiReg server.",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         default="resireg_output.png",
         help="Path to write the output image PNG.",
     )
@@ -122,7 +129,10 @@ def main() -> int:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt_text},
-                    {"type": "image_url", "image_url": {"url": image_to_data_url(args.image)}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_to_data_url(args.image)},
+                    },
                 ],
             }
         ],

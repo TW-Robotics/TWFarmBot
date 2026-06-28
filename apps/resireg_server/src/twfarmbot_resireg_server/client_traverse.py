@@ -47,27 +47,32 @@ def parse_args() -> argparse.Namespace:
         description="Run traversability inference via the ReSiReg server."
     )
     parser.add_argument(
-        "--image", "-i",
+        "--image",
+        "-i",
         required=True,
         help="Path to the input image.",
     )
     parser.add_argument(
-        "--positive", "-p",
+        "--positive",
+        "-p",
         default="wooden bridge",
         help="Positive prompt describing the traversable region.",
     )
     parser.add_argument(
-        "--negative", "-n",
+        "--negative",
+        "-n",
         default="tree,water",
         help="Negative prompt(s) separated by commas.",
     )
     parser.add_argument(
-        "--url", "-u",
+        "--url",
+        "-u",
         default="http://localhost:8080",
         help="Base URL of the ReSiReg server.",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         default="traversability_output.png",
         help="Path to write the output heatmap PNG.",
     )
@@ -96,7 +101,10 @@ def main() -> int:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt_text},
-                    {"type": "image_url", "image_url": {"url": image_to_data_url(args.image)}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_to_data_url(args.image)},
+                    },
                 ],
             }
         ],

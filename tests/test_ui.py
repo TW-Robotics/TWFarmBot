@@ -135,7 +135,10 @@ def test_vision_processor_calls_local_server(
     assert result.exists()
     assert seen["url"] == "http://127.0.0.1:8080/v1/chat/completions"
     assert seen["payload"]["messages"][0]["content"][0]["text"] == "green leaves"
-    assert seen["payload"]["messages"][0]["content"][1]["image_url"]["url"] == "https://example.test/photo.jpg"
+    assert (
+        seen["payload"]["messages"][0]["content"][1]["image_url"]["url"]
+        == "https://example.test/photo.jpg"
+    )
 
 
 def test_parse_segmentation_labels() -> None:

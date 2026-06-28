@@ -11,6 +11,7 @@ Modes (matching the playground tabs):
 
 Raw features are always accessible via --export-raw.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,12 +23,12 @@ import statistics
 import subprocess
 import threading
 import time
-import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import cv2
@@ -39,7 +40,7 @@ import torch.nn.functional as F
 from fast_pytorch_kmeans import KMeans
 from PIL import Image
 from sklearn.decomposition import PCA
-from transformers import AutoModel, AutoImageProcessor, AutoTokenizer
+from transformers import AutoModel
 
 MODEL_ID = "SimonSchwaiger/resireg_mini"
 
@@ -86,7 +87,9 @@ class SystemSample:
 def read_pmic() -> dict[str, dict[str, float]]:
     """Sample Pi 5 PMIC voltages/currents and return rail power dict."""
     try:
-        out = subprocess.check_output(["vcgencmd", "pmic_read_adc"], text=True, timeout=2)
+        out = subprocess.check_output(
+            ["vcgencmd", "pmic_read_adc"], text=True, timeout=2
+        )
     except Exception:
         return {}
 
@@ -113,7 +116,15 @@ def read_pmic() -> dict[str, dict[str, float]]:
 
 def compute_power(rails: dict[str, dict[str, float]]) -> tuple[float, float, float]:
     core_names = {"VDD_CORE"}
-    soc_names = {"VDD_CORE", "DDR_VDD2", "DDR_VDDQ", "1V1_SYS", "0V8_SW", "1V8_SYS", "3V3_SYS"}
+    soc_names = {
+        "VDD_CORE",
+        "DDR_VDD2",
+        "DDR_VDDQ",
+        "1V1_SYS",
+        "0V8_SW",
+        "1V8_SYS",
+        "3V3_SYS",
+    }
     total_w = core_w = soc_w = 0.0
     for name, data in rails.items():
         w = data["w"]
@@ -151,6 +162,7 @@ def read_system() -> SystemSample:
 
 class SystemSampler:
     """Background sampler for power, CPU, RAM, and temperature."""
+
     def __init__(self, interval_s: float = 0.1):
         self.interval = interval_s
         self._samples: list[SystemSample] = []
@@ -198,7 +210,7 @@ def _format_j(j: float) -> str:
 
 
 def _format_ms(s: float) -> str:
-    return f"{s*1000:.1f} ms"
+    return f"{s * 1000:.1f} ms"
 
 
 def _format_mb(mb: float) -> str:
@@ -209,8 +221,9 @@ def _format_c(c: float) -> str:
     return f"{c:.1f}°C"
 
 
-def benchmark_report(name: str, times: list[float], samples: list[SystemSample],
-                     idle: SystemSample):
+def benchmark_report(
+    name: str, times: list[float], samples: list[SystemSample], idle: SystemSample
+):
     s = _stats(times)
     avg_w = statistics.mean([p.total_w for p in samples]) if samples else 0.0
     avg_core_w = statistics.mean([p.core_w for p in samples]) if samples else 0.0
@@ -223,16 +236,20 @@ def benchmark_report(name: str, times: list[float], samples: list[SystemSample],
     energy_j = delta_w * s["mean"]
 
     print(f"\n=== Benchmark: {name} ===")
-    print(f"  Latency   mean={_format_ms(s['mean'])}  median={_format_ms(s['median'])}  "
-          f"min={_format_ms(s['min'])}  max={_format_ms(s['max'])}  stdev={_format_ms(s['stdev'])}")
-    print(f"  Power     total={_format_w(avg_w)}  core={_format_w(avg_core_w)}  "
-          f"soc={_format_w(avg_soc_w)}  (idle={_format_w(idle.total_w)}  delta={_format_w(delta_w)})")
+    print(
+        f"  Latency   mean={_format_ms(s['mean'])}  median={_format_ms(s['median'])}  "
+        f"min={_format_ms(s['min'])}  max={_format_ms(s['max'])}  stdev={_format_ms(s['stdev'])}"
+    )
+    print(
+        f"  Power     total={_format_w(avg_w)}  core={_format_w(avg_core_w)}  "
+        f"soc={_format_w(avg_soc_w)}  (idle={_format_w(idle.total_w)}  delta={_format_w(delta_w)})"
+    )
     print(f"  CPU       {avg_cpu:.1f}%")
     print(f"  RAM       {avg_ram_pct:.1f}% used ({_format_mb(avg_ram_mb)})")
     print(f"  Temp      {_format_c(avg_temp)}")
     print(f"  Energy    {name} = {_format_j(energy_j)} (incremental, excludes idle)")
     if name.lower().startswith("image"):
-        print(f"  Throughput ~{1.0/s['mean']:.2f} frames/s")
+        print(f"  Throughput ~{1.0 / s['mean']:.2f} frames/s")
     return {
         "name": name,
         "latency_s": s,
@@ -269,16 +286,24 @@ def sample_idle(duration_s: float = 1.0) -> SystemSample:
     )
 
 
-def run_benchmark(model, image: Image.Image, prompts: list[str],
-                  *, apply_resireg_lite: bool = True, runs: int = 5):
+def run_benchmark(
+    model,
+    image: Image.Image,
+    prompts: list[str],
+    *,
+    apply_resireg_lite: bool = True,
+    runs: int = 5,
+):
     """Benchmark text encode, image encode, and full forward pass."""
     print("\n" + "=" * 60)
     print("BENCHMARK MODE")
     print("=" * 60)
 
     idle = sample_idle(duration_s=1.0)
-    print(f"Idle: power={_format_w(idle.total_w)}  CPU={idle.cpu_percent:.1f}%  "
-          f"RAM={idle.ram_percent:.1f}%  temp={_format_c(idle.temp_c)}")
+    print(
+        f"Idle: power={_format_w(idle.total_w)}  CPU={idle.cpu_percent:.1f}%  "
+        f"RAM={idle.ram_percent:.1f}%  temp={_format_c(idle.temp_c)}"
+    )
 
     rgb = image.convert("RGB")
     results = []
@@ -323,8 +348,12 @@ def run_benchmark(model, image: Image.Image, prompts: list[str],
         t1 = time.perf_counter()
         full_samples.extend(sampler.stop())
         full_times.append(t1 - t0)
-    print(f"  -> first full-forward latency (cold / time-to-first-output): {_format_ms(full_times[0])}")
-    results.append(benchmark_report("Full forward pass", full_times, full_samples, idle))
+    print(
+        f"  -> first full-forward latency (cold / time-to-first-output): {_format_ms(full_times[0])}"
+    )
+    results.append(
+        benchmark_report("Full forward pass", full_times, full_samples, idle)
+    )
 
     print("\n" + "=" * 60)
     print("SUMMARY")
@@ -334,23 +363,34 @@ def run_benchmark(model, image: Image.Image, prompts: list[str],
     print(f"  Text-only latency: {_format_ms(statistics.median(text_times))}")
     print(f"  Image-only latency: {_format_ms(statistics.median(img_times))}")
     print(f"  Incremental energy per frame: {_format_j(results[2]['energy_j'])}")
-    print(f"  Equiv. throughput: ~{1.0/statistics.median(img_times):.2f} image frames/s")
+    print(
+        f"  Equiv. throughput: ~{1.0 / statistics.median(img_times):.2f} image frames/s"
+    )
     print("=" * 60)
     return results
 
 
-def run_stream_benchmark(model, image: Image.Image, prompts: list[str] | None,
-                         *, apply_resireg_lite: bool = True, frames: int = 30,
-                         video_path: str | None = None, start_frame: int = 0,
-                         stride: int = 1):
+def run_stream_benchmark(
+    model,
+    image: Image.Image,
+    prompts: list[str] | None,
+    *,
+    apply_resireg_lite: bool = True,
+    frames: int = 30,
+    video_path: str | None = None,
+    start_frame: int = 0,
+    stride: int = 1,
+):
     """Run a video-style stream benchmark. If video_path is given, read real frames."""
     print("\n" + "=" * 60)
     print("STREAM / VIDEO BENCHMARK")
     print("=" * 60)
 
     idle = sample_idle(duration_s=1.0)
-    print(f"Idle: power={_format_w(idle.total_w)}  CPU={idle.cpu_percent:.1f}%  "
-          f"RAM={idle.ram_percent:.1f}%  temp={_format_c(idle.temp_c)}")
+    print(
+        f"Idle: power={_format_w(idle.total_w)}  CPU={idle.cpu_percent:.1f}%  "
+        f"RAM={idle.ram_percent:.1f}%  temp={_format_c(idle.temp_c)}"
+    )
 
     text = None
     if prompts:
@@ -363,7 +403,9 @@ def run_stream_benchmark(model, image: Image.Image, prompts: list[str] | None,
     processed_frames = 0
 
     if video_path is not None:
-        print(f"Streaming up to {frames} frames from {video_path} (start={start_frame}, stride={stride})...")
+        print(
+            f"Streaming up to {frames} frames from {video_path} (start={start_frame}, stride={stride})..."
+        )
         gen = video_frame_generator(video_path, start_frame=start_frame, stride=stride)
     else:
         print(f"Streaming {frames} repetitions of the same image...")
@@ -405,10 +447,14 @@ def run_stream_benchmark(model, image: Image.Image, prompts: list[str] | None,
     print(f"\n=== Stream results ({processed_frames} frames) ===")
     print(f"  Total time: {total_s:.2f} s")
     print(f"  Average FPS: {fps:.2f}")
-    print(f"  Frame latency  mean={_format_ms(avg_frame)}  median={_format_ms(median_frame)}  "
-          f"min={_format_ms(min_frame)}  max={_format_ms(max_frame)}")
-    print(f"  Power   total={_format_w(avg_w)}  core={_format_w(avg_core_w)}  "
-          f"delta={_format_w(delta_w)}")
+    print(
+        f"  Frame latency  mean={_format_ms(avg_frame)}  median={_format_ms(median_frame)}  "
+        f"min={_format_ms(min_frame)}  max={_format_ms(max_frame)}"
+    )
+    print(
+        f"  Power   total={_format_w(avg_w)}  core={_format_w(avg_core_w)}  "
+        f"delta={_format_w(delta_w)}"
+    )
     print(f"  CPU {avg_cpu:.1f}%  RAM {avg_ram:.1f}%  Temp {_format_c(avg_temp)}")
     print(f"  Incremental energy per frame: {_format_j(energy_per_frame)}")
     print("=" * 60)
@@ -436,23 +482,34 @@ def load_model():
     return model
 
 
-def encode(model, image: Image.Image | None, prompts: list[str] | None,
-           *, apply_resireg_lite: bool = True):
+def encode(
+    model,
+    image: Image.Image | None,
+    prompts: list[str] | None,
+    *,
+    apply_resireg_lite: bool = True,
+):
     """Unified encode entry point. Returns (dense, text) on CPU."""
     if image is None and not prompts:
         raise ValueError("encode() requires image and/or prompts.")
     dense = text = None
     if image is not None:
-        dense = model.encode_image(image.convert("RGB"),
-                                   apply_resireg_lite=apply_resireg_lite).cpu()
+        dense = model.encode_image(
+            image.convert("RGB"), apply_resireg_lite=apply_resireg_lite
+        ).cpu()
     if prompts:
         text = model.encode_text(prompts).cpu()
     return dense, text
 
 
-def resolve_embeddings(model, image: Image.Image, prompts: list[str] | None,
-                       cache: ImageEmbedCache | None,
-                       *, apply_resireg_lite: bool = True):
+def resolve_embeddings(
+    model,
+    image: Image.Image,
+    prompts: list[str] | None,
+    cache: ImageEmbedCache | None,
+    *,
+    apply_resireg_lite: bool = True,
+):
     """Use cached image embedding if the upload is unchanged."""
     rgb = image.convert("RGB")
     fingerprint = _fingerprint(rgb)
@@ -462,10 +519,15 @@ def resolve_embeddings(model, image: Image.Image, prompts: list[str] | None,
     need_text = bool(prompts)
 
     if need_image:
-        dense, text = encode(model, rgb, prompts if need_text else None,
-                             apply_resireg_lite=apply_resireg_lite)
-        cache = ImageEmbedCache(fingerprint=fingerprint, dense=dense,
-                                width=rgb.width, height=rgb.height)
+        dense, text = encode(
+            model,
+            rgb,
+            prompts if need_text else None,
+            apply_resireg_lite=apply_resireg_lite,
+        )
+        cache = ImageEmbedCache(
+            fingerprint=fingerprint, dense=dense, width=rgb.width, height=rgb.height
+        )
         return dense, text, cache
 
     dense = cache.dense if cache is not None else None
@@ -490,8 +552,9 @@ def upscale_map(values: torch.Tensor | np.ndarray, image: Image.Image) -> np.nda
         t = t.unsqueeze(0)
     elif t.ndim != 4:
         raise ValueError(f"Expected a 2D-4D map, got shape {tuple(t.shape)}")
-    up = F.interpolate(t, size=(image.height, image.width),
-                       mode="bilinear", align_corners=False)
+    up = F.interpolate(
+        t, size=(image.height, image.width), mode="bilinear", align_corners=False
+    )
     return up[0, 0].numpy()
 
 
@@ -500,9 +563,14 @@ def normalize_similarity(sim: torch.Tensor, *, min_range: float = 0.2) -> torch.
     return (sim - sim.min()) / (sim_range + 1e-8)
 
 
-def render_heatmap_overlay(image: Image.Image, heatmap: torch.Tensor | np.ndarray,
-                           *, title: str | None = None, cmap: str = "jet",
-                           alpha: float = 0.45) -> Image.Image:
+def render_heatmap_overlay(
+    image: Image.Image,
+    heatmap: torch.Tensor | np.ndarray,
+    *,
+    title: str | None = None,
+    cmap: str = "jet",
+    alpha: float = 0.45,
+) -> Image.Image:
     image = image.convert("RGB")
     heat = upscale_map(heatmap, image)
     fig, ax = plt.subplots(figsize=(8, 8))
@@ -558,18 +626,20 @@ def vis_pca_component(spatial: np.ndarray, width: int, height: int) -> Image.Ima
     return _pil_resize_nearest(arr, width, height)
 
 
-def vis_pca_kmeans(spatial: np.ndarray, width: int, height: int,
-                   n_clusters: int = 6) -> Image.Image:
+def vis_pca_kmeans(
+    spatial: np.ndarray, width: int, height: int, n_clusters: int = 6
+) -> Image.Image:
     sp_h, sp_w, d = spatial.shape
     feat = torch.from_numpy(spatial.reshape(-1, d))
     km = KMeans(n_clusters=n_clusters, max_iter=20)
     km.fit(feat)
     scores = -torch.cdist(feat, km.centroids).reshape(sp_h, sp_w, n_clusters)
     scores_t = scores.permute(2, 0, 1).unsqueeze(0).float()
-    scores_up = F.interpolate(scores_t, size=(height, width),
-                              mode="bilinear", align_corners=False)
+    scores_up = F.interpolate(
+        scores_t, size=(height, width), mode="bilinear", align_corners=False
+    )
     labels = scores_up[0].permute(1, 2, 0).numpy().argmax(axis=-1)
-    palette = plt.cm.tab20(np.linspace(0, 1, n_clusters))[:, :3]
+    palette = plt.get_cmap("tab20")(np.linspace(0, 1, n_clusters))[:, :3]
     seg = palette[labels].astype(np.float32)
     arr = (seg * 255).clip(0, 255).astype(np.uint8)
     return Image.fromarray(arr)
@@ -578,10 +648,17 @@ def vis_pca_kmeans(spatial: np.ndarray, width: int, height: int,
 # ------------------------------------------------------------------
 # Segmentation mode
 # ------------------------------------------------------------------
-def vis_semseg(image: Image.Image, dense: torch.Tensor, text: torch.Tensor,
-               class_list: list[str], *, text_neg: torch.Tensor | None = None,
-               temperature: float = 1.0):
+def vis_semseg(
+    image: Image.Image,
+    dense: torch.Tensor,
+    text: torch.Tensor,
+    class_list: list[str],
+    *,
+    text_neg: torch.Tensor | None = None,
+    temperature: float = 1.0,
+):
     from matplotlib.patches import Patch
+
     n = len(class_list)
     h, w = image.height, image.width
 
@@ -591,10 +668,11 @@ def vis_semseg(image: Image.Image, dense: torch.Tensor, text: torch.Tensor,
         sims = sims - neg_sim.unsqueeze(0)
     probs = F.softmax(sims / temperature, dim=0)
 
-    probs_up = F.interpolate(probs.unsqueeze(0).float(),
-                             size=(h, w), mode="bilinear", align_corners=False)[0]
+    probs_up = F.interpolate(
+        probs.unsqueeze(0).float(), size=(h, w), mode="bilinear", align_corners=False
+    )[0]
     labels = probs_up.argmax(dim=0).numpy()
-    palette = plt.cm.tab20(np.linspace(0, 1, max(n, 2)))[:n, :3]
+    palette = plt.get_cmap("tab20")(np.linspace(0, 1, max(n, 2)))[:n, :3]
 
     seg_rgb = palette[labels].astype(np.float32)
     mask_pil = Image.fromarray((seg_rgb * 255).clip(0, 255).astype(np.uint8))
@@ -613,10 +691,17 @@ def vis_semseg(image: Image.Image, dense: torch.Tensor, text: torch.Tensor,
     ax.imshow(image)
     ax.imshow(label_rgba)
     ax.axis("off")
-    legend_handles = [Patch(facecolor=palette[cid], label=class_list[cid])
-                      for cid in unique_ids_sorted]
-    ax.legend(handles=legend_handles, loc="lower right", fontsize=9,
-              framealpha=0.8, ncol=max(1, len(legend_handles) // 8))
+    legend_handles = [
+        Patch(facecolor=palette[cid], label=class_list[cid])
+        for cid in unique_ids_sorted
+    ]
+    ax.legend(
+        handles=legend_handles,
+        loc="lower right",
+        fontsize=9,
+        framealpha=0.8,
+        ncol=max(1, len(legend_handles) // 8),
+    )
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.05)
@@ -624,7 +709,8 @@ def vis_semseg(image: Image.Image, dense: torch.Tensor, text: torch.Tensor,
     buf.seek(0)
     overlay_pil = Image.open(buf).convert("RGB")
 
-    detected, minor = [], []
+    detected: list[str] = []
+    minor: list[str] = []
     for cid, cnt in zip(unique_ids_sorted, counts_sorted):
         pct = cnt / total * 100
         entry = f"{class_list[cid]} ({pct:.1f}%)"
@@ -636,10 +722,15 @@ def vis_semseg(image: Image.Image, dense: torch.Tensor, text: torch.Tensor,
 # ------------------------------------------------------------------
 # Raw export helper
 # ------------------------------------------------------------------
-def export_raw(base_path: Path, dense: torch.Tensor | None,
-               text: torch.Tensor | None, sims: torch.Tensor | None,
-               probs: torch.Tensor | None, heatmap: np.ndarray | None,
-               prompt_list: list[str]):
+def export_raw(
+    base_path: Path,
+    dense: torch.Tensor | None,
+    text: torch.Tensor | None,
+    sims: torch.Tensor | None,
+    probs: torch.Tensor | None,
+    heatmap: np.ndarray | None,
+    prompt_list: list[str],
+):
     raw_dir = base_path.parent / (base_path.stem + "_raw")
     raw_dir.mkdir(exist_ok=True)
     if dense is not None:
@@ -661,8 +752,9 @@ def export_raw(base_path: Path, dense: torch.Tensor | None,
 # Mode runners
 # ------------------------------------------------------------------
 def run_pca(model, image: Image.Image, args, cache: ImageEmbedCache | None):
-    dense, _, cache = resolve_embeddings(model, image, None, cache,
-                                         apply_resireg_lite=args.apply_lite)
+    dense, _, cache = resolve_embeddings(
+        model, image, None, cache, apply_resireg_lite=args.apply_lite
+    )
     spatial = _spatial_from_dense(dense)
     w, h = image.width, image.height
     pca_rgb = vis_pca_rgb(spatial, w, h)
@@ -686,8 +778,9 @@ def run_language_sim(model, image: Image.Image, args, cache: ImageEmbedCache | N
     neg_list = [n.strip() for n in args.negatives.split(",") if n.strip()]
     all_prompts = [pos] + neg_list
 
-    dense, text, cache = resolve_embeddings(model, image, all_prompts, cache,
-                                            apply_resireg_lite=args.apply_lite)
+    dense, text, cache = resolve_embeddings(
+        model, image, all_prompts, cache, apply_resireg_lite=args.apply_lite
+    )
     sims = cosine_similarity_map(dense, text)
     pos_sim = sims[0]
     if neg_list:
@@ -698,8 +791,7 @@ def run_language_sim(model, image: Image.Image, args, cache: ImageEmbedCache | N
     sim = normalize_similarity(sim)
 
     neg_label = f" - ({', '.join(neg_list)})" if neg_list else ""
-    overlay = render_heatmap_overlay(image, sim,
-                                     title=f"'{pos}'{neg_label}")
+    overlay = render_heatmap_overlay(image, sim, title=f"'{pos}'{neg_label}")
     out = Path(args.output)
     overlay.save(out)
     print(f"Saved overlay to {out}")
@@ -715,8 +807,9 @@ def run_zero_shot_seg(model, image: Image.Image, args, cache: ImageEmbedCache | 
     neg_prompt = args.seg_negative.strip()
     all_prompts = class_list + ([neg_prompt] if neg_prompt else [])
 
-    dense, text_all, cache = resolve_embeddings(model, image, all_prompts, cache,
-                                                apply_resireg_lite=args.apply_lite)
+    dense, text_all, cache = resolve_embeddings(
+        model, image, all_prompts, cache, apply_resireg_lite=args.apply_lite
+    )
     if neg_prompt:
         text_neg = text_all[-1:]
         text = text_all[:-1]
@@ -745,24 +838,30 @@ def run_traversability(model, image: Image.Image, args, cache: ImageEmbedCache |
     bg_list = [n.strip() for n in args.negatives.split(",") if n.strip()]
     all_prompts = [trav] + bg_list
 
-    dense, text, cache = resolve_embeddings(model, image, all_prompts, cache,
-                                            apply_resireg_lite=args.apply_lite)
+    dense, text, cache = resolve_embeddings(
+        model, image, all_prompts, cache, apply_resireg_lite=args.apply_lite
+    )
     sims = cosine_similarity_map(dense, text)
     probs = F.softmax(sims / 0.2, dim=0)
     trav_map = normalize_similarity(probs[0])
 
     bg_label = f" vs ({', '.join(bg_list)})" if bg_list else ""
-    overlay = render_heatmap_overlay(image, trav_map,
-                                     title=f"Traversability: '{trav}'{bg_label}")
+    overlay = render_heatmap_overlay(
+        image, trav_map, title=f"Traversability: '{trav}'{bg_label}"
+    )
     out = Path(args.output)
     overlay.save(out)
     print(f"Saved overlay to {out}")
     if args.export_raw:
-        export_raw(out, dense, text, sims, probs, upscale_map(trav_map, image), all_prompts)
+        export_raw(
+            out, dense, text, sims, probs, upscale_map(trav_map, image), all_prompts
+        )
     return cache
 
 
-def run_image_similarity(model, image: Image.Image, args, cache: ImageEmbedCache | None):
+def run_image_similarity(
+    model, image: Image.Image, args, cache: ImageEmbedCache | None
+):
     if args.prompt_image is None:
         raise ValueError("--prompt-image is required for image_similarity")
     prompt_rgb = args.prompt_image.convert("RGB")
@@ -770,20 +869,23 @@ def run_image_similarity(model, image: Image.Image, args, cache: ImageEmbedCache
     neg_list = [n.strip() for n in args.negatives.split(",") if n.strip()]
     all_text = pos_list + neg_list if (pos_list or neg_list) else None
 
-    dense, _, cache = resolve_embeddings(model, image, None, cache,
-                                         apply_resireg_lite=args.apply_lite)
-    prompt_dense, text_all = encode(model, prompt_rgb, all_text,
-                                    apply_resireg_lite=args.apply_lite)
+    dense, _, cache = resolve_embeddings(
+        model, image, None, cache, apply_resireg_lite=args.apply_lite
+    )
+    prompt_dense, text_all = encode(
+        model, prompt_rgb, all_text, apply_resireg_lite=args.apply_lite
+    )
 
     img_query = F.normalize(prompt_dense[0].mean(dim=(1, 2)).unsqueeze(0), dim=-1)
-    all_queries = (torch.cat([img_query, text_all], dim=0)
-                   if text_all is not None else img_query)
+    all_queries = (
+        torch.cat([img_query, text_all], dim=0) if text_all is not None else img_query
+    )
     sims = cosine_similarity_map(dense, all_queries)
     sim = sims[0]
     if pos_list:
-        sim = sim + sims[1:1 + len(pos_list)].mean(dim=0)
+        sim = sim + sims[1 : 1 + len(pos_list)].mean(dim=0)
     if neg_list:
-        sim = sim - sims[1 + len(pos_list):].mean(dim=0)
+        sim = sim - sims[1 + len(pos_list) :].mean(dim=0)
     sim = normalize_similarity(sim)
 
     overlay = render_heatmap_overlay(image, sim, title="Image-to-Image Similarity")
@@ -791,8 +893,15 @@ def run_image_similarity(model, image: Image.Image, args, cache: ImageEmbedCache
     overlay.save(out)
     print(f"Saved overlay to {out}")
     if args.export_raw:
-        export_raw(out, dense, all_queries, sims, None, upscale_map(sim, image),
-                   ["image_query"] + (all_text or []))
+        export_raw(
+            out,
+            dense,
+            all_queries,
+            sims,
+            None,
+            upscale_map(sim, image),
+            ["image_query"] + (all_text or []),
+        )
     return cache
 
 
@@ -834,43 +943,101 @@ def video_frame_generator(video_path: str, start_frame: int = 0, stride: int = 1
 def main():
     parser = argparse.ArgumentParser(description="ReSiReg-Mini CLI for Raspberry Pi 5")
     parser.add_argument("--image", default=None, help="Input image path or URL.")
-    parser.add_argument("--video", default=None, help="Input video file path. If given, frames are read from the video instead of --image.")
-    parser.add_argument("--video-start-frame", type=int, default=0, help="Start frame for video processing / stream benchmark.")
-    parser.add_argument("--video-stride", type=int, default=1, help="Process every Nth video frame.")
-    parser.add_argument("--mode", default="language_similarity",
-                        choices=[MODE_PCA, MODE_LANGUAGE_SIM, MODE_ZERO_SHOT_SEG,
-                                 MODE_TRAVERSABILITY, MODE_IMG_SIM],
-                        help="Which playground mode to run.")
-    parser.add_argument("--prompt", default="", help="Positive prompt / traversable prompt.")
-    parser.add_argument("--negatives", default="",
-                        help="Comma-separated negative prompts (language_sim, traversability, img_sim).")
-    parser.add_argument("--classes", default="",
-                        help="Comma-separated class names for zero_shot_segmentation.")
-    parser.add_argument("--seg-negative", default="",
-                        help="Optional negative prompt subtracted in segmentation.")
-    parser.add_argument("--prompt-image", default=None,
-                        help="Query image for image_similarity mode.")
-    parser.add_argument("--n-clusters", type=int, default=6,
-                        help="Number of k-means clusters for PCA mode.")
-    parser.add_argument("--output", default="/home/farmbot/resireg_pi5/outputs/resireg_output.png",
-                        help="Output image path.")
-    parser.add_argument("--apply-lite", type=lambda x: x.lower() == "true",
-                        default=True, help="Apply ReSiReg-Lite residual similarity.")
-    parser.add_argument("--export-raw", action="store_true",
-                        help="Save raw dense/text features and similarity tensors.")
-    parser.add_argument("--benchmark", action="store_true",
-                        help="After the mode run, benchmark text/image/full-forward "
-                             "latency and PMIC power on the Pi 5.")
-    parser.add_argument("--benchmark-runs", type=int, default=5,
-                        help="Number of benchmark iterations (default 5).")
-    parser.add_argument("--benchmark-stream-frames", type=int, default=0,
-                        help="If >0, run a video-style stream benchmark on this many "
-                             "frames and report FPS/power/CPU/RAM/temp.")
+    parser.add_argument(
+        "--video",
+        default=None,
+        help="Input video file path. If given, frames are read from the video instead of --image.",
+    )
+    parser.add_argument(
+        "--video-start-frame",
+        type=int,
+        default=0,
+        help="Start frame for video processing / stream benchmark.",
+    )
+    parser.add_argument(
+        "--video-stride", type=int, default=1, help="Process every Nth video frame."
+    )
+    parser.add_argument(
+        "--mode",
+        default="language_similarity",
+        choices=[
+            MODE_PCA,
+            MODE_LANGUAGE_SIM,
+            MODE_ZERO_SHOT_SEG,
+            MODE_TRAVERSABILITY,
+            MODE_IMG_SIM,
+        ],
+        help="Which playground mode to run.",
+    )
+    parser.add_argument(
+        "--prompt", default="", help="Positive prompt / traversable prompt."
+    )
+    parser.add_argument(
+        "--negatives",
+        default="",
+        help="Comma-separated negative prompts (language_sim, traversability, img_sim).",
+    )
+    parser.add_argument(
+        "--classes",
+        default="",
+        help="Comma-separated class names for zero_shot_segmentation.",
+    )
+    parser.add_argument(
+        "--seg-negative",
+        default="",
+        help="Optional negative prompt subtracted in segmentation.",
+    )
+    parser.add_argument(
+        "--prompt-image", default=None, help="Query image for image_similarity mode."
+    )
+    parser.add_argument(
+        "--n-clusters",
+        type=int,
+        default=6,
+        help="Number of k-means clusters for PCA mode.",
+    )
+    parser.add_argument(
+        "--output",
+        default="/home/farmbot/resireg_pi5/outputs/resireg_output.png",
+        help="Output image path.",
+    )
+    parser.add_argument(
+        "--apply-lite",
+        type=lambda x: x.lower() == "true",
+        default=True,
+        help="Apply ReSiReg-Lite residual similarity.",
+    )
+    parser.add_argument(
+        "--export-raw",
+        action="store_true",
+        help="Save raw dense/text features and similarity tensors.",
+    )
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="After the mode run, benchmark text/image/full-forward "
+        "latency and PMIC power on the Pi 5.",
+    )
+    parser.add_argument(
+        "--benchmark-runs",
+        type=int,
+        default=5,
+        help="Number of benchmark iterations (default 5).",
+    )
+    parser.add_argument(
+        "--benchmark-stream-frames",
+        type=int,
+        default=0,
+        help="If >0, run a video-style stream benchmark on this many "
+        "frames and report FPS/power/CPU/RAM/temp.",
+    )
     args = parser.parse_args()
 
     setup_pi5()
-    print(f"PyTorch {torch.__version__}, oneDNN={torch.backends.mkldnn.is_available()}, "
-          f"threads={torch.get_num_threads()}")
+    print(
+        f"PyTorch {torch.__version__}, oneDNN={torch.backends.mkldnn.is_available()}, "
+        f"threads={torch.get_num_threads()}"
+    )
 
     model = load_model()
 
@@ -891,8 +1058,12 @@ def main():
 
     prompt_image = None
     if args.prompt_image:
-        if args.prompt_image.startswith("http://") or args.prompt_image.startswith("https://"):
-            prompt_image = Image.open(requests.get(args.prompt_image, stream=True, timeout=30).raw)
+        if args.prompt_image.startswith("http://") or args.prompt_image.startswith(
+            "https://"
+        ):
+            prompt_image = Image.open(
+                requests.get(args.prompt_image, stream=True, timeout=30).raw
+            )
         else:
             prompt_image = Image.open(args.prompt_image)
         prompt_image = prompt_image.convert("RGB")
@@ -925,22 +1096,32 @@ def main():
             pos_list = [p.strip() for p in args.prompt.split(",") if p.strip()]
             prompt_list = pos_list + neg_list
         else:
-            prompt_list = ([args.prompt.strip()] if args.prompt.strip() else []) + neg_list
+            prompt_list = (
+                [args.prompt.strip()] if args.prompt.strip() else []
+            ) + neg_list
 
         if not prompt_list:
             prompt_list = ["wooden bridge"]  # fallback
 
         if args.benchmark:
-            run_benchmark(model, image, prompt_list,
-                          apply_resireg_lite=args.apply_lite,
-                          runs=args.benchmark_runs)
+            run_benchmark(
+                model,
+                image,
+                prompt_list,
+                apply_resireg_lite=args.apply_lite,
+                runs=args.benchmark_runs,
+            )
         if args.benchmark_stream_frames > 0:
-            run_stream_benchmark(model, image, prompt_list,
-                                 apply_resireg_lite=args.apply_lite,
-                                 frames=args.benchmark_stream_frames,
-                                 video_path=args.video,
-                                 start_frame=args.video_start_frame,
-                                 stride=args.video_stride)
+            run_stream_benchmark(
+                model,
+                image,
+                prompt_list,
+                apply_resireg_lite=args.apply_lite,
+                frames=args.benchmark_stream_frames,
+                video_path=args.video,
+                start_frame=args.video_start_frame,
+                stride=args.video_stride,
+            )
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ Endpoints:
   POST /v1/chat/completions
   POST /v1/embeddings
 """
+
 from __future__ import annotations
 
 import base64
@@ -18,30 +19,35 @@ import io
 import json
 import logging
 import os
-import re
 import time
 import uuid
 from pathlib import Path
-from typing import Literal
 
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
 import requests
 import torch
 import torch.nn.functional as F
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from PIL import Image
 from pydantic import BaseModel, Field
 from transformers import AutoModel
 
 from .resireg_cli import (
-    MODEL_ID, cosine_similarity_map, normalize_similarity, render_heatmap_overlay,
-    vis_semseg, setup_pi5, resolve_embeddings, _spatial_from_dense, vis_pca_rgb,
-    vis_pca_component, vis_pca_kmeans,
+    MODEL_ID,
+    cosine_similarity_map,
+    normalize_similarity,
+    render_heatmap_overlay,
+    vis_semseg,
+    setup_pi5,
+    resolve_embeddings,
+    _spatial_from_dense,
+    vis_pca_rgb,
+    vis_pca_component,
+    vis_pca_kmeans,
 )
 
 
@@ -73,7 +79,9 @@ def load_image(source: str | bytes) -> Image.Image:
         elif Path(source).exists():
             img = Image.open(source)
         else:
-            raise ValueError("Image source is not a URL, data URL, or existing file path.")
+            raise ValueError(
+                "Image source is not a URL, data URL, or existing file path."
+            )
     else:
         img = Image.open(io.BytesIO(source))
     return img.convert("RGB")
@@ -97,23 +105,37 @@ def parse_mode(text: str) -> tuple[str, str, list[str], list[str], str, int]:
     """
     text = text.strip()
     if text.startswith("/segment"):
-        rest = text[len("/segment"):].strip(": ")
+        rest = text[len("/segment") :].strip(": ")
         parts = [p.strip() for p in rest.split(",") if p.strip()]
         return "zero_shot_segmentation", "", [], parts, "", 0
     if text.startswith("/traverse"):
-        rest = text[len("/traverse"):].strip(": ")
+        rest = text[len("/traverse") :].strip(": ")
         if " vs " in rest:
             prompt, negs = rest.split(" vs ", 1)
-            return "traversability", prompt.strip(), [n.strip() for n in negs.split(",") if n.strip()], [], "", 0
+            return (
+                "traversability",
+                prompt.strip(),
+                [n.strip() for n in negs.split(",") if n.strip()],
+                [],
+                "",
+                0,
+            )
         return "traversability", rest, [], [], "", 0
     if text.startswith("/similarity"):
-        rest = text[len("/similarity"):].strip(": ")
+        rest = text[len("/similarity") :].strip(": ")
         if " - " in rest:
             prompt, negs = rest.split(" - ", 1)
-            return "language_similarity", prompt.strip(), [n.strip() for n in negs.split(",") if n.strip()], [], "", 0
+            return (
+                "language_similarity",
+                prompt.strip(),
+                [n.strip() for n in negs.split(",") if n.strip()],
+                [],
+                "",
+                0,
+            )
         return "language_similarity", rest, [], [], "", 0
     if text.startswith("/pca"):
-        rest = text[len("/pca"):].strip(": ")
+        rest = text[len("/pca") :].strip(": ")
         try:
             n_clusters = int(rest)
         except ValueError:
@@ -122,7 +144,14 @@ def parse_mode(text: str) -> tuple[str, str, list[str], list[str], str, int]:
     # Default language_similarity with optional " vs " negatives
     if " vs " in text:
         prompt, negs = text.split(" vs ", 1)
-        return "language_similarity", prompt.strip(), [n.strip() for n in negs.split(",") if n.strip()], [], "", 0
+        return (
+            "language_similarity",
+            prompt.strip(),
+            [n.strip() for n in negs.split(",") if n.strip()],
+            [],
+            "",
+            0,
+        )
     return "language_similarity", text, [], [], "", 0
 
 
@@ -231,8 +260,9 @@ def chat_completions(req: ChatCompletionRequest):
         sims = cosine_similarity_map(dense, text)
         probs = F.softmax(sims / 0.2, dim=0)
         trav_map = normalize_similarity(probs[0])
-        out_images.append(render_heatmap_overlay(image, trav_map,
-                                            title=f"Traversability: '{prompt}'"))
+        out_images.append(
+            render_heatmap_overlay(image, trav_map, title=f"Traversability: '{prompt}'")
+        )
         result_payload["traversable"] = prompt
         result_payload["background"] = negatives
 
@@ -254,14 +284,18 @@ def chat_completions(req: ChatCompletionRequest):
 
     elif mode == "pca":
         with torch.no_grad():
-            dense, _, _ = resolve_embeddings(model, image, None, None, apply_resireg_lite=True)
+            dense, _, _ = resolve_embeddings(
+                model, image, None, None, apply_resireg_lite=True
+            )
         spatial = _spatial_from_dense(dense)
         w, h = image.width, image.height
-        out_images.extend([
-            vis_pca_rgb(spatial, w, h),
-            vis_pca_component(spatial, w, h),
-            vis_pca_kmeans(spatial, w, h, n_clusters=n_clusters or 6),
-        ])
+        out_images.extend(
+            [
+                vis_pca_rgb(spatial, w, h),
+                vis_pca_component(spatial, w, h),
+                vis_pca_kmeans(spatial, w, h, n_clusters=n_clusters or 6),
+            ]
+        )
         result_payload["n_clusters"] = n_clusters or 6
 
     else:
@@ -271,7 +305,9 @@ def chat_completions(req: ChatCompletionRequest):
     result_payload["latency_ms"] = round(latency_ms, 1)
     if out_images:
         if len(out_images) == 1:
-            result_payload["result_image_base64"] = f"data:image/png;base64,{pil_to_base64(out_images[0])}"
+            result_payload["result_image_base64"] = (
+                f"data:image/png;base64,{pil_to_base64(out_images[0])}"
+            )
         else:
             result_payload["result_images_base64"] = [
                 f"data:image/png;base64,{pil_to_base64(img)}" for img in out_images
@@ -284,14 +320,16 @@ def chat_completions(req: ChatCompletionRequest):
         "object": "chat.completion",
         "created": int(time.time()),
         "model": req.model,
-        "choices": [{
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": content_json,
-            },
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": content_json,
+                },
+                "finish_reason": "stop",
+            }
+        ],
         "usage": {
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -365,12 +403,14 @@ def process_image_file(
 
     latency_ms = (time.perf_counter() - t0) * 1000.0
     b64 = pil_to_base64(out_image)
-    return JSONResponse({
-        "mode": mode,
-        "prompt": prompt,
-        "latency_ms": round(latency_ms, 1),
-        "result_image_base64": f"data:image/png;base64,{b64}",
-    })
+    return JSONResponse(
+        {
+            "mode": mode,
+            "prompt": prompt,
+            "latency_ms": round(latency_ms, 1),
+            "result_image_base64": f"data:image/png;base64,{b64}",
+        }
+    )
 
 
 # ------------------------------------------------------------------

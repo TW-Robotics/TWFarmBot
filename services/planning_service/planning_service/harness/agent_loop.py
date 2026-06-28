@@ -443,9 +443,7 @@ class AgentLoop:
             trace_tool_call(name, args, _llm_friendly_result(result), latency_s=latency)
         if metrics is not None:
             resi_latency = (
-                result.get("_resireg_latency_s")
-                if isinstance(result, dict)
-                else None
+                result.get("_resireg_latency_s") if isinstance(result, dict) else None
             )
             if resi_latency:
                 metrics.add_resireg_latency(float(resi_latency))

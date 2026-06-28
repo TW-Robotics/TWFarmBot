@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -29,9 +29,7 @@ class Metrics:
         self.turn_count += other.turn_count
         # Token counts are cumulative across turns; keep the largest cumulative value.
         if other.prompt_tokens is not None:
-            self.prompt_tokens = max(
-                self.prompt_tokens or 0, other.prompt_tokens
-            )
+            self.prompt_tokens = max(self.prompt_tokens or 0, other.prompt_tokens)
         if other.completion_tokens is not None:
             self.completion_tokens = max(
                 self.completion_tokens or 0, other.completion_tokens
@@ -46,7 +44,9 @@ class Metrics:
         elif self.llm_latency_s and self.total_tokens:
             self.tokens_per_s = round(self.total_tokens / self.llm_latency_s, 1)
 
-    def add_llm_usage(self, response: Any, latency_s: float, ttft_s: float = 0.0) -> None:
+    def add_llm_usage(
+        self, response: Any, latency_s: float, ttft_s: float = 0.0
+    ) -> None:
         """Extract token usage from a LangChain response and update stats."""
         self.llm_latency_s += latency_s
         # For non-streaming calls, TTFT is the same as total LLM latency.

@@ -46,7 +46,7 @@ class VisionProcessor:
     def _chat(self, image_url: str, text: str) -> dict[str, Any]:
         """POST to /v1/chat/completions and return the parsed content payload."""
         url = f"{self.base_url}/v1/chat/completions"
-        payload = {
+        payload: dict[str, Any] = {
             "model": "SimonSchwaiger/resireg_mini",
             "messages": [
                 {
