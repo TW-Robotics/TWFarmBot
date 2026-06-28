@@ -1,0 +1,22 @@
+[Unit]
+Description=TWFarmBot API server
+After=network-online.target twfarmbot-resireg.service
+Wants=network-online.target twfarmbot-resireg.service
+
+[Service]
+Type=simple
+User=farmbot
+Group=farmbot
+WorkingDirectory=/home/farmbot/TWFarmBot
+Environment="HOME=/home/farmbot"
+Environment="PATH=/home/farmbot/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/farmbot/.local/bin/uv run --env-file=.env twfarmbot-api
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twfarmbot-api
+
+[Install]
+WantedBy=default.target

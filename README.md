@@ -37,9 +37,44 @@ uv run twfarmbot-api
 
 # In another terminal, start the dashboard
 uv run twfarmbot-ui
+
+# Or start the local ReSiReg-Mini vision server
+uv run resireg-server
 ```
 
-Open the UI at `http://localhost:8501` and the API docs at `http://localhost:8000/docs`.
+Open the UI at `http://localhost:8501`, the API docs at `http://localhost:8000/docs`, and the ReSiReg server at `http://localhost:8080`.
+
+## Running as services (auto-start + auto-restart)
+
+Install the systemd user services once:
+
+```bash
+./scripts/install_services.sh
+# Then, so services start at boot before anyone logs in:
+sudo loginctl enable-linger farmbot
+```
+
+Start, stop, or restart everything:
+
+```bash
+./scripts/start_all.sh
+./scripts/stop_all.sh
+./scripts/restart_all.sh
+```
+
+View live logs:
+
+```bash
+./scripts/logs.sh
+# or for a single service:
+journalctl --user -u twfarmbot-api -f
+```
+
+Each service restarts automatically on failure. To disable auto-start on boot:
+
+```bash
+systemctl --user disable twfarmbot-resireg twfarmbot-api twfarmbot-ui
+```
 
 ## Continuous Integration
 

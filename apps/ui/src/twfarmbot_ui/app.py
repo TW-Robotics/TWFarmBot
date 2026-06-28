@@ -19,7 +19,7 @@ import altair as alt
 import streamlit as st
 from ruamel.yaml import YAML
 from twfarmbot_ml_utils import (
-    HuggingFaceImageProcessor,
+    VisionProcessor,
     parse_segmentation_labels,
 )
 
@@ -31,7 +31,7 @@ from twfarmbot_ui import history
 # ── config ────────────────────────────────────────────────────────────────────
 
 API_URL = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
-AI_SPACE_ID = os.getenv("TWFB_AI_SPACE_ID", "SimonSchwaiger/resireg-playground")
+RESIREG_URL = os.getenv("TWFB_RESIREG_URL", "http://127.0.0.1:8080")
 PLAN_TIMEOUT = 60.0  # LLM planning can take longer than the default 2s API timeout
 
 
@@ -41,8 +41,8 @@ def _client(base_url: str) -> ApiClient:
 
 
 @st.cache_resource
-def _image_processor(space_id: str) -> HuggingFaceImageProcessor:
-    return HuggingFaceImageProcessor(space_id)
+def _image_processor(base_url: str) -> VisionProcessor:
+    return VisionProcessor(base_url)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -87,6 +87,47 @@ def _parse_number(value: Any) -> float | None:
 def _action_summary(action: dict[str, Any]) -> str:
     """Return a compact, human-readable summary of an action."""
     return summarize_action(action)
+
+
+def _format_metrics_footer(metrics: dict[str, Any] | None) -> str:
+    """Return a small grey markdown string with backend timing/usage stats."""
+    if not metrics:
+        return ""
+    parts: list[str] = []
+    total = metrics.get("total_latency_s")
+    if total is not None:
+        parts.append(f"total {total:.2f}s")
+    ttft = metrics.get("ttft_s")
+    if ttft:
+        parts.append(f"ttft {ttft:.2f}s")
+    tps = metrics.get("tokens_per_s")
+    if tps:
+        parts.append(f"{tps:.1f} tok/s")
+    prompt = metrics.get("prompt_tokens")
+    completion = metrics.get("completion_tokens")
+    total_tokens = metrics.get("total_tokens")
+    if total_tokens:
+        parts.append(f"tokens {prompt or 0}+{completion or 0}={total_tokens}")
+    resi = metrics.get("resireg_latency_s")
+    if resi:
+        parts.append(f"resireg {resi:.2f}s")
+    if not parts:
+        return ""
+    return " · ".join(parts)
+
+
+def _render_assistant_metrics() -> None:
+    """Show the latest turn's backend timing/usage stats above the chat input."""
+    metrics = st.session_state.get("assistant_metrics") or {}
+    if not metrics:
+        return
+    footer = _format_metrics_footer(metrics)
+    if not footer:
+        return
+    st.markdown(
+        f'<div class="assistant-metrics">{footer}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _render_tool_call(
@@ -609,6 +650,13 @@ st.markdown(
   }
   [data-testid="stChatMessage"] .stCaption {
     font-size: 0.72rem !important;
+  }
+  .assistant-metrics {
+    color: #888888;
+    font-size: 0.72rem;
+    text-align: center;
+    padding: 0.15rem 0 0.35rem 0;
+    opacity: 0.85;
   }
   [class*="st-key-proposal_"] {
     background: var(--secondary-background-color);
@@ -1437,7 +1485,7 @@ def _render_camera() -> None:
             label_visibility="collapsed",
         )
 
-        processor = _image_processor(AI_SPACE_ID)
+        processor = _image_processor(RESIREG_URL)
         inputs: dict[str, Any] = {}
         button_disabled = False
 
@@ -1729,6 +1777,8 @@ def _render_chat() -> None:
             elif msg.get("rejected"):
                 st.caption("Rejected")
 
+    _render_assistant_metrics()
+
     if prompt := st.chat_input("Ask the FarmBot assistant…"):
         messages = st.session_state["assistant_messages"]
 
@@ -1782,7 +1832,7 @@ def _render_chat() -> None:
         thinking = st.empty()
         thinking.caption("🤖 Assistant is thinking…")
         with st.chat_message("assistant"):
-            stream_meta: dict[str, list[Any]] = {
+            stream_meta: dict[str, Any] = {
                 "tool_calls": [],
                 "proposed_actions": [],
             }
@@ -1857,6 +1907,11 @@ def _render_chat() -> None:
                         stream_meta["proposed_actions"] = event.get(
                             "proposed_actions", []
                         )
+                        stream_meta["metrics"] = event.get("metrics", {})
+                        if stream_meta["metrics"]:
+                            st.session_state["assistant_metrics"] = stream_meta[
+                                "metrics"
+                            ]
                     elif etype == "error":
                         stream_error = event.get("error", "stream error")
             except Exception as exc:  # noqa: BLE001
@@ -1883,6 +1938,11 @@ def _render_chat() -> None:
                     if r.ok and isinstance(r.body, dict):
                         accumulated = str(r.body.get("response", ""))
                         stream_meta["tool_calls"] = r.body.get("tool_calls", []) or []
+                        stream_meta["metrics"] = r.body.get("metrics", {}) or {}
+                        if stream_meta["metrics"]:
+                            st.session_state["assistant_metrics"] = stream_meta[
+                                "metrics"
+                            ]
                         for tc in stream_meta["tool_calls"]:
                             st.session_state["assistant_messages"].append(
                                 {
@@ -1938,6 +1998,7 @@ def _render_chat() -> None:
                         "tool_calls": stream_meta["tool_calls"],
                         "proposed_actions": stream_meta["proposed_actions"],
                         "images": photo_images,
+                        "metrics": stream_meta.get("metrics", {}),
                     }
                 )
         _persist_session()
@@ -2107,6 +2168,7 @@ def _restore_session() -> None:
     st.session_state["assistant_selected_model"] = snapshot.get(
         "assistant_selected_model"
     )
+    st.session_state["assistant_metrics"] = snapshot.get("assistant_metrics", {})
     st.session_state["executed_plans"] = snapshot.get("executed_plans", [])
     st.session_state["refresh_position_s"] = snapshot.get("refresh_position_s", 2)
     st.session_state["refresh_stats_s"] = snapshot.get("refresh_stats_s", 300)
@@ -2137,6 +2199,7 @@ def _persist_session() -> None:
     snapshot["assistant_selected_model"] = st.session_state.get(
         "assistant_selected_model"
     )
+    snapshot["assistant_metrics"] = st.session_state.get("assistant_metrics", {})
     snapshot["refresh_position_s"] = st.session_state.get("refresh_position_s", 2)
     snapshot["refresh_stats_s"] = st.session_state.get("refresh_stats_s", 300)
     snapshot["refresh_camera_s"] = st.session_state.get("refresh_camera_s", 0)

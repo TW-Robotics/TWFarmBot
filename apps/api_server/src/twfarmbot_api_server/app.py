@@ -331,6 +331,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "thinking": result.thinking,
             "tool_calls": result.tool_calls,
             "messages": result.messages,
+            "metrics": result.metrics,
         }
 
     @app.post("/chat/stream")

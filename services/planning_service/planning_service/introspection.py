@@ -16,6 +16,7 @@ import base64
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -23,7 +24,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from twfarmbot_ml_utils import (
-    HuggingFaceImageProcessor,
+    VisionProcessor,
     parse_segmentation_labels,
 )
 
@@ -33,7 +34,7 @@ _T = TypeVar("_T")
 
 log = logging.getLogger(__name__)
 
-_IMAGE_PROCESSOR: HuggingFaceImageProcessor | None = None
+_IMAGE_PROCESSOR: VisionProcessor | None = None
 
 
 # ── Tool argument schemas ────────────────────────────────────────────────
@@ -210,13 +211,20 @@ class SystemStateProvider:
         raise NotImplementedError
 
 
-def _get_image_processor() -> HuggingFaceImageProcessor:
-    """Lazy singleton for the HuggingFace image-analysis client."""
+def _get_image_processor() -> VisionProcessor:
+    """Lazy singleton for the local vision-analysis client."""
     global _IMAGE_PROCESSOR
     if _IMAGE_PROCESSOR is None:
-        space_id = os.getenv("TWFB_AI_SPACE_ID", "SimonSchwaiger/resireg-playground")
-        _IMAGE_PROCESSOR = HuggingFaceImageProcessor(space_id)
+        base_url = os.getenv("TWFB_RESIREG_URL", "http://127.0.0.1:8080")
+        _IMAGE_PROCESSOR = VisionProcessor(base_url)
     return _IMAGE_PROCESSOR
+
+
+def _with_resireg_latency(result: Any, latency_s: float) -> Any:
+    """Attach the vision-server latency to a tool result dict."""
+    if isinstance(result, dict):
+        result["_resireg_latency_s"] = latency_s
+    return result
 
 
 def _image_to_data_uri(path: Path) -> str:
@@ -416,14 +424,19 @@ def build_introspection_tools(
         """
         try:
             image_url = _resolve_image_url(provider, image_url)
+            start = time.perf_counter()
             result_path = _get_image_processor().process(
                 image_url, prompt, negatives=""
             )
-            return {
-                "image_url": _image_to_data_uri(Path(result_path)),
-                "prompt": prompt,
-                "source_url": image_url,
-            }
+            latency = time.perf_counter() - start
+            return _with_resireg_latency(
+                {
+                    "image_url": _image_to_data_uri(Path(result_path)),
+                    "prompt": prompt,
+                    "source_url": image_url,
+                },
+                latency,
+            )
         except Exception as err:  # noqa: BLE001
             log.warning("analyze_image failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
@@ -440,9 +453,11 @@ def build_introspection_tools(
         """
         try:
             image_url = _resolve_image_url(provider, image_url)
+            start = time.perf_counter()
             result = _get_image_processor().predict(
                 image_url, api_name="/run_seg", classes=classes, negative=negative or ""
             )
+            latency = time.perf_counter() - start
             if not isinstance(result, tuple) or len(result) < 4:
                 return {"error": "unexpected segmentation result shape"}
             labels = [str(result[2]), str(result[3])]
@@ -452,19 +467,22 @@ def build_introspection_tools(
                 if class_scores
                 else None
             )
-            return {
-                "image_urls": [
-                    _image_to_data_uri(Path(result[0])),
-                    _image_to_data_uri(Path(result[1])),
-                ],
-                "labels": labels,
-                "class_scores": class_scores,
-                "dominant_class": dominant,
-                "detected_classes": _parse_class_list(str(result[2])),
-                "not_detected_classes": _parse_class_list(str(result[3])),
-                "classes": classes,
-                "source_url": image_url,
-            }
+            return _with_resireg_latency(
+                {
+                    "image_urls": [
+                        _image_to_data_uri(Path(result[0])),
+                        _image_to_data_uri(Path(result[1])),
+                    ],
+                    "labels": labels,
+                    "class_scores": class_scores,
+                    "dominant_class": dominant,
+                    "detected_classes": _parse_class_list(str(result[2])),
+                    "not_detected_classes": _parse_class_list(str(result[3])),
+                    "classes": classes,
+                    "source_url": image_url,
+                },
+                latency,
+            )
         except Exception as err:  # noqa: BLE001
             log.warning("segment_image failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
@@ -479,16 +497,21 @@ def build_introspection_tools(
         """
         try:
             image_url = _resolve_image_url(provider, image_url)
+            start = time.perf_counter()
             result = _get_image_processor().predict(
                 image_url, api_name="/run_pca", n_clusters=n_clusters
             )
+            latency = time.perf_counter() - start
             if not isinstance(result, tuple) or len(result) < 3:
                 return {"error": "unexpected PCA result shape"}
-            return {
-                "image_urls": [_image_to_data_uri(Path(p)) for p in result[:3]],
-                "n_clusters": n_clusters,
-                "source_url": image_url,
-            }
+            return _with_resireg_latency(
+                {
+                    "image_urls": [_image_to_data_uri(Path(p)) for p in result[:3]],
+                    "n_clusters": n_clusters,
+                    "source_url": image_url,
+                },
+                latency,
+            )
         except Exception as err:  # noqa: BLE001
             log.warning("visualize_image_features failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
@@ -504,17 +527,22 @@ def build_introspection_tools(
         """
         try:
             image_url = _resolve_image_url(provider, image_url)
+            start = time.perf_counter()
             result_path = _get_image_processor().predict(
                 image_url,
                 api_name="/run_trav",
                 prompt=prompt,
                 negatives=negatives or "",
             )
-            return {
-                "image_url": _image_to_data_uri(Path(result_path)),
-                "prompt": prompt,
-                "source_url": image_url,
-            }
+            latency = time.perf_counter() - start
+            return _with_resireg_latency(
+                {
+                    "image_url": _image_to_data_uri(Path(result_path)),
+                    "prompt": prompt,
+                    "source_url": image_url,
+                },
+                latency,
+            )
         except Exception as err:  # noqa: BLE001
             log.warning("estimate_traversability failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}

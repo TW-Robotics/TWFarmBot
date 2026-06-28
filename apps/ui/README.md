@@ -8,15 +8,15 @@ to the API server.
 
 ## Camera AI analysis
 
-The Camera tab can send a selected FarmBot image to the ReSiReg Playground
-Hugging Face Space. It supports open-language similarity, zero-shot
-segmentation, PCA feature visualization, and traversability estimation. The
-returned analysis images are displayed next to the source image. The external
-model adapter lives in `libs/ml_utils` and is not connected to watering,
-motion, sensors, or other robot actions.
+The Camera tab sends a selected FarmBot image to the local ReSiReg-Mini
+vision server. It supports open-language similarity, zero-shot segmentation,
+PCA feature visualization, and traversability estimation. The returned
+analysis images are displayed next to the source image. The model adapter
+lives in `libs/ml_utils` and is not connected to watering, motion, sensors,
+or other robot actions.
 
-The Space can be changed without code changes:
+The local server URL can be changed without code changes:
 
 ```bash
-TWFB_AI_SPACE_ID=owner/space-name uv run twfarmbot-ui
+TWFB_RESIREG_URL=http://127.0.0.1:8080 uv run twfarmbot-ui
 ```

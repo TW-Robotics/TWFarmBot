@@ -22,6 +22,7 @@ dependencies = [
     "twfarmbot-api-server",
     "twfarmbot-ui",
     "twfarmbot-worker",
+    "twfarmbot-resireg-server",
     "ruamel-yaml>=0.19.1",
 ]
 
@@ -37,6 +38,7 @@ twfarmbot-planning-service = { workspace = true }
 twfarmbot-api-server = { workspace = true }
 twfarmbot-ui = { workspace = true }
 twfarmbot-worker = { workspace = true }
+twfarmbot-resireg-server = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -51,6 +53,7 @@ members = [
     "apps/ui",
     "apps/api_server",
     "apps/worker",
+    "apps/resireg_server",
 ]
 
 [build-system]
