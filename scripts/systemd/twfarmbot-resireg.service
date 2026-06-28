@@ -1,0 +1,22 @@
+[Unit]
+Description=TWFarmBot ReSiReg-Mini vision server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=farmbot
+Group=farmbot
+WorkingDirectory=/home/farmbot/TWFarmBot
+Environment="HOME=/home/farmbot"
+Environment="PATH=/home/farmbot/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/farmbot/.local/bin/uv run resireg-server
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twfarmbot-resireg
+
+[Install]
+WantedBy=default.target

@@ -33,6 +33,7 @@ class ChatResult:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     messages: list[dict[str, str]] = field(default_factory=list)
     thinking: str | None = None
+    metrics: dict[str, Any] = field(default_factory=dict)
 
 
 def _make_loop(
@@ -113,6 +114,7 @@ def chat(
         tool_calls=result.tool_calls,
         messages=out_messages,
         thinking=result.thinking,
+        metrics=result.metrics.to_dict(),
     )
 
 

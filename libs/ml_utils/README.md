@@ -3,7 +3,7 @@
 Reusable ML helpers (metrics, model loading, evaluation, hosted-model clients).
 No FarmBot business logic or global state.
 
-`HuggingFaceImageProcessor` is a thin adapter around the official
-`gradio-client` package. It sends a public image URL and prompt to a named
-Space endpoint and returns the downloaded result path. UI rendering remains
-inside the UI app.
+`VisionProcessor` is a thin client for the local OpenAI-compatible
+ReSiReg-Mini vision server (`apps/resireg_server`). It sends an image URL
+and prompt to `/v1/chat/completions` and returns the decoded result image
+path(s). UI rendering remains inside the UI app.

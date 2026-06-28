@@ -118,5 +118,6 @@ def empty_snapshot(session_id: str | None = None) -> dict[str, Any]:
         "assistant_plan_response": None,
         "assistant_plan_status": None,
         "assistant_selected_model": None,
+        "assistant_metrics": {},
         "executed_plans": [],
     }

@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from .approval_gate import ApprovalGate
 from .context_builder import ContextBuilder
+from .metrics import Metrics
 from .reasoning_controller import ReasoningController
 from .tool_policy import ToolCategory, ToolDescriptor
 from .tool_registry import ToolRegistry
@@ -69,6 +70,7 @@ class AgentTurnResult:
     thinking: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     proposed_actions: list[dict[str, Any]] = field(default_factory=list)
+    metrics: Metrics = field(default_factory=Metrics)
 
 
 class AgentLoop:
@@ -104,6 +106,8 @@ class AgentLoop:
 
     def run(self, messages: list[dict[str, Any]]) -> AgentTurnResult:
         """Run the loop synchronously and return the final result."""
+        total_start = time.perf_counter()
+        metrics = Metrics()
         lc_messages = self._context_builder.chat_messages(
             messages, include_reasoning=self._include_reasoning
         )
@@ -115,7 +119,9 @@ class AgentLoop:
         final_thinking: str | None = None
 
         for _ in range(_MAX_TOOL_TURNS):
-            response = timed_invoke(self._model, lc_messages, self._model_name)
+            response = timed_invoke(
+                self._model, lc_messages, self._model_name, metrics=metrics
+            )
             last_response = response
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
@@ -128,7 +134,7 @@ class AgentLoop:
                 name = call.get("name")
                 args = call.get("args", {})
                 tool_call_id = call.get("id", "")
-                result = self._invoke_tool(name, args, tool_map)
+                result = self._invoke_tool(name, args, tool_map, metrics=metrics)
                 tool_log.append({"name": name, "args": args, "result": result})
                 if isinstance(result, dict) and result.get("status") == "proposed":
                     proposed.append(
@@ -153,11 +159,13 @@ class AgentLoop:
                 )
 
         final_text = self._reasoning.strip_from_text(final_text)
+        metrics.total_latency_s = time.perf_counter() - total_start
         return AgentTurnResult(
             response=final_text,
             thinking=final_thinking,
             tool_calls=tool_log,
             proposed_actions=proposed,
+            metrics=metrics,
         )
 
     def stream(self, messages: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
@@ -167,6 +175,8 @@ class AgentLoop:
         user sees reasoning and content as it is produced instead of waiting
         for a complete response.
         """
+        total_start = time.perf_counter()
+        metrics = Metrics()
         lc_messages = self._context_builder.chat_messages(
             messages, include_reasoning=self._include_reasoning
         )
@@ -175,7 +185,9 @@ class AgentLoop:
         proposed: list[dict[str, Any]] = []
 
         for _ in range(_MAX_TOOL_TURNS):
-            final_msg, tool_calls = yield from self._stream_turn(lc_messages)
+            final_msg, tool_calls = yield from self._stream_turn(
+                lc_messages, metrics=metrics
+            )
             if not tool_calls:
                 # The final answer has already been streamed; nothing left to do.
                 break
@@ -185,7 +197,7 @@ class AgentLoop:
                 name = call.get("name")
                 args = call.get("args", {})
                 tool_call_id = call.get("id", "")
-                result = self._invoke_tool(name, args, tool_map)
+                result = self._invoke_tool(name, args, tool_map, metrics=metrics)
                 tool_log.append({"name": name, "args": args, "result": result})
                 if isinstance(result, dict) and result.get("status") == "proposed":
                     proposed.append(
@@ -208,10 +220,19 @@ class AgentLoop:
                     )
                 )
 
-        yield {"type": "meta", "tool_calls": tool_log, "proposed_actions": proposed}
+        metrics.total_latency_s = time.perf_counter() - total_start
+        yield {
+            "type": "meta",
+            "tool_calls": tool_log,
+            "proposed_actions": proposed,
+            "metrics": metrics.to_dict(),
+        }
 
     def _stream_turn(
-        self, lc_messages: Sequence[BaseMessage]
+        self,
+        lc_messages: Sequence[BaseMessage],
+        *,
+        metrics: Metrics,
     ) -> Generator[dict[str, Any], None, tuple[AIMessage, list[dict[str, Any]]]]:
         """Stream one model turn and return the final message + tool calls.
 
@@ -224,7 +245,9 @@ class AgentLoop:
         tool_accum: dict[int, dict[str, Any]] = {}
         content_parts: list[str] = []
 
-        for chunk in timed_stream(self._model, lc_messages, self._model_name):
+        for chunk in timed_stream(
+            self._model, lc_messages, self._model_name, metrics=metrics
+        ):
             for event in self._reasoning.stream_chunks(
                 chunk,
                 accumulated_reasoning=streamed_reasoning,
@@ -301,6 +324,8 @@ class AgentLoop:
         construct the loop with ``propose_only=True`` (or ``allow_actions=False``)
         so physical actions are not executed during planning.
         """
+        total_start = time.perf_counter()
+        metrics = Metrics()
         lc_messages = self._context_builder.planner_messages(request)
         tool_map = self._tool_map()
         tool_log: list[dict[str, Any]] = []
@@ -309,7 +334,9 @@ class AgentLoop:
         final_thinking: str | None = None
 
         for _ in range(_MAX_TOOL_TURNS):
-            response = timed_invoke(self._model, lc_messages, self._model_name)
+            response = timed_invoke(
+                self._model, lc_messages, self._model_name, metrics=metrics
+            )
             last_response = response
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
@@ -326,7 +353,7 @@ class AgentLoop:
                 for call in tool_calls:
                     name = call.get("name")
                     args = call.get("args", {})
-                    result = self._invoke_tool(name, args, tool_map)
+                    result = self._invoke_tool(name, args, tool_map, metrics=metrics)
                     tool_log.append({"name": name, "args": args, "result": result})
                 final_text = str(response.content or "")
                 final_thinking = self._reasoning.extract(response)
@@ -337,7 +364,7 @@ class AgentLoop:
                 name = call.get("name")
                 args = call.get("args", {})
                 tool_call_id = call.get("id", "")
-                result = self._invoke_tool(name, args, tool_map)
+                result = self._invoke_tool(name, args, tool_map, metrics=metrics)
                 tool_log.append({"name": name, "args": args, "result": result})
                 lc_messages.append(
                     ToolMessage(
@@ -355,11 +382,13 @@ class AgentLoop:
                 )
 
         final_text = self._reasoning.strip_from_text(final_text)
+        metrics.total_latency_s = time.perf_counter() - total_start
         return AgentTurnResult(
             response=final_text,
             thinking=final_thinking,
             tool_calls=tool_log,
             proposed_actions=[],
+            metrics=metrics,
         )
 
     def _tool_map(self) -> dict[str, BaseTool]:
@@ -390,7 +419,12 @@ class AgentLoop:
         }
 
     def _invoke_tool(
-        self, name: str | None, args: dict[str, Any], tool_map: dict[str, BaseTool]
+        self,
+        name: str | None,
+        args: dict[str, Any],
+        tool_map: dict[str, BaseTool],
+        *,
+        metrics: Metrics | None = None,
     ) -> dict[str, Any]:
         if name is None:
             return {"error": "tool call missing name"}
@@ -407,4 +441,10 @@ class AgentLoop:
         latency = time.perf_counter() - start
         if is_enabled():
             trace_tool_call(name, args, _llm_friendly_result(result), latency_s=latency)
+        if metrics is not None:
+            resi_latency = (
+                result.get("_resireg_latency_s") if isinstance(result, dict) else None
+            )
+            if resi_latency:
+                metrics.add_resireg_latency(float(resi_latency))
         return result
