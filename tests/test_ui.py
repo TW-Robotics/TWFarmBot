@@ -103,32 +103,39 @@ def test_api_result_error_message_stringifies_unknown_body() -> None:
     assert "nested" in r.error_message()
 
 
-def test_huggingface_image_processor_calls_gradio_endpoint(
+def test_vision_processor_calls_local_server(
     monkeypatch: "pytest.MonkeyPatch",
 ) -> None:
     from twfarmbot_ml_utils import huggingface as module
 
     seen: dict[str, Any] = {}
 
-    class FakeClient:
-        def __init__(self, space_id, verbose):
-            seen["space_id"] = space_id
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
 
-        def predict(self, **kwargs):
-            seen.update(kwargs)
-            return "/tmp/result.webp"
+        def json(self) -> dict[str, Any]:
+            b64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+            return {
+                "choices": [
+                    {"message": {"content": '{"result_image_base64": "%s"}' % b64}}
+                ]
+            }
 
-    monkeypatch.setattr(module, "Client", FakeClient)
-    monkeypatch.setattr(module, "handle_file", lambda url: {"url": url})
+    def fake_post(url: str, *, json: dict[str, Any], timeout: float, **kwargs: Any):
+        seen["url"] = url
+        seen["payload"] = json
+        return FakeResponse()
 
-    processor = module.HuggingFaceImageProcessor("owner/space")
+    monkeypatch.setattr(module.requests, "post", fake_post)
+
+    processor = module.VisionProcessor("http://127.0.0.1:8080")
     result = processor.process("https://example.test/photo.jpg", "green leaves")
 
-    assert str(result) == "/tmp/result.webp"
-    assert seen["space_id"] == "owner/space"
-    assert seen["image"] == {"url": "https://example.test/photo.jpg"}
-    assert seen["prompt"] == "green leaves"
-    assert seen["api_name"] == "/run_sim"
+    assert result.exists()
+    assert seen["url"] == "http://127.0.0.1:8080/v1/chat/completions"
+    assert seen["payload"]["messages"][0]["content"][0]["text"] == "green leaves"
+    assert seen["payload"]["messages"][0]["content"][1]["image_url"]["url"] == "https://example.test/photo.jpg"
 
 
 def test_parse_segmentation_labels() -> None:

@@ -19,7 +19,7 @@ import altair as alt
 import streamlit as st
 from ruamel.yaml import YAML
 from twfarmbot_ml_utils import (
-    HuggingFaceImageProcessor,
+    VisionProcessor,
     parse_segmentation_labels,
 )
 
@@ -31,7 +31,7 @@ from twfarmbot_ui import history
 # ── config ────────────────────────────────────────────────────────────────────
 
 API_URL = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
-AI_SPACE_ID = os.getenv("TWFB_AI_SPACE_ID", "SimonSchwaiger/resireg-playground")
+RESIREG_URL = os.getenv("TWFB_RESIREG_URL", "http://127.0.0.1:8080")
 PLAN_TIMEOUT = 60.0  # LLM planning can take longer than the default 2s API timeout
 
 
@@ -41,8 +41,8 @@ def _client(base_url: str) -> ApiClient:
 
 
 @st.cache_resource
-def _image_processor(space_id: str) -> HuggingFaceImageProcessor:
-    return HuggingFaceImageProcessor(space_id)
+def _image_processor(base_url: str) -> VisionProcessor:
+    return VisionProcessor(base_url)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -1437,7 +1437,7 @@ def _render_camera() -> None:
             label_visibility="collapsed",
         )
 
-        processor = _image_processor(AI_SPACE_ID)
+        processor = _image_processor(RESIREG_URL)
         inputs: dict[str, Any] = {}
         button_disabled = False
 

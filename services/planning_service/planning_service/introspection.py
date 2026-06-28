@@ -23,7 +23,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from twfarmbot_ml_utils import (
-    HuggingFaceImageProcessor,
+    VisionProcessor,
     parse_segmentation_labels,
 )
 
@@ -33,7 +33,7 @@ _T = TypeVar("_T")
 
 log = logging.getLogger(__name__)
 
-_IMAGE_PROCESSOR: HuggingFaceImageProcessor | None = None
+_IMAGE_PROCESSOR: VisionProcessor | None = None
 
 
 # ── Tool argument schemas ────────────────────────────────────────────────
@@ -210,12 +210,12 @@ class SystemStateProvider:
         raise NotImplementedError
 
 
-def _get_image_processor() -> HuggingFaceImageProcessor:
-    """Lazy singleton for the HuggingFace image-analysis client."""
+def _get_image_processor() -> VisionProcessor:
+    """Lazy singleton for the local vision-analysis client."""
     global _IMAGE_PROCESSOR
     if _IMAGE_PROCESSOR is None:
-        space_id = os.getenv("TWFB_AI_SPACE_ID", "SimonSchwaiger/resireg-playground")
-        _IMAGE_PROCESSOR = HuggingFaceImageProcessor(space_id)
+        base_url = os.getenv("TWFB_RESIREG_URL", "http://127.0.0.1:8080")
+        _IMAGE_PROCESSOR = VisionProcessor(base_url)
     return _IMAGE_PROCESSOR
 
 

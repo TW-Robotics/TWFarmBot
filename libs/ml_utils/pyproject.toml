@@ -5,7 +5,7 @@ description = "Pure machine-learning integration helpers."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "gradio-client>=1.13",
+    "requests",
 ]
 
 [build-system]

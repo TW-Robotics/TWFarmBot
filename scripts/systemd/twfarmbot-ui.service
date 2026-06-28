@@ -1,0 +1,23 @@
+[Unit]
+Description=TWFarmBot Streamlit UI
+After=network-online.target twfarmbot-api.service
+Wants=network-online.target twfarmbot-api.service
+
+[Service]
+Type=simple
+User=farmbot
+Group=farmbot
+WorkingDirectory=/home/farmbot/TWFarmBot
+Environment="HOME=/home/farmbot"
+Environment="PATH=/home/farmbot/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="STREAMLIT_BROWSER_GATHERUSAGESTATS=false"
+ExecStart=/home/farmbot/.local/bin/uv run --env-file=.env twfarmbot-ui
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twfarmbot-ui
+
+[Install]
+WantedBy=default.target
