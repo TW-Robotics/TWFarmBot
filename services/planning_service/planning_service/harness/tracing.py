@@ -15,6 +15,8 @@ from typing import Any, Iterator
 
 import weave
 
+from .metrics import Metrics
+
 _log = logging.getLogger(__name__)
 
 _weave_initialized: bool = False
@@ -122,7 +124,9 @@ def _extract_usage(response: Any) -> dict[str, int] | None:
     return None
 
 
-def timed_invoke(model: Any, messages: Any, model_name: str) -> Any:
+def timed_invoke(
+    model: Any, messages: Any, model_name: str, metrics: Metrics | None = None
+) -> Any:
     """Invoke a model and trace it, returning the response."""
     start = time.perf_counter()
     tracer = langchain_tracer()
@@ -135,17 +139,24 @@ def timed_invoke(model: Any, messages: Any, model_name: str) -> Any:
     latency = time.perf_counter() - start
     if is_enabled():
         trace_model_invoke(response, latency_s=latency, model=model_name)
+    if metrics is not None:
+        metrics.add_llm_usage(response, latency_s=latency)
     return response
 
 
-def timed_stream(model: Any, messages: Any, model_name: str) -> Iterator[Any]:
+def timed_stream(
+    model: Any, messages: Any, model_name: str, metrics: Metrics | None = None
+) -> Iterator[Any]:
     """Stream a model response and trace the aggregated result."""
     start = time.perf_counter()
+    first_token_time: float | None = None
     tracer = langchain_tracer()
     kwargs: dict[str, Any] = {"config": {"callbacks": [tracer]}} if tracer else {}
     chunks: list[Any] = []
     try:
         for chunk in model.stream(messages, **kwargs):
+            if first_token_time is None:
+                first_token_time = time.perf_counter() - start
             chunks.append(chunk)
             yield chunk
     except Exception:
@@ -154,3 +165,8 @@ def timed_stream(model: Any, messages: Any, model_name: str) -> Iterator[Any]:
     latency = time.perf_counter() - start
     if is_enabled():
         trace_model_stream(chunks, latency_s=latency, model=model_name)
+    if metrics is not None:
+        ttft = first_token_time or 0.0
+        # Token usage usually appears on the last chunk/response for streamed output.
+        usage_source = chunks[-1] if chunks else None
+        metrics.add_llm_usage(usage_source, latency_s=latency, ttft_s=ttft)
