@@ -7,6 +7,15 @@ USER_SYSTEMD_DIR="${HOME}/.config/systemd/user"
 mkdir -p "${USER_SYSTEMD_DIR}"
 cp "${SCRIPT_DIR}/systemd/"*.service "${USER_SYSTEMD_DIR}/"
 
+# Pre-accept Streamlit's email prompt so the UI service starts non-interactively.
+mkdir -p "${HOME}/.streamlit"
+if [[ ! -f "${HOME}/.streamlit/credentials.toml" ]]; then
+    cat > "${HOME}/.streamlit/credentials.toml" <<'EOF'
+[general]
+email = ""
+EOF
+fi
+
 systemctl --user daemon-reload
 systemctl --user enable twfarmbot-resireg twfarmbot-api twfarmbot-ui
 
