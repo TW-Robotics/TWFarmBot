@@ -1069,18 +1069,17 @@ def main():
         prompt_image = prompt_image.convert("RGB")
     args.prompt_image = prompt_image
 
-    cache = None
     start = time.perf_counter()
     if args.mode == MODE_PCA:
-        cache = run_pca(model, image, args, cache)
+        run_pca(model, image, args, None)
     elif args.mode == MODE_LANGUAGE_SIM:
-        cache = run_language_sim(model, image, args, cache)
+        run_language_sim(model, image, args, None)
     elif args.mode == MODE_ZERO_SHOT_SEG:
-        cache = run_zero_shot_seg(model, image, args, cache)
+        run_zero_shot_seg(model, image, args, None)
     elif args.mode == MODE_TRAVERSABILITY:
-        cache = run_traversability(model, image, args, cache)
+        run_traversability(model, image, args, None)
     elif args.mode == MODE_IMG_SIM:
-        cache = run_image_similarity(model, image, args, cache)
+        run_image_similarity(model, image, args, None)
     else:
         raise ValueError(f"Unknown mode: {args.mode}")
     print(f"Total mode runtime: {time.perf_counter() - start:.3f}s")
