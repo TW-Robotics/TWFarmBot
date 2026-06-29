@@ -329,10 +329,10 @@ def build_introspection_tools(
 
     @tool(args_schema=_NoArgs)
     def get_messages(limit: int = 20) -> list[dict[str, Any]] | dict[str, Any]:
-        """Return the most recent MQTT messages from the FarmBot.
+        """Return the most recent logged messages from the robot backend.
 
-        `limit` caps how many are returned (default 20). Useful to see
-        what the robot has been doing lately.
+        In the local serial stack this is currently an empty list; the
+        field is kept for UI compatibility.
         """
         return _safe("get_messages", lambda: provider.get_messages(limit=limit))
 
@@ -627,7 +627,7 @@ class HttpSystemStateProvider(SystemStateProvider):
             {"method": "GET", "path": "/position", "summary": "Last gantry (x,y,z)"},
             {"method": "GET", "path": "/status", "summary": "Full status tree"},
             {"method": "GET", "path": "/pin/{pin}", "summary": "Read a GPIO pin"},
-            {"method": "GET", "path": "/messages", "summary": "Recent MQTT messages"},
+            {"method": "GET", "path": "/messages", "summary": "Recent logged messages"},
             {"method": "GET", "path": "/images", "summary": "Recent camera images"},
             {"method": "GET", "path": "/pins", "summary": "Named GPIO pins"},
             {"method": "GET", "path": "/positions", "summary": "Named gantry presets"},

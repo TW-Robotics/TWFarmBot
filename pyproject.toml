@@ -14,8 +14,7 @@ dependencies = [
     "twfarmbot-core",
     "twfarmbot-ml-utils",
     "twfarmbot-spatial-service",
-    "farmbot-client",
-    "twfarmbot-gateway",
+    "farmbot-serial",
     "twfarmbot-safety-service",
     "twfarmbot-watering-service",
     "twfarmbot-planning-service",
@@ -30,8 +29,7 @@ dependencies = [
 twfarmbot-core = { workspace = true }
 twfarmbot-ml-utils = { workspace = true }
 twfarmbot-spatial-service = { workspace = true }
-farmbot-client = { workspace = true }
-twfarmbot-gateway = { workspace = true }
+farmbot-serial = { workspace = true }
 twfarmbot-safety-service = { workspace = true }
 twfarmbot-watering-service = { workspace = true }
 twfarmbot-planning-service = { workspace = true }
@@ -43,10 +41,9 @@ twfarmbot-resireg-server = { workspace = true }
 [tool.uv.workspace]
 members = [
     "core",
-    "libs/farmbot_client",
+    "libs/farmbot_serial",
     "libs/ml_utils",
     "services/spatial_service",
-    "services/farmbot_gateway",
     "services/safety_service",
     "services/watering_service",
     "services/planning_service",

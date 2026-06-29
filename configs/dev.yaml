@@ -1,6 +1,35 @@
 env: dev
 log_level: INFO
 
+# Direct hardware configuration for the local serial stack.
+# The Pi talks to the stock Farmduino firmware over USB serial.
+hardware:
+  version: genesis_v1.8
+  board: farmduino_v32
+
+  serial:
+    port: /dev/ttyACM0
+    baud: 115200
+    connect_timeout_s: 10
+    command_timeout_s: 60
+    move_timeout_s: 300
+
+  movement:
+    # Fallback values only. The driver reads the real steps/mm and speed
+    # limits from firmware parameters 55-57, 65-67 and 71-73 on connect.
+    steps_per_mm: {x: 80, y: 80, z: 400}
+    max_speed_mm_s: {x: 80, y: 80, z: 16}
+    home_speed_mm_s: {x: 40, y: 40, z: 8}
+
+  peripherals:
+    water: {pin: 8, mode: digital}
+    vacuum: {pin: 9, mode: digital}
+    lighting: {pin: 7, mode: digital}
+
+  camera:
+    index: 0
+    save_dir: data/images
+
 # LLM planner configuration. Read by planning_service.load_config().
 # Resolution: PLANNING_LLM_* env var → this block → built-in default.
 # Secrets (api_key) are NEVER stored here — set PLANNING_LLM_API_KEY in
@@ -19,11 +48,6 @@ planning:
   # to enable model/tool-call/token tracing.
   weave_project: ""
 
-# FarmBot WiFi credentials are read from environment variables
-# (FARMBOT_HOST, FARMBOT_EMAIL, FARMBOT_PASSWORD, optional FARMBOT_TOKEN)
-# by services/farmbot_gateway. Host defaults to the cloud broker
-# "farmbot.farm.bot" — use "http://192.168.1.50" (or similar) for LAN.
-
 # Safety limits enforced before any real-world action runs.
 # Overridable via env: FARMBOT_MAX_WATER_SECONDS.
 safety:
@@ -35,8 +59,9 @@ safety:
     z: 500
 
 # Single pump configuration. The water action turns this pin on for N seconds.
+# For Genesis v1.8 the water solenoid is peripheral pin 8.
 watering:
-  pump_pin: 7
+  pump_pin: 8
 
 # Named pins for the UI: label → {pin, mode, kind, group, presets}.
 #   kind: "valve" | "servo" | "sensor" | "io"
@@ -45,8 +70,9 @@ watering:
 # Every pin number must be unique; a single GPIO can't drive a valve and
 # read a sensor at the same time.
 pins:
-- {label: "Pump", pin: 7, mode: digital, kind: valve, group: "Water"}
-- {label: "Water solenoid", pin: 8, mode: digital, kind: valve, group: "Water"}
+- {label: "Water", pin: 8, mode: digital, kind: valve, group: "Water"}
+- {label: "Lighting", pin: 7, mode: digital, kind: valve, group: "Lights"}
+- {label: "Vacuum", pin: 9, mode: digital, kind: valve, group: "Tools"}
 - {label: "Cutting end effector", pin: 4, mode: analog, kind: io, group: "Tools", presets: {0: "Off", 120: "Cut", 255: "Max"}}
 - {label: "Tool servo", pin: 10, mode: digital, kind: servo, group: "Tools"}
 - {label: "Soil sensor", pin: 14, mode: analog, kind: sensor, group: "Sensors"}

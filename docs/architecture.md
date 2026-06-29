@@ -1,96 +1,80 @@
 # Architecture overview
 
-Single source of truth for how the TWFarmBot codebase is wired. Read this
-before adding code. Folder rules are duplicated from the top-level
-`README.md` so an agent doesn't need to chase cross-references.
+Single source of truth for how the TWFarmBot codebase is wired after the
+local-rewrite branch. The Pi now talks directly to the stock Farmduino
+firmware over USB serial; there is no cloud, MQTT, or `farmbot-py` dependency.
 
 ## 1. Folder layout
 
 ```
 TWFarmBot/
 ├── apps/                       # deployable entry points (orchestration only)
-│   ├── api_server/             # FastAPI; POST /actions, GET /health
-│   ├── ui/                     # dashboard
-│   └── worker/                 # scheduled / long-running jobs
+│   ├── api_server/             # FastAPI; POST /actions, GET /health, GET /position, ...
+│   ├── ui/                     # Streamlit dashboard
+│   └── worker/                 # scheduled / long-running jobs (skeleton)
 │
 ├── core/                       # cross-cutting primitives
 │   └── twfarmbot_core/
 │       ├── domain/             # Action, Point3D, Rectangle, GardenEntity, GardenWorld
-│       ├── config/             # env-based settings (load_settings())
+│       ├── config/             # YAML config + env-based settings
 │       ├── logging/            # configure_logging, get_logger
 │       └── events/             # internal event bus
 │
 ├── services/                   # one concern per service
-│   ├── farmbot_gateway/        # ONLY place that talks to FarmBot hardware
 │   ├── safety_service/         # gates every action before execution
-│   ├── watering_service/       # irrigation (FarmBotBackend only — see backends/farmbot.py)
-│   ├── sensor_service/         # soil / temp / light
-│   ├── vision_service/         # camera + models
+│   ├── watering_service/       # irrigation + hardware backend abstraction
 │   ├── planning_service/       # LLM / VLM task planning
-│   └── spatial_service/        # garden coordinates + persistent world model
+│   ├── spatial_service/        # garden coordinates + persistent world model
 │
-├── libs/                       # pure, reusable utilities
-│   └── farmbot_client/         # wraps farmbot-py; reusable client
+├── libs/                       # reusable, framework-agnostic utilities
+│   ├── farmbot_serial/         # USB-serial G-code/F-code driver for Farmduino
+│   └── ml_utils/               # ML helpers (segmentation, VLM, etc.)
 │
 ├── configs/                    # YAML / JSON; loaded via core/config
 ├── docs/                       # architecture + ADRs (this file)
 ├── projects/                   # isolated student projects (must not modify shared code)
 ├── experiments/                # reproducible experiment runners
+├── scripts/                    # operational helpers (systemd, smoke tests)
 └── tests/                      # cross-cutting / integration tests
 ```
 
 ## 2. Hard rules
 
-These are non-negotiable. They are the reason this repo is split the way it is.
+1. **Only `libs/farmbot_serial/` talks to the Farmduino.**
+   - It is a plain USB-serial driver; no cloud protocol, no MQTT.
+   - `services/watering_service/watering_service/backends/direct_serial.py` is the
+     only backend that opens `/dev/ttyACM0`.
+   - Nothing outside `watering_service` imports `farmbot_serial` directly.
 
-1. **Only `services/farmbot_gateway/` talks to the FarmBot hardware.**
-   - Wraps the `farmbot-py` library via `libs/farmbot_client`.
-   - Other code calls `farmbot_gateway.get_farmbot()` or registers an action
-     handler — never imports `farmbot` directly.
-   - See `services/farmbot_gateway/farmbot_gateway/__init__.py`.
-
-2. **Every real-world action goes through `safety_service` before it hits
-   `farmbot_gateway`.**
-   - `services/safety_service/safety_service/__init__.py` exposes
-     `validate(action)` which raises `UnsafeActionError` on rejection.
-   - The api_server's `ActionRegistry.dispatch` runs safety validation
-     automatically; handlers do not re-validate.
+2. **Every real-world action goes through `safety_service` before it hits hardware.**
+   - `services/safety_service/safety_service/__init__.py` exposes `validate(action)`.
+   - `ActionRegistry.dispatch` runs safety validation automatically.
 
 3. **Apps orchestrate, services decide, libs compute.**
-   - `apps/api_server` and `apps/worker` wire services together and handle
-     I/O. They must not contain domain logic.
+   - `apps/api_server` wires services together and handles I/O.
    - `services/<x>_service` owns the logic for one concern.
-   - `libs/` contains pure utilities, no I/O, no global state.
+   - `libs/` contains pure utilities and the serial driver.
 
 4. **`core/` defines the shared vocabulary.**
    - `Action`, `Point3D`, `Rectangle`, `GardenEntity`, `GardenWorld` live in `core/twfarmbot_core/domain/`.
-   - Do not redefine equivalent types inside a service or project.
 
 5. **Configuration is data, not code.**
-   - Robot coordinates, sensor calibrations, watering limits — all live in
-     `configs/*.yaml` and are loaded via `core/twfarmbot_core/config`.
-   - Env vars are the runtime override mechanism (see `safety_service.load_limits`).
+   - Robot serial port, movement limits, pin map, camera — all live in `configs/dev.yaml`.
+   - Env vars are runtime overrides (see `safety_service.load_limits`).
 
 6. **Projects stay isolated.**
-   - `projects/<name>/` may import from `core/`, `libs/`, and call the
-     public APIs of `services/`. They must not modify shared code or talk
-     to hardware directly.
+   - `projects/<name>/` may import from `core/`, `libs/`, and call public service APIs.
 
 7. **Tests live with the code.**
-   - Unit tests next to the module; cross-service tests in `tests/` at the
-     repo root.
+   - Unit tests next to the module; cross-service tests in `tests/` at the repo root.
 
 ## 3. The Action flow
-
-Everything that affects the real world is an `Action`. There is exactly
-one path an `Action` takes through the system:
 
 ```
 Action (JSON)
     │
     ▼
 apps/api_server        POST /actions
-apps/worker            (scheduler triggers)    POST /actions over queue (future)
     │
     ▼
 ActionRegistry.dispatch(action)        core/twfarmbot_core/actions.py
@@ -104,232 +88,189 @@ ActionRegistry.dispatch(action)        core/twfarmbot_core/actions.py
     └── handler(action)                      apps/api_server/.../handlers/<name>.py
             │
             ▼
-        service.water_bed / .move / .sense / ...
+        watering_service.get_backend()
             │
             ▼
-        farmbot_gateway.get_farmbot() via FarmBotBackend
+        DirectSerialBackend
             │
             ▼
-        FarmBot over WiFi/MQTT (libs/farmbot_client)
+        FarmduinoSerial over /dev/ttyACM0
+            │
+            ▼
+        Farmduino firmware (G-code / F-code)
 ```
 
 Key files:
 
 - `core/twfarmbot_core/domain/action.py` — `Action(kind, params)`.
-- `core/twfarmbot_core/actions.py` — `ActionRegistry` + `dispatch`. Shared by api_server and worker.
-- `apps/api_server/src/twfarmbot_api_server/handlers/<name>.py` — example handler.
+- `core/twfarmbot_core/actions.py` — `ActionRegistry` + `dispatch`.
+- `apps/api_server/src/twfarmbot_api_server/handlers/<name>.py` — handlers.
 - `services/safety_service/safety_service/__init__.py` — `validate(action)`.
-- `apps/api_server/src/twfarmbot_api_server/handlers/watering.py` — example handler.
-- `services/safety_service/safety_service/__init__.py` — `validate(action)`.
-- `services/watering_service/watering_service/__init__.py` — example service.
-- `services/watering_service/watering_service/backends/farmbot.py` — FarmBotBackend; the only backend.
-- `services/farmbot_gateway/farmbot_gateway/__init__.py` — `get_farmbot()`.
-- `libs/farmbot_client/farmbot_client/client.py` — wraps `farmbot-py`.
+- `services/watering_service/watering_service/__init__.py` — backend loader.
+- `services/watering_service/watering_service/backends/base.py` — `RobotBackend` protocol.
+- `services/watering_service/watering_service/backends/direct_serial.py` — local backend.
+- `libs/farmbot_serial/farmbot_serial/client.py` — serial driver.
 
-## 4. Core ↔ safety coupling
-
-`core/twfarmbot_core/actions.py` imports `safety_service.validate` so
-that *every* dispatch automatically goes through safety — no caller can
-forget. This means `twfarmbot-core` declares a dependency on
-`twfarmbot-safety-service`. That's intentional: safety is a precondition
-of any real-world action, not an optional policy.
-
-To avoid a circular import, `core/__init__.py` does **not** eagerly import
-`core.actions`. Use the explicit form: `from twfarmbot_core.actions import ActionRegistry`.
-
-## 5. Hardware isolation
-
-There are three concentric layers between an Action and the FarmBot:
+## 4. Hardware isolation layers
 
 ```
-handlers (api_server)
+HTTP request (FastAPI handler)
     ↓
-watering_service (decision: open valve X for Y seconds)
+watering_service.get_backend()  →  RobotBackend protocol
     ↓
-watering_service.backends.farmbot   (the only backend; translates to farmbot-py)
+DirectSerialBackend
     ↓
-farmbot_gateway.get_farmbot()      (singleton, reconnecting link)
+FarmduinoSerial (/dev/ttyACM0)
     ↓
-farmbot-py                         (MQTT + REST via libs/farmbot_client)
+Farmduino firmware
     ↓
-FarmBot over WiFi
+steppers / valves / sensors
 ```
 
-`watering_service.backends.farmbot.FarmBotBackend` is the single place
-that translates our vocabulary into `farmbot-py` calls. Adding a new
-backend is not a current need — if it ever is, the import in
-`watering_service/__init__.py:_load_backend()` is the only place that
-needs to know.
+Adding another backend (e.g. a simulator) means implementing the `RobotBackend`
+protocol and changing `watering_service/__init__.py:_load_backend()` to load it.
 
-## 5. Hardware isolation
+## 5. Configuration
 
-## 6. WiFi connection
+All hardware-specific values live in `configs/dev.yaml` under the `hardware:` block:
 
-Set these env vars (or use `.env` with `uv run --env-file=.env …`):
+```yaml
+hardware:
+  version: genesis_v1.8
+  board: farmduino_v32
+  serial:
+    port: /dev/ttyACM0
+    baud: 115200
+  movement:
+    steps_per_mm: {x: 80, y: 80, z: 400}
+    max_speed_mm_s: {x: 80, y: 80, z: 16}
+  peripherals:
+    water: {pin: 8, mode: digital}
+  camera:
+    index: 0
+    save_dir: data/images
+```
+
+Runtime overrides via `.env` (see `.env.example`):
 
 | Var | Purpose | Default |
 |---|---|---|
-| `FARMBOT_EMAIL` | account email | required |
-| `FARMBOT_PASSWORD` | account password | required |
-| `FARMBOT_SERVER` | REST auth host | `https://my.farm.bot` |
-| `FARMBOT_HOST` | MQTT broker | `farmbot.farm.bot` |
-| `FARMBOT_TOKEN` | optional pre-fetched token JSON | — |
-| `WATERING_BACKEND` | backend module name (default `farmbot`) | `farmbot` |
+| `FARMBOT_REQUIRED` | if `0`, api_server boots without a live bot | `1` |
+| `WATERING_BACKEND` | backend module name | `direct_serial` |
 | `FARMBOT_MAX_WATER_SECONDS` | safety cap | `300` |
-| `FARMBOT_PUMP_PIN` | pump pin override | `7` |
-| `FARMBOT_MAX_AXIS_{X,Y,Z}` | move action bounds in mm | `3000`/`1500`/`800` |
-| `FARMBOT_REQUIRED` | if `0`, api_server boots without a live bot (UI-only mode) | `1` |
+| `FARMBOT_PUMP_PIN` | pump pin override | `8` |
+| `FARMBOT_MAX_AXIS_{X,Y,Z}` | move action bounds in mm | from `configs/dev.yaml` |
 
-Test the link: `uv run --env-file=.env python scripts/test_farmbot_connect.py`.
-
-## 7. Action kinds shipped today
-
-The api_server registers these action kinds via
-`apps/api_server/.../handlers/__init__.py`:
+## 6. Action kinds shipped today
 
 | Kind | Params | Backend call | Safety rule |
 |---|---|---|---|
-| `water` | `seconds` | `farmbot_backend.water()` (pump on/off) | seconds ≤ `FARMBOT_MAX_WATER_SECONDS` |
-| `move` | `x`, `y`, `z`, optional `speed` | `farmbot_backend.move()` | each axis within `FARMBOT_MAX_AXIS_{X,Y,Z}` |
-| `read_pin` | `pin`, optional `mode` | `farmbot_backend.read_pin()` | — |
-| `write_pin` | `pin`, `value`, optional `mode` | `farmbot_backend.write_pin()` | — |
-| `mount_tool` | `tool_name` | `farmbot_backend.mount_tool()` | — |
-| `dismount_tool` | — | `farmbot_backend.dismount_tool()` | — |
-| `send_message` | `message`, optional `type`/`channels` | `farmbot_backend.send_message()` | — |
-| `e_stop` | — | `farmbot_backend.e_stop()` | — |
-| `take_photo` | — | `farmbot_backend.take_photo()` | — |
-
-`farmbot_backend` lives at
-`services/watering_service/watering_service/backends/farmbot.py` and is
-the **only** place that translates our vocabulary into `farmbot-py` calls.
+| `water` | `seconds` | `backend.water(seconds)` | seconds ≤ `FARMBOT_MAX_WATER_SECONDS` |
+| `move` | `x`, `y`, `z`, optional `speed` | `backend.move(x,y,z,speed)` | each axis within configured bounds |
+| `move_path` | `waypoints`, optional `photo_at_waypoints` | `backend.move()` + `take_photo()` | each waypoint within bounds |
+| `read_pin` | `pin`, optional `mode` | `backend.read_pin(pin, mode)` | — |
+| `write_pin` | `pin`, `value`, optional `mode`/`seconds` | `backend.write_pin(...)` | — |
+| `mount_tool` | `tool_name` | `backend.mount_tool(tool_name)` | — |
+| `dismount_tool` | — | `backend.dismount_tool()` | — |
+| `send_message` | `message`, optional `type`/`channels` | `backend.send_message(...)` | — |
+| `e_stop` | — | `backend.e_stop()` | — |
+| `find_home` | — | `backend.find_home()` | — |
+| `take_photo` | — | `backend.take_photo()` | — |
 
 ### Read-only GET routes
 
-The api_server also exposes GETs that read FarmBot state directly, used
-by the UI for live status (defined in `apps/api_server/.../read.py`).
-These skip `ActionRegistry` because there's no `Action` envelope and no
-safety rule, but they still call into `FarmBotBackend` so the UI never
-imports `farmbot-py` directly:
+Defined in `apps/api_server/.../read.py`, these skip `ActionRegistry` because
+there is no `Action` envelope:
 
 | Route | Returns |
 |---|---|
+| `GET /health` | status, action list, `farmbot` connection state |
 | `GET /position` | `{xyz: {x, y, z}}` |
-| `GET /status?path=<optional>` | `{path, state}` |
+| `GET /status` | full backend status tree |
 | `GET /pin/{pin}?mode=digital|analog` | `{pin, mode, value}` |
-| `GET /messages` | `{last_messages: [...]}` |
-| `GET /images?limit=10` | `{images: [{attachment_url, created_at, meta, ...}]}` |
-| `GET /garden` | bounds, camera pose, entities, zones, and cached robot pose |
+| `GET /messages` | `{last_messages: []}` (local stack has no MQTT queue) |
+| `GET /images?limit=10` | `{images: [...]}` |
+| `GET /garden` | bounds, camera pose, zones, entities, cached robot pose |
 
-## 8. How to add …
+## 7. How to add …
 
 ### a new action kind
 
-Two files plus zero plumbing:
-
-1. Add a method to `services/watering_service/watering_service/backends/farmbot.py`
-   if it touches hardware.
-2. Create `apps/api_server/src/twfarmbot_api_server/handlers/<name>.py`
-   with `handle_<name>(action: Action) -> Action` (one method call).
-3. Register in `apps/api_server/.../handlers/__init__.py`:
-   `registry.register("<name>", handle_<name>)`.
+1. Create `apps/api_server/src/twfarmbot_api_server/handlers/<name>.py` with
+   `handle_<name>(action: Action) -> Action`.
+2. Register it in `apps/api_server/.../handlers/__init__.py`.
+3. If it touches hardware, add the corresponding method to `RobotBackend` and
+   implement it in `DirectSerialBackend`.
 4. (Optional) add a safety rule in `services/safety_service/.../__init__.py:validate`.
 
-The `/actions` route, pydantic payload validation, safety gate, and
-registry dispatch already exist. Tests in `tests/test_farmbot_backend.py`.
+### a new hardware backend
 
-### a new service (e.g. "weeding_service")
+1. Implement `RobotBackend` in `services/watering_service/watering_service/backends/<name>.py`.
+2. Expose a module-level `backend` instance.
+3. Set `WATERING_BACKEND=<name>` in the environment.
+
+### a new service
 
 1. Create `services/<name>_service/<name>_service/__init__.py`.
 2. Create `services/<name>_service/pyproject.toml` depending on `twfarmbot-core`.
-3. Add `"services/<name>_service"` to `[tool.uv.workspace] members` in
-   the root `pyproject.toml`, plus `"twfarmbot-<name>-service"` to root
-   `dependencies` and `[tool.uv.sources]`.
-4. Run `uv sync`.
-5. Wire its public API through one or more handlers in
-   `apps/api_server/src/twfarmbot_api_server/handlers/`.
-6. Never import the FarmBot library directly — go through
-   `farmbot_gateway.get_farmbot()` (or the `FarmBotBackend`).
+3. Add the member to `[tool.uv.workspace]` and the package to root dependencies.
+4. Wire its public API through one or more handlers.
 
 ### a new pump pin
 
-Set `FARMBOT_PUMP_PIN=<pin>` in `.env` or change `watering.pump_pin` in
-`configs/dev.yaml`. No code change.
+Change `watering.pump_pin` in `configs/dev.yaml` or set `FARMBOT_PUMP_PIN` in `.env`.
 
-### a new shared type (e.g. "FertilizerDose")
+## 8. UI
 
-Add it to `core/twfarmbot_core/domain/<name>.py` and re-export from
-`core/twfarmbot_core/domain/__init__.py`. Do not redefine it inside a service.
+`apps/ui` is a single-page Streamlit app. It contains **zero business logic** —
+every widget calls the API server:
 
-### a new config key
+- `GET /health` → connection status
+- `GET /position` → gantry position
+- `GET /images` → photo gallery
+- `POST /actions` → all real-world commands
 
-Add to `configs/dev.yaml` and read via `twfarmbot_core.config.load_yaml_config()`,
-or env-only via `os.getenv(...)`.
-
-## 9. UI
-
-`apps/ui` is a single-page Streamlit app (`streamlit run apps/ui/src/twfarmbot_ui/app.py`).
-It contains **zero business logic** — every widget is a thin HTTP proxy
-to the api_server:
-
-**Reads (buttons/forms in the UI):**
-- "Check status" sidebar button → `GET /health`
-- "Position" button → `GET /position`
-- "Messages" button → `GET /messages`
-- "Read pin" form → `GET /pin/{pin}`
-- "Status" form → `GET /status?path=...`
-
-**Writes:**
-- "Water now" form → `POST /actions {"kind":"water", ...}`
-- "Move" form → `POST /actions {"kind":"move", ...}`
-- "Raw action" form → `POST /actions {"kind":..., "params":{...}}`
-
-Run the UI in another terminal while the api_server is up:
+Run it while the API server is up:
 
 ```bash
-uv run twfarmbot-api            # terminal 1 (auto-connects to FarmBot)
-uv run twfarmbot-ui             # terminal 2 → http://localhost:8501
+uv run twfarmbot-api   # terminal 1
+uv run twfarmbot-ui    # terminal 2 → http://localhost:8501
 ```
 
-`TWFB_API_URL` overrides the default `http://127.0.0.1:8000`.
+## 9. api_server boot contract
 
-## 10. api_server boot contract
+The API server eagerly connects to the Farmduino before binding the HTTP port:
 
-The api_server is the canonical "thing the user starts", so it eagerly
-connects to the FarmBot before binding the HTTP port:
+1. `connect_to_farmduino()` opens `/dev/ttyACM0` via `get_backend().connect()`.
+2. On success, `app.state.farmbot_status = "connected"`.
+3. On failure with `FARMBOT_REQUIRED=1`, it raises `SystemExit`.
+4. With `FARMBOT_REQUIRED=0`, failure is recorded but the server boots anyway.
+5. `GET /health` returns the current status.
 
-1. `apps/api_server/.../app.py:connect_to_farmbot()` is called from
-   `main()` after settings are loaded and before uvicorn starts.
-2. If the connect succeeds, `app.state.farmbot_status = "connected"`.
-3. If it fails and `FARMBOT_REQUIRED=1` (default), `main()` raises
-   `SystemExit` with a FATAL message — uvicorn never starts.
-4. If `FARMBOT_REQUIRED=0`, the failure is recorded on `app.state` and
-   the server boots anyway (useful for offline UI dev).
-5. `GET /health` returns the current status, e.g.
-   `{"status":"ok","actions":["water"],"farmbot":"connected"}`.
-
-`get_farmbot()` itself remains lazy. Worker processes, tests, and scripts
-that import `farmbot_gateway` still don't connect until first use.
-
-## 11. Testing
+## 10. Testing
 
 ```bash
-uv run pytest tests/                    # all tests (offline)
-uv run --env-file=.env pytest tests/    # also runs the live FarmBot test
+# Offline test suite
+PYTHONPATH= uv run pytest tests/ -q
+
+# Real hardware smoke test (read-only by default)
+PYTHONPATH= uv run python scripts/test_farmduino_local.py
+
+# Safe motion checks (only when the bed is clear)
+PYTHONPATH= uv run python scripts/test_farmduino_local.py --home
+PYTHONPATH= uv run python scripts/test_farmduino_local.py --move 0 0 10
 ```
 
-The opt-in live test (`tests/test_farmbot_connection.py::test_farmbot_connection_live`)
-only runs when `FARMBOT_LIVE_TEST=1` is set.
-
-## 12. Where things live — quick reference
+## 11. Where things live — quick reference
 
 | Want to … | Look in |
 |---|---|
 | Trigger watering manually | `apps/api_server` → `/actions` with `kind="water"` |
 | Add a safety rule | `services/safety_service/safety_service/__init__.py:validate` |
-| Read FarmBot state | `farmbot_gateway.get_farmbot()` |
-| Build a new sensor reading | `sensor_service` (skeleton) |
-| Add a CLI tool | a `scripts/` entry, calling the public service API |
-| Run scheduled jobs | `apps/worker` (skeleton) |
+| Talk to hardware directly | `libs/farmbot_serial/farmbot_serial/client.py` |
+| Change serial port / pins | `configs/dev.yaml` |
+| Add a backend | `services/watering_service/watering_service/backends/` |
+| Add a CLI tool | `scripts/` |
 | Add a shared type | `core/twfarmbot_core/domain/` |
-| Add an experiment | `experiments/<name>/` reading configs, calling services |
+| Add an experiment | `experiments/<name>/` |
 | Build a student project | `projects/<name>/`, isolated from shared code |

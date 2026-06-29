@@ -5,7 +5,7 @@ from __future__ import annotations
 from twfarmbot_core.config import load_yaml_config
 from twfarmbot_core.domain import Action
 
-from watering_service.backends import farmbot
+import watering_service
 
 
 def _pin_mode(pin: int, requested: str | None) -> str:
@@ -25,7 +25,8 @@ def _pin_mode(pin: int, requested: str | None) -> str:
 def handle_read_pin(action: Action) -> Action:
     pin = int(action.params["pin"])
     mode = _pin_mode(pin, action.params.get("mode"))
-    value = farmbot.backend.read_pin(pin, mode)
+    backend = watering_service.get_backend()
+    value = backend.read_pin(pin, mode)
     return Action(kind=action.kind, params={"pin": pin, "mode": mode, "value": value})
 
 
@@ -40,5 +41,6 @@ def handle_write_pin(action: Action) -> Action:
             duration = float(seconds)
         except (TypeError, ValueError):
             duration = 0.0
-    farmbot.backend.write_pin(pin, value, mode, seconds=duration)
+    backend = watering_service.get_backend()
+    backend.write_pin(pin, value, mode, seconds=duration)
     return action

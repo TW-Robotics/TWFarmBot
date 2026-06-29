@@ -7,9 +7,8 @@ import time
 from threading import Thread
 from typing import Any
 
+import watering_service
 from twfarmbot_core.domain import Action
-
-from watering_service.backends import farmbot
 
 
 # Tolerance for considering the gantry to have reached the target waypoint.
@@ -24,19 +23,21 @@ def _execute_moves(
     waypoints: list[dict[str, Any]], speed: float | None, photo: bool
 ) -> None:
     """Issue all waypoint moves (and optional photos) sequentially."""
+    backend = watering_service.get_backend()
     for wp in waypoints:
         x = float(wp["x"])
         y = float(wp["y"])
         z = float(wp["z"])
-        farmbot.backend.move(x, y, z, speed=float(speed) if speed is not None else None)
+        backend.move(x, y, z, speed=float(speed) if speed is not None else None)
         if photo:
-            farmbot.backend.take_photo()
+            backend.take_photo()
 
 
 def _current_position() -> dict[str, float] | None:
     """Return the latest cached gantry position, or None if unknown."""
+    backend = watering_service.get_backend()
     try:
-        pos = farmbot.backend.get_xyz()
+        pos = backend.get_xyz()
         if isinstance(pos, dict):
             return {
                 "x": float(pos.get("x", 0)),
@@ -94,8 +95,9 @@ def handle_move_path(action: Action) -> Action:
     # Watering mode: keep the pin HIGH for the duration of the path and turn
     # it OFF once the final waypoint is actually reached (position feedback).
     pin = int(water_pin)
+    backend = watering_service.get_backend()
     try:
-        farmbot.backend.write_pin(pin, 1, "digital")
+        backend.write_pin(pin, 1, "digital")
         move_thread = Thread(
             target=_execute_moves,
             args=(waypoints, speed, photo),
@@ -105,6 +107,6 @@ def handle_move_path(action: Action) -> Action:
         _wait_for_path_completion(waypoints, move_thread)
         move_thread.join(timeout=5.0)
     finally:
-        farmbot.backend.write_pin(pin, 0, "digital")
+        backend.write_pin(pin, 0, "digital")
 
     return action

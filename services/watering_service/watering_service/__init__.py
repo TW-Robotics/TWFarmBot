@@ -1,8 +1,8 @@
 """watering_service — orchestrates a manual watering action.
 
 Flow: build Action → safety_service.validate → backend.water.
-The backend is ``services/watering_service/watering_service/backends/farmbot.py``
-— the only place that translates our vocabulary into ``farmbot-py`` calls.
+The backend is ``services/watering_service/watering_service/backends/direct_serial.py``
+— the only place that translates our vocabulary into Farmduino G-code/F-code.
 
 Config is loaded from ``configs/dev.yaml`` (path overridable via
 ``TWFB_CONFIG``). Env vars override file values so ops can override
@@ -22,6 +22,8 @@ from twfarmbot_core.config import load_yaml_config
 if TYPE_CHECKING:
     from twfarmbot_core.domain.action import Action
 
+    from watering_service.backends.base import RobotBackend
+
 log = logging.getLogger(__name__)
 
 
@@ -30,13 +32,17 @@ def _load_yaml_config() -> dict:
 
 
 def _pump_pin() -> int:
-    """Return the pump pin from config, with an optional env override."""
-    cfg = _load_yaml_config().get("watering", {}) or {}
-    return int(os.getenv("FARMBOT_PUMP_PIN", cfg.get("pump_pin", 7)))
+    """Return the water peripheral pin, with an optional env override."""
+    cfg = _load_yaml_config()
+    legacy = cfg.get("watering", {}) or {}
+    hw = cfg.get("hardware", {}) or {}
+    peripherals = hw.get("peripherals", {}) or {}
+    default = legacy.get("pump_pin", peripherals.get("water", {}).get("pin", 8))
+    return int(os.getenv("FARMBOT_PUMP_PIN", default))
 
 
 def _load_backend() -> Any:
-    name = os.getenv("WATERING_BACKEND", "farmbot")
+    name = os.getenv("WATERING_BACKEND", "direct_serial")
     module = import_module(f"watering_service.backends.{name}")
     return module.backend
 
@@ -44,7 +50,7 @@ def _load_backend() -> Any:
 _backend: Any | None = None
 
 
-def get_backend() -> Any:
+def get_backend() -> "RobotBackend":
     global _backend
     if _backend is None:
         _backend = _load_backend()
@@ -52,7 +58,7 @@ def get_backend() -> Any:
     return _backend
 
 
-def water(seconds: float) -> Action:
+def water(seconds: float) -> "Action":
     """Validate then execute a watering action. Returns the executed Action."""
     from twfarmbot_core.domain.action import Action
 

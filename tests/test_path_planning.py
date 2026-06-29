@@ -99,14 +99,17 @@ def test_handle_move_path_calls_backend(monkeypatch: Any) -> None:
     moves: list[tuple[float, float, float]] = []
     photos: list[Any] = []
 
-    def fake_move(x: float, y: float, z: float, speed: float | None = None) -> None:
-        moves.append((x, y, z))
+    class _StubBackend:
+        def move(self, x: float, y: float, z: float, speed: float | None = None) -> None:
+            moves.append((x, y, z))
 
-    def fake_photo() -> None:
-        photos.append(None)
+        def take_photo(self) -> None:
+            photos.append(None)
 
-    monkeypatch.setattr(path_handler.farmbot.backend, "move", fake_move)
-    monkeypatch.setattr(path_handler.farmbot.backend, "take_photo", fake_photo)
+        def get_xyz(self) -> dict[str, float]:
+            return {"x": 40.0, "y": 50.0, "z": 60.0}
+
+    monkeypatch.setattr("watering_service.get_backend", _StubBackend)
 
     action = Action(
         kind="move_path",

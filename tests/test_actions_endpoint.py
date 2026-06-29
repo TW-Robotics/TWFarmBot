@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from farmbot_client import FarmBotConnectionError
+from farmbot_serial import FarmduinoConnectionError
 from safety_service import UnsafeActionError
 from twfarmbot_api_server.app import create_app
 from twfarmbot_core.actions import ActionRegistry
@@ -47,18 +47,18 @@ def test_post_action_returns_400_for_unsafe_action(
     assert "too dangerous" in r.json()["detail"]
 
 
-def test_post_action_returns_502_on_farmbot_connection_error(
+def test_post_action_returns_502_on_farmduino_connection_error(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def explode(action: Action) -> Action:
-        raise FarmBotConnectionError("broker down")
+        raise FarmduinoConnectionError("port missing")
 
     monkeypatch.setattr(client.app.state.registry, "dispatch", explode)  # type: ignore[attr-defined]
     r = client.post("/actions", json={"kind": "noop", "params": {}})
     assert r.status_code == 502
     detail = r.json()["detail"]
-    assert "FarmBot not connected" in detail
-    assert "broker down" in detail
+    assert "Farmduino not connected" in detail
+    assert "port missing" in detail
 
 
 def test_post_action_returns_500_with_real_error_message(

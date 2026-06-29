@@ -4,7 +4,7 @@ HTTP transport only. Action dispatch logic lives in ``core.actions`` and
 is shared with apps/worker (see docs/architecture.md).
 
 The api_server is the canonical entry point for the whole system, so it
-connects to the FarmBot on startup (see ``connect_to_farmbot``) and
+connects to the Farmduino on startup (see ``connect_to_farmduino``) and
 surfaces the live status via ``GET /health``.
 """
 
@@ -17,11 +17,11 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Thread
 from typing import Any
 
+from farmbot_serial import FarmduinoConnectionError
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from farmbot_client import FarmBotConnectionError
 from safety_service import UnsafeActionError, validate
 from twfarmbot_api_server.handlers import register_default_handlers
 from planning_service.config import load_config
@@ -32,6 +32,7 @@ from twfarmbot_core.actions import (
 )
 from twfarmbot_core.domain import Action
 from twfarmbot_core.logging import configure_logging
+from watering_service import get_backend
 
 log = logging.getLogger("twfarmbot.api_server")
 
@@ -163,10 +164,10 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(err)) from err
         except UnsafeActionError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
-        except FarmBotConnectionError as err:
+        except FarmduinoConnectionError as err:
             raise HTTPException(
                 status_code=502,
-                detail=f"FarmBot not connected: {err}",
+                detail=f"Farmduino not connected: {err}",
             ) from err
         except Exception as err:  # noqa: BLE001 — surface real cause to the UI
             log.exception("action failed kind=%s params=%s", action.kind, action.params)
@@ -360,7 +361,8 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                     yield f"data: {json.dumps(event)}\n\n"
             except Exception as err:  # noqa: BLE001
                 log.exception("chat stream failed")
-                yield f"data: {json.dumps({'type': 'error', 'error': f'{type(err).__name__}: {err}'})}\n\n"
+                error_payload = {"type": "error", "error": f"{type(err).__name__}: {err}"}
+                yield f"data: {json.dumps(error_payload)}\n\n"
 
         return StreamingResponse(
             event_generator(),
@@ -386,20 +388,17 @@ def _dispatch_queued(registry: ActionRegistry, action: Action) -> None:
 def _world_snapshot() -> Any:
     """Build a world-model snapshot including the last known robot position."""
     from spatial_service import get_snapshot
-    from watering_service.backends import farmbot
 
     try:
-        xyz = farmbot.backend.get_xyz()
+        xyz = get_backend().get_xyz()
     except Exception:  # noqa: BLE001
         xyz = None
     return get_snapshot(xyz)
 
 
 def _refresh_position() -> None:
-    from watering_service.backends import farmbot
-
     try:
-        farmbot.backend.refresh_xyz()
+        get_backend().refresh_xyz()
     except Exception:  # noqa: BLE001
         log.warning("background position refresh failed", exc_info=True)
 
@@ -421,8 +420,8 @@ def _default_registry() -> ActionRegistry:
     return r
 
 
-def connect_to_farmbot(required: bool = True) -> str:
-    """Eager-connect to the FarmBot at server boot.
+def connect_to_farmduino(required: bool = True) -> str:
+    """Eager-connect to the Farmduino at server boot.
 
     Returns a short status string (``"connected"`` / ``"skipped"`` /
     ``"failed: <reason>"``) and stashes it on ``app.state.farmbot_status``
@@ -434,29 +433,27 @@ def connect_to_farmbot(required: bool = True) -> str:
     with a dead upstream.
     """
     if not required and os.getenv("FARMBOT_REQUIRED", "1") == "0":
-        log.warning("FarmBot connection skipped (FARMBOT_REQUIRED=0)")
+        log.warning("Farmduino connection skipped (FARMBOT_REQUIRED=0)")
         app.state.farmbot_status = "skipped"
         return "skipped"
 
-    log.info("connecting to FarmBot (startup probe)…")
+    log.info("connecting to Farmduino (startup probe)…")
     try:
-        from farmbot_gateway import get_farmbot
-
-        get_farmbot()
-    except FarmBotConnectionError as err:
+        get_backend().connect()
+    except FarmduinoConnectionError as err:
         cause = type(err.__cause__).__name__ if err.__cause__ else "?"
         status = f"failed: {err} (cause: {cause})"
         app.state.farmbot_status = status
-        log.error("FarmBot startup connect failed: %s", err)
+        log.error("Farmduino startup connect failed: %s", err)
         if required:
             raise SystemExit(
-                f"\nFATAL: could not connect to FarmBot at boot.\n  {status}\n"
-                f"Fix credentials/network, or set FARMBOT_REQUIRED=0 to boot anyway.\n"
+                f"\nFATAL: could not connect to Farmduino at boot.\n  {status}\n"
+                f"Check the USB cable and serial port, or set FARMBOT_REQUIRED=0 to boot anyway.\n"
             ) from err
         return status
 
     app.state.farmbot_status = "connected"
-    log.info("FarmBot connected")
+    log.info("Farmduino connected")
     return "connected"
 
 
@@ -473,7 +470,7 @@ def main() -> None:
         settings.env,
         app.state.registry.kinds(),
     )
-    connect_to_farmbot(required=True)
+    connect_to_farmduino(required=True)
     import uvicorn
 
     uvicorn.run("twfarmbot_api_server.app:app", host="0.0.0.0", port=8000, reload=False)

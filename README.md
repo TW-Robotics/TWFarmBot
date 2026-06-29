@@ -20,7 +20,7 @@ FarmBot implementation at UAS Technikum Wien — an open research platform for a
 
 ## What is TWFarmBot?
 
-TWFarmBot is a modular, service-oriented control system for a [FarmBot](https://farm.bot/) research installation. It connects the physical robot to modern AI services — computer vision, large-language-model planning, sensor fusion and safety validation — while keeping student projects and experiments isolated from core infrastructure.
+TWFarmBot is a modular, service-oriented control system for a [FarmBot](https://farm.bot/) research installation. The Pi talks directly to the stock Farmduino firmware over USB serial — no cloud account, MQTT broker, or WiFi credentials required. On top of that local hardware layer it adds computer vision, large-language-model planning, sensor fusion and safety validation, while keeping student projects and experiments isolated from core infrastructure.
 
 The repository is a **monorepo** split into apps, services, shared core libraries, student projects and reproducible experiments.
 
@@ -32,7 +32,7 @@ This is a [uv](https://docs.astral.sh/uv/) workspace. After cloning:
 # Install all packages and create the virtual environment
 uv sync
 
-# Start the API server
+# Start the API server (connects to /dev/ttyACM0 by default)
 uv run twfarmbot-api
 
 # In another terminal, start the dashboard
@@ -43,6 +43,12 @@ uv run resireg-server
 ```
 
 Open the UI at `http://localhost:8501`, the API docs at `http://localhost:8000/docs`, and the ReSiReg server at `http://localhost:8080`.
+
+To run the API without a live bot (UI-only mode):
+
+```bash
+FARMBOT_REQUIRED=0 uv run twfarmbot-api
+```
 
 ## Running as services (auto-start + auto-restart)
 
@@ -76,6 +82,21 @@ Each service restarts automatically on failure. To disable auto-start on boot:
 systemctl --user disable twfarmbot-resireg twfarmbot-api twfarmbot-ui
 ```
 
+## Hardware smoke test
+
+With the Farmduino connected:
+
+```bash
+# Read-only checks (position, endstops, firmware params)
+PYTHONPATH= uv run python scripts/test_farmduino_local.py
+
+# Home all axes (only when the bed is clear)
+PYTHONPATH= uv run python scripts/test_farmduino_local.py --home
+
+# Move 10 mm up in Z
+PYTHONPATH= uv run python scripts/test_farmduino_local.py --move 0 0 10
+```
+
 ## Continuous Integration
 
 Every push and pull request is checked by GitHub Actions:
@@ -107,33 +128,34 @@ uv run pytest tests/ -q
 | --- | --- |
 | `apps/` | Runnable applications: `ui` (Streamlit), `api_server` (FastAPI), `worker` (background jobs) |
 | `core/` | Shared primitives: `Action`, `Point3D`, `GardenWorld`, config, logging, events |
-| `services/` | One service per concern, e.g. hardware gateway, watering, vision, planning, spatial, safety |
+| `services/` | One service per concern: safety, watering, planning, spatial |
 | `projects/` | Isolated student / research projects |
 | `experiments/` | Reproducible evaluations with their own configs and outputs |
-| `libs/` | Reusable, framework-agnostic utilities (geometry, ML helpers, FarmBot client) |
+| `libs/` | Reusable utilities: `farmbot_serial` (USB-serial driver), `ml_utils` |
 | `tests/` | Cross-cutting and integration tests (unit tests live next to the code) |
 | `configs/` | YAML/JSON environment, robot and sensor configuration |
 | `docs/` | Architecture, ADRs and onboarding guides |
+| `scripts/` | Operational helpers: systemd install, smoke tests, start/stop/restart |
 
 See [`docs/architecture.md`](docs/architecture.md) for the full system design, action flow and how to add a new service or handler.
 
 ## Design principles
 
-1. **Only `services/farmbot_gateway/` talks to the FarmBot hardware.**  
-   Everything else goes through the gateway.
-2. **`apps/` orchestrates, `services/` decides, `libs/` computes.**  
-   Keep I/O in apps, domain logic in services, pure helpers in libs.
-3. **`core/` defines the shared vocabulary.**  
+1. **Only `libs/farmbot_serial/` talks to the Farmduino.**
+   The `services/watering_service/backends/direct_serial.py` backend is the single point that opens `/dev/ttyACM0`.
+2. **`apps/` orchestrates, `services/` decides, `libs/` computes.**
+   Keep I/O in apps, domain logic in services, pure helpers and the serial driver in libs.
+3. **`core/` defines the shared vocabulary.**
    `Action`, `Point3D`, `GardenEntity`, `GardenWorld`, `Event`, … live here.
-4. **`safety_service` gates every real-world action.**  
+4. **`safety_service` gates every real-world action.**
    Watering, moving, tooling — all validated before execution.
-5. **Student projects stay isolated in `projects/`.**  
+5. **Student projects stay isolated in `projects/`.**
    They import from `core/` and `libs/` and call public service APIs, but never modify shared code.
-6. **Experiments are reproducible.**  
+6. **Experiments are reproducible.**
    Config-driven runs under `experiments/`, results in their own `outputs/` folders.
-7. **Configuration is data, not code.**  
+7. **Configuration is data, not code.**
    Robot coordinates, thresholds, experiment params live in `configs/`.
-8. **Tests live with the code.**  
+8. **Tests live with the code.**
    Unit tests sit next to modules; cross-service tests live in `tests/`.
 
 ## Subpackages
@@ -143,7 +165,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design, a
 | `core/` | `twfarmbot-core` | Shared domain, config, logging, events |
 | `apps/ui/` | `twfarmbot-ui` | Streamlit dashboard |
 | `apps/api_server/` | `twfarmbot-api-server` | FastAPI HTTP API |
-| `apps/worker/` | `twfarmbot-worker` | Background jobs / experiments |
+| `apps/worker/` | `twfarmbot-worker` | Background jobs / experiments (skeleton) |
 
 Each subpackage has its own `pyproject.toml` and can be developed independently.
 

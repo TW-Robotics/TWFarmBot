@@ -7,6 +7,8 @@ requires-python = ">=3.10"
 dependencies = [
     "twfarmbot-core",
     "twfarmbot-safety-service",
+    "farmbot-serial",
+    "opencv-python-headless",
     "pyyaml>=6.0",
 ] 
 

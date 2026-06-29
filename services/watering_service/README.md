@@ -1,4 +1,5 @@
 # watering_service
 
-Irrigation logic. Every action goes through `safety_service` before reaching
-`farmbot_gateway`.
+Irrigation and hardware abstraction layer. Every action goes through
+`safety_service` before reaching the active `RobotBackend` (default:
+`DirectSerialBackend` talking to the Farmduino over USB serial).

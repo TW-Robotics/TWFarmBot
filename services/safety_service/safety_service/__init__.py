@@ -2,7 +2,7 @@
 
 Per the README: *Any code path that ultimately moves the FarmBot (watering,
 weeding, tool changes, …) must pass through safety_service before it reaches
-farmbot_gateway.*
+the robot backend.*
 
 Validators are registered by action kind. Adding a new safety rule is now a
 single line: ``register("my_kind", my_validator)``.

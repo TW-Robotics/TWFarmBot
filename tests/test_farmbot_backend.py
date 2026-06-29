@@ -1,164 +1,179 @@
-"""Tests for the real FarmBot backend + handler arg translation.
-
-The backend is tested with a mocked ``farmbot_gateway.get_farmbot`` so
-no real broker is needed. Handlers are tested by stubbing
-``watering_service.backends.farmbot.backend``.
-"""
+"""Tests for the direct serial backend + handler arg translation."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from twfarmbot_core.domain import Action
-from watering_service.backends import farmbot
+from watering_service.backends.direct_serial import DirectSerialBackend
 
 
-# ---------- helpers --------------------------------------------------------
-
-
-class _FakeBot:
-    """Mimics ``farmbot.Farmbot`` — every method records its call and returns."""
+class _FakeSerial:
+    """Stand-in for ``FarmduinoSerial`` that records calls."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.connected = True
+        self._position = {"x": 0.0, "y": 0.0, "z": 0.0}
 
-    def __getattr__(self, name: str):
-        def _call(*args, **kwargs):
-            self.calls.append((name, {"args": args, **kwargs}))
-            return {"ok": True, "method": name, "args": args, "kwargs": kwargs}
+    def connect(self) -> None:
+        self.calls.append(("connect", {}))
 
-        return _call
+    def move(
+        self,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        speed_mm_s: float | None = None,
+    ) -> None:
+        kwargs: dict[str, Any] = {"speed_mm_s": speed_mm_s}
+        if x is not None:
+            kwargs["x"] = x
+        if y is not None:
+            kwargs["y"] = y
+        if z is not None:
+            kwargs["z"] = z
+        self.calls.append(("move", kwargs))
+        for axis in ("x", "y", "z"):
+            if axis in kwargs:
+                self._position[axis] = kwargs[axis]
+
+    def home(self, axis: str = "all") -> None:
+        self.calls.append(("home", {"axis": axis}))
+
+    def set_home(self, axis: str = "all") -> None:
+        self.calls.append(("set_home", {"axis": axis}))
+
+    def read_pin(self, pin: int, mode: str = "digital") -> int:
+        self.calls.append(("read_pin", {"pin": pin, "mode": mode}))
+        return 42
+
+    def write_pin(self, pin: int, value: int, mode: str = "digital") -> None:
+        self.calls.append(("write_pin", {"pin": pin, "value": value, "mode": mode}))
+
+    def write_pin_timed(
+        self, pin: int, value: int, seconds: float, mode: str = "digital"
+    ) -> None:
+        self.calls.append(
+            ("write_pin_timed", {"pin": pin, "value": value, "seconds": seconds, "mode": mode})
+        )
+
+    def get_position(self) -> dict[str, float]:
+        self.calls.append(("get_position", {}))
+        return dict(self._position)
+
+    def get_endstops(self) -> dict[str, tuple[int, int]]:
+        self.calls.append(("get_endstops", {}))
+        return {"x": (0, 0), "y": (0, 0), "z": (0, 0)}
+
+    def e_stop(self) -> None:
+        self.calls.append(("e_stop", {}))
+
+    def abort(self) -> None:
+        self.calls.append(("abort", {}))
+
+    def approve_config(self) -> None:
+        self.calls.append(("approve_config", {}))
+
+
+def _fake_serial(backend: DirectSerialBackend) -> Any:
+    """Return the monkey-patched fake serial object attached to ``backend``."""
+    return cast(Any, backend._ensure_serial())
 
 
 @pytest.fixture
-def fake_bot(monkeypatch: pytest.MonkeyPatch) -> _FakeBot:
-    bot = _FakeBot()
-    # Patch the symbol the backend looks up at call time
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", lambda: bot)
-    return bot
+def backend(monkeypatch: pytest.MonkeyPatch) -> DirectSerialBackend:
+    """Fresh DirectSerialBackend wired to a recording fake serial object."""
+    fake_serial = _FakeSerial()
+    monkeypatch.setattr(
+        "watering_service.backends.direct_serial.DirectSerialBackend._ensure_serial",
+        lambda self: fake_serial,
+    )
+    return DirectSerialBackend()
 
 
-def _new_backend(monkeypatch: pytest.MonkeyPatch, pump_pin: int | None = None) -> Any:
-    """Create a fresh FarmBotBackend wired to fake_bot + given pump pin."""
-    if pump_pin is not None:
-        monkeypatch.setenv("FARMBOT_PUMP_PIN", str(pump_pin))
-    from watering_service.backends import farmbot
-
-    # Force a fresh instance so the singleton doesn't shadow test pins
-    fb = farmbot.FarmBotBackend()
-    return fb
+# ----------------------------------------------------------------------- backend
 
 
-# ---------- backend: water -------------------------------------------------
+def test_backend_water_uses_timed_pin(backend: DirectSerialBackend) -> None:
+    backend.water(0.5)
+    methods = [c[0] for c in _fake_serial(backend).calls]
+    assert "write_pin_timed" in methods
+    call = [c for c in _fake_serial(backend).calls if c[0] == "write_pin_timed"][0]
+    assert call[1]["pin"] == 8
+    assert call[1]["value"] == 1
+    assert call[1]["seconds"] == 0.5
 
 
-def test_backend_water_opens_then_closes_pin(fake_bot, monkeypatch):
-    backend = _new_backend(monkeypatch, pump_pin=13)
-    backend.water(0.01)
-    methods = [m for m, _ in fake_bot.calls]
-    assert methods[0] == "write_pin"
-    assert fake_bot.calls[0][1]["pin_number"] == 13
-    assert fake_bot.calls[0][1]["value"] == 1
-    assert methods[-1] == "write_pin"
-    assert fake_bot.calls[-1][1]["value"] == 0
-
-
-# ---------- backend: primitives -------------------------------------------
-
-
-def test_backend_move(fake_bot, monkeypatch):
-    backend = _new_backend(monkeypatch, {})
+def test_backend_move_translates_args(backend: DirectSerialBackend) -> None:
     backend.move(100.0, 200.0, 50.0)
-    method, kwargs = fake_bot.calls[0]
-    assert method == "move"
-    assert kwargs["x"] == 100.0
-    assert kwargs["y"] == 200.0
-    assert kwargs["z"] == 50.0
+    call = _fake_serial(backend).calls[0]
+    assert call[0] == "move"
+    assert call[1]["x"] == 100.0
+    assert call[1]["y"] == 200.0
+    assert call[1]["z"] == 50.0
 
 
-def test_backend_mount_and_dismount(fake_bot, monkeypatch):
-    backend = _new_backend(monkeypatch, {})
-    backend.mount_tool("weeder")
-    backend.dismount_tool()
-    methods = [m for m, _ in fake_bot.calls]
-    assert "mount_tool" in methods
-    assert "dismount_tool" in methods
+def test_backend_find_home(backend: DirectSerialBackend) -> None:
+    backend.find_home("all")
+    assert _fake_serial(backend).calls[0] == ("home", {"axis": "all"})
 
 
-def test_backend_e_stop(fake_bot, monkeypatch):
-    backend = _new_backend(monkeypatch, {})
+def test_backend_read_pin_returns_value(backend: DirectSerialBackend) -> None:
+    assert backend.read_pin(14, "analog") == 42
+
+
+def test_backend_write_pin_with_seconds_uses_timed(
+    backend: DirectSerialBackend,
+) -> None:
+    backend.write_pin(8, 1, "digital", seconds=2.0)
+    methods = [c[0] for c in _fake_serial(backend).calls]
+    assert "write_pin_timed" in methods
+
+
+def test_backend_write_pin_without_seconds_uses_plain(
+    backend: DirectSerialBackend,
+) -> None:
+    backend.write_pin(8, 0, "digital")
+    methods = [c[0] for c in _fake_serial(backend).calls]
+    assert "write_pin" in methods
+    assert "write_pin_timed" not in methods
+
+
+def test_backend_e_stop(backend: DirectSerialBackend) -> None:
     backend.e_stop()
-    assert any(m == "e_stop" for m, _ in fake_bot.calls)
+    assert _fake_serial(backend).calls[0] == ("e_stop", {})
 
 
-def test_backend_take_photo(fake_bot, monkeypatch):
-    backend = _new_backend(monkeypatch, {})
-    backend.take_photo()
-    assert any(m == "take_photo" for m, _ in fake_bot.calls)
+def test_backend_get_xyz_caches_position(backend: DirectSerialBackend) -> None:
+    _fake_serial(backend)._position = {"x": 1.0, "y": 2.0, "z": 3.0}
+    assert backend.get_xyz() == {"x": 1.0, "y": 2.0, "z": 3.0}
+    assert _fake_serial(backend).calls[0] == ("get_position", {})
 
 
-def test_backend_images_are_cached(monkeypatch):
-    calls = []
-
-    class _Info:
-        def api_get(self, endpoint, data_print=False):
-            calls.append(endpoint)
-            return [
-                {"id": 1, "created_at": "2026-01-01", "attachment_url": "old"},
-                {"id": 2, "created_at": "2026-01-02", "attachment_url": "new"},
-            ]
-
-    class _Bot:
-        info = _Info()
-
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", lambda: _Bot())
-    backend = farmbot.FarmBotBackend()
-
-    assert backend.get_images(1)[0]["id"] == 2
-    assert backend.get_images(1)[0]["id"] == 2
-    assert calls == ["images"]
+# ----------------------------------------------------------------------- handlers
 
 
-def test_backend_image_refresh_merges_new_records(monkeypatch):
-    responses = [
-        [{"id": 1, "created_at": "2026-01-01", "attachment_url": "old"}],
-        [{"id": 2, "created_at": "2026-01-02", "attachment_url": "new"}],
-    ]
-
-    class _Info:
-        def api_get(self, endpoint, data_print=False):
-            return responses.pop(0)
-
-    class _Bot:
-        info = _Info()
-
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", lambda: _Bot())
-    backend = farmbot.FarmBotBackend()
-    assert [image["id"] for image in backend.get_images()] == [1]
-
-    backend._images_cached_at -= 11
-    assert [image["id"] for image in backend.get_images(refresh=True)] == [2, 1]
-
-
-# ---------- handlers -------------------------------------------------------
-
-
-def test_handler_water_translates_args(monkeypatch):
+def test_handler_water_translates_args(monkeypatch: pytest.MonkeyPatch) -> None:
     from twfarmbot_api_server.handlers import watering as h
 
     seen = []
-    monkeypatch.setattr("watering_service.water", lambda seconds: seen.append(seconds))
+
+    class _StubBackend:
+        def water(self, seconds):
+            seen.append(seconds)
+
+    monkeypatch.setattr("watering_service.get_backend", lambda: _StubBackend())
 
     out = h.handle_water(Action(kind="water", params={"seconds": 7}))
     assert seen == [7.0]
     assert out.kind == "water"
 
 
-def test_handler_move_translates_args(monkeypatch):
+def test_handler_move_translates_args(monkeypatch: pytest.MonkeyPatch) -> None:
     from twfarmbot_api_server.handlers import move as h
-    from watering_service.backends import farmbot
 
     seen = []
 
@@ -166,30 +181,28 @@ def test_handler_move_translates_args(monkeypatch):
         def move(self, x, y, z, speed=None):
             seen.append((x, y, z, speed))
 
-    monkeypatch.setattr(farmbot, "backend", _StubBackend())
+    monkeypatch.setattr("watering_service.get_backend", lambda: _StubBackend())
 
     h.handle_move(Action(kind="move", params={"x": 100, "y": 200, "z": 50}))
     h.handle_move(Action(kind="move", params={"x": 1, "y": 2, "z": 3, "speed": 50}))
     assert seen == [(100.0, 200.0, 50.0, None), (1.0, 2.0, 3.0, 50.0)]
 
 
-def test_handler_read_pin_returns_value_in_params(monkeypatch):
+def test_handler_read_pin_returns_value_in_params(monkeypatch: pytest.MonkeyPatch) -> None:
     from twfarmbot_api_server.handlers import pin as h
-    from watering_service.backends import farmbot
 
     class _StubBackend:
         def read_pin(self, pin, mode="digital"):
             return 42
 
-    monkeypatch.setattr(farmbot, "backend", _StubBackend())
+    monkeypatch.setattr("watering_service.get_backend", lambda: _StubBackend())
 
     out = h.handle_read_pin(Action(kind="read_pin", params={"pin": 13}))
     assert out.params == {"pin": 13, "mode": "digital", "value": 42}
 
 
-def test_handler_send_message_translates(monkeypatch):
+def test_handler_send_message_translates(monkeypatch: pytest.MonkeyPatch) -> None:
     from twfarmbot_api_server.handlers import feedback as h
-    from watering_service.backends import farmbot
 
     seen = []
 
@@ -197,7 +210,7 @@ def test_handler_send_message_translates(monkeypatch):
         def send_message(self, message, message_type="info", channels=None):
             seen.append((message, message_type, channels))
 
-    monkeypatch.setattr(farmbot, "backend", _StubBackend())
+    monkeypatch.setattr("watering_service.get_backend", lambda: _StubBackend())
 
     h.handle_send_message(Action(kind="send_message", params={"message": "hi"}))
     h.handle_send_message(
@@ -206,11 +219,8 @@ def test_handler_send_message_translates(monkeypatch):
     assert seen == [("hi", "info", None), ("warn", "warn", None)]
 
 
-def test_handler_e_stop_calls_backend(monkeypatch):
+def test_handler_e_stop_calls_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     from twfarmbot_api_server.handlers import feedback as h
-
-    importlib = __import__("importlib")
-    importlib.reload(h)
 
     called = []
 
@@ -218,17 +228,14 @@ def test_handler_e_stop_calls_backend(monkeypatch):
         def e_stop(self):
             called.append(True)
 
-    monkeypatch.setattr(farmbot, "backend", _StubBackend())
+    monkeypatch.setattr("watering_service.get_backend", lambda: _StubBackend())
 
     h.handle_e_stop(Action(kind="e_stop", params={}))
     assert called == [True]
 
 
-def test_handler_find_home_calls_backend(monkeypatch):
+def test_handler_find_home_calls_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     from twfarmbot_api_server.handlers import find_home as h
-
-    importlib = __import__("importlib")
-    importlib.reload(h)
 
     called = []
 
@@ -236,13 +243,13 @@ def test_handler_find_home_calls_backend(monkeypatch):
         def find_home(self):
             called.append(True)
 
-    monkeypatch.setattr(farmbot, "backend", _StubBackend())
+    monkeypatch.setattr("watering_service.get_backend", lambda: _StubBackend())
 
     h.handle_find_home(Action(kind="find_home", params={}))
     assert called == [True]
 
 
-def test_handler_take_photo_calls_backend(monkeypatch):
+def test_handler_take_photo_calls_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     from twfarmbot_api_server.handlers import camera as h
 
     called = []
@@ -251,15 +258,15 @@ def test_handler_take_photo_calls_backend(monkeypatch):
         def take_photo(self):
             called.append(True)
 
-    monkeypatch.setattr(farmbot, "backend", _StubBackend())
+    monkeypatch.setattr("watering_service.get_backend", lambda: _StubBackend())
     h.handle_take_photo(Action(kind="take_photo", params={}))
     assert called == [True]
 
 
-# ---------- safety: move rule ----------------------------------------------
+# ----------------------------------------------------------------------- safety
 
 
-def test_safety_rejects_move_outside_bounds():
+def test_safety_rejects_move_outside_bounds() -> None:
     from safety_service import SafetyLimits, UnsafeActionError, validate
 
     limits = SafetyLimits(max_axis_mm={"x": 1000, "y": 1000, "z": 1000})
@@ -267,7 +274,7 @@ def test_safety_rejects_move_outside_bounds():
         validate(Action(kind="move", params={"x": 9999, "y": 0, "z": 0}), limits=limits)
 
 
-def test_safety_accepts_move_within_bounds():
+def test_safety_accepts_move_within_bounds() -> None:
     from safety_service import SafetyLimits, validate
 
     limits = SafetyLimits(max_axis_mm={"x": 1000, "y": 1000, "z": 1000})

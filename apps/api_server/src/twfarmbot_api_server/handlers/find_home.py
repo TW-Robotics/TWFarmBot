@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import watering_service
 from twfarmbot_core.domain import Action
-
-from watering_service.backends import farmbot
 
 
 def handle_find_home(action: Action) -> Action:
-    farmbot.backend.find_home()
+    backend = watering_service.get_backend()
+    backend.find_home()
     return action

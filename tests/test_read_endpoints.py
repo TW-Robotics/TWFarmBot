@@ -9,14 +9,12 @@ import twfarmbot_api_server.read as read_module
 from twfarmbot_api_server.app import app
 
 
-class _StubBot:
-    def read_status(self, path=None):
-        return {"connected": True, "path": path}
-
-
 class _StubBackend:
     def get_xyz(self):
         return {"x": 100.0, "y": 200.0, "z": 50.0}
+
+    def get_status(self):
+        return {"connected": True}
 
     def read_pin(self, pin, mode="digital"):
         return 42 if pin == 13 else 0
@@ -34,13 +32,10 @@ class _StubBackend:
             }
         ][:limit]
 
-    def _bot(self):
-        return _StubBot()
-
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setattr(read_module.farmbot, "backend", _StubBackend())
+    monkeypatch.setattr(read_module, "get_backend", lambda: _StubBackend())
     return TestClient(app)
 
 
@@ -50,18 +45,11 @@ def test_get_position(client: TestClient) -> None:
     assert r.json() == {"xyz": {"x": 100.0, "y": 200.0, "z": 50.0}}
 
 
-def test_get_status_default_path(client: TestClient) -> None:
+def test_get_status(client: TestClient) -> None:
     r = client.get("/status")
     assert r.status_code == 200
     body = r.json()
-    assert body["path"] is None
     assert body["state"]["connected"] is True
-
-
-def test_get_status_with_path(client: TestClient) -> None:
-    r = client.get("/status", params={"path": "position"})
-    assert r.status_code == 200
-    assert r.json()["path"] == "position"
 
 
 def test_get_pin(client: TestClient) -> None:
@@ -93,12 +81,12 @@ def test_read_error_returns_502(
 ) -> None:
     class _BrokenBackend:
         def get_xyz(self):
-            raise RuntimeError("broker down")
+            raise RuntimeError("serial down")
 
-    monkeypatch.setattr(read_module.farmbot, "backend", _BrokenBackend())
+    monkeypatch.setattr(read_module, "get_backend", lambda: _BrokenBackend())
     r = client.get("/position")
     assert r.status_code == 502
-    assert "broker down" in r.json()["detail"]
+    assert "serial down" in r.json()["detail"]
 
 
 def test_get_pins(client: TestClient) -> None:

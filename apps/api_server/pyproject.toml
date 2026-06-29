@@ -9,6 +9,7 @@ dependencies = [
     "twfarmbot-spatial-service",
     "twfarmbot-safety-service",
     "twfarmbot-watering-service",
+    "farmbot-serial",
     "twfarmbot-planning-service",
     "fastapi",
     "uvicorn",

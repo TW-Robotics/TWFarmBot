@@ -5,12 +5,21 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from farmbot_client import FarmBotConnectionError
+from farmbot_serial import FarmduinoConnectionError
 from twfarmbot_api_server import app as app_module
 from twfarmbot_api_server.app import (
     create_app,
-    connect_to_farmbot,
+    connect_to_farmduino,
 )
+
+
+class _FakeBackend:
+    def __init__(self, raise_on_connect: bool = False) -> None:
+        self.raise_on_connect = raise_on_connect
+
+    def connect(self) -> None:
+        if self.raise_on_connect:
+            raise FarmduinoConnectionError("nope") from RuntimeError("port missing")
 
 
 @pytest.fixture
@@ -27,63 +36,64 @@ def test_health_reports_unknown_farmbot_before_boot(client: TestClient) -> None:
     assert "water" in body["actions"]
 
 
-def test_connect_to_farmbot_marks_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When get_farmbot succeeds, status flips to 'connected'."""
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", object)
-    test_app = create_app()
-    app_module.app = test_app  # so connect_to_farmbot updates the right instance
-    try:
-        status = connect_to_farmbot(required=False)
-        assert status == "connected"
-        assert test_app.state.farmbot_status == "connected"
-    finally:
-        app_module.app = create_app()  # restore for other tests
-
-
-def test_connect_to_farmbot_marks_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Failed connect (non-required) records the failure on state, does not raise."""
-
-    def boom() -> None:
-        raise FarmBotConnectionError("nope") from RuntimeError("auth bad")
-
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", boom)
+def test_connect_to_farmduino_marks_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the backend connects, status flips to 'connected'."""
+    monkeypatch.setattr(
+        "twfarmbot_api_server.app.get_backend", lambda: _FakeBackend()
+    )
     test_app = create_app()
     app_module.app = test_app
     try:
-        status = connect_to_farmbot(required=False)
+        status = connect_to_farmduino(required=False)
+        assert status == "connected"
+        assert test_app.state.farmbot_status == "connected"
+    finally:
+        app_module.app = create_app()
+
+
+def test_connect_to_farmduino_marks_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failed connect (non-required) records the failure on state, does not raise."""
+    monkeypatch.setattr(
+        "twfarmbot_api_server.app.get_backend",
+        lambda: _FakeBackend(raise_on_connect=True),
+    )
+    test_app = create_app()
+    app_module.app = test_app
+    try:
+        status = connect_to_farmduino(required=False)
         assert status.startswith("failed:")
         assert "nope" in test_app.state.farmbot_status
     finally:
         app_module.app = create_app()
 
 
-def test_connect_to_farmbot_required_exits_on_failure(
+def test_connect_to_farmduino_required_exits_on_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def boom() -> None:
-        raise FarmBotConnectionError("nope") from RuntimeError("auth bad")
-
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", boom)
+    monkeypatch.setattr(
+        "twfarmbot_api_server.app.get_backend",
+        lambda: _FakeBackend(raise_on_connect=True),
+    )
     test_app = create_app()
     app_module.app = test_app
     try:
         with pytest.raises(SystemExit) as excinfo:
-            connect_to_farmbot(required=True)
+            connect_to_farmduino(required=True)
         assert "FATAL" in str(excinfo.value)
     finally:
         app_module.app = create_app()
 
 
-def test_connect_to_farmbot_skipped_when_opted_out(
+def test_connect_to_farmduino_skipped_when_opted_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("FARMBOT_REQUIRED", "0")
     test_app = create_app()
     app_module.app = test_app
     try:
-        status = connect_to_farmbot(required=False)
+        status = connect_to_farmduino(required=False)
         assert status == "skipped"
         assert test_app.state.farmbot_status == "skipped"
     finally:

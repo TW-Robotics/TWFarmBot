@@ -21,9 +21,9 @@ DEFAULT_CONFIG = Path(__file__).resolve().parents[3] / "configs" / "dev.yaml"
 def _point(data: Any) -> Point3D:
     """Extract a ``Point3D`` from a dict, list/tuple, or ``Point3D``-like.
 
-    The FarmBot gateway returns ``cached_xyz()`` as ``{x, y, z}`` while the
-    raw ``farmbot-py`` ``bot.get_xyz()`` returns a ``(x, y, z)`` tuple. We
-    accept either so the spatial service works against either backend.
+    The backend returns ``get_xyz()`` as ``{x, y, z}``; legacy formats also
+    accepted a ``(x, y, z)`` tuple. We accept either so the spatial service
+    works against any backend.
     """
     if isinstance(data, Point3D):
         return data

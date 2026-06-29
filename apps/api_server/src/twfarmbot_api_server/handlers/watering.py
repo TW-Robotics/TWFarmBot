@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from twfarmbot_core.domain import Action
-
 import watering_service
+from twfarmbot_core.domain import Action
 
 
 def handle_water(action: Action) -> Action:
     seconds = float(action.params["seconds"])
-    watering_service.water(seconds)
+    backend = watering_service.get_backend()
+    backend.water(seconds)
     return action
