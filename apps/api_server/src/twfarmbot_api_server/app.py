@@ -57,6 +57,10 @@ class PlanPayload(BaseModel):
         default=None,
         description="Optional model override. Uses the configured default if omitted.",
     )
+    provider: str | None = Field(
+        default=None,
+        description="Optional provider override. Uses the configured default if omitted.",
+    )
 
 
 class ChatPayload(BaseModel):
@@ -71,6 +75,10 @@ class ChatPayload(BaseModel):
     model: str | None = Field(
         default=None,
         description="Optional model override. Uses the configured default if omitted.",
+    )
+    provider: str | None = Field(
+        default=None,
+        description="Optional provider override. Uses the configured default if omitted.",
     )
 
 
@@ -128,6 +136,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         cfg = load_config()
         try:
             prov = get_provider(provider or cfg.provider)
+            cfg = prov.configure(cfg)
             models = prov.list_models(cfg)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
@@ -208,6 +217,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 world=world,
                 system_state=system_state,
                 model_name=payload.model,
+                provider_name=payload.provider,
             )
         except PlanError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
@@ -310,6 +320,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 allow_actions=payload.allow_actions,
                 propose_only=True,
                 model_name=payload.model,
+                provider_name=payload.provider,
             )
         except Exception as err:  # noqa: BLE001
             cfg = load_config()
@@ -356,6 +367,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                     allow_actions=payload.allow_actions,
                     propose_only=True,
                     model_name=payload.model,
+                    provider_name=payload.provider,
                 ):
                     yield f"data: {json.dumps(event)}\n\n"
             except Exception as err:  # noqa: BLE001

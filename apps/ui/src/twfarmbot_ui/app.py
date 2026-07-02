@@ -1647,70 +1647,145 @@ def _render_camera() -> None:
             )
 
 
-def _render_model_picker() -> str | None:
-    """Render provider + model selectors and return the selected model id."""
+def _provider_model_info(provider: str) -> dict[str, Any]:
+    cache = st.session_state.setdefault("assistant_models_cache", {})
+    if provider not in cache:
+        r = client.request("GET", "/models", params={"provider": provider})
+        cache[provider] = (
+            r.body
+            if r.ok and isinstance(r.body, dict)
+            else {"models": [], "error": r.error_message()}
+        )
+    return cache.get(provider, {})
+
+
+def _provider_models(provider: str) -> list[str]:
+    info = _provider_model_info(provider)
+    return list(info.get("models", []) or [])
+
+
+def _select_model(
+    provider: str,
+    *,
+    key: str,
+    current: str | None = None,
+) -> str | None:
+    models = _provider_models(provider)
+    if models:
+        value = current or st.session_state.get(key)
+        preferred = [
+            "gemma4:e4b",
+            "openai/gpt-4o-mini",
+            "openai/gpt-4o",
+            "anthropic/claude-3.5-sonnet",
+            "anthropic/claude-3.5-haiku",
+            "deepseek/deepseek-v4-flash",
+        ]
+        if value not in models:
+            value = next((m for m in preferred if m in models), models[0])
+            st.session_state[key] = value
+        return st.selectbox("Model", models, index=models.index(value), key=key)
+    info = _provider_model_info(provider)
+    error = info.get("error")
+    if error:
+        st.caption(f"No models returned: {error}")
+    else:
+        st.caption("No models returned by this provider.")
+    return (
+        st.text_input(
+            "Model",
+            value=current or "",
+            key=f"{key}_manual",
+            placeholder="Exact model id",
+        )
+        or None
+    )
+
+
+def _compare_options(
+    providers: list[str], primary: dict[str, Any] | None = None
+) -> list[str]:
+    options: list[str] = []
+    for provider in providers:
+        for model in _provider_models(provider):
+            options.append(f"{provider}::{model}")
+    if primary and primary.get("provider") and primary.get("model"):
+        primary_option = f"{primary['provider']}::{primary['model']}"
+        if primary_option not in options:
+            options.insert(0, primary_option)
+    return options
+
+
+def _slot_from_option(option: str) -> dict[str, str]:
+    provider, model = option.split("::", 1)
+    return {"provider": provider, "model": model}
+
+
+def _option_label(option: str) -> str:
+    return _model_label(_slot_from_option(option))
+
+
+def _render_model_picker() -> dict[str, Any]:
+    """Render provider/model controls and return the selected comparison slots."""
     if "assistant_providers" not in st.session_state:
         r = client.request("GET", "/providers")
         if r.ok and isinstance(r.body, dict):
             st.session_state["assistant_providers"] = r.body.get("providers", [])
             st.session_state["assistant_provider"] = r.body.get("current", "openrouter")
         else:
-            st.session_state["assistant_providers"] = ["openrouter", "local"]
+            st.session_state["assistant_providers"] = ["openrouter", "local", "ollama"]
             st.session_state["assistant_provider"] = "openrouter"
 
     providers = st.session_state["assistant_providers"]
-    provider_col, model_col = st.columns([1, 2])
+    provider_col, model_col, compare_col = st.columns(
+        [1, 2, 0.75], gap="medium", vertical_alignment="bottom"
+    )
     with provider_col:
         provider = st.selectbox(
             "Provider",
             providers,
             key="assistant_provider",
         )
-
-    cache = st.session_state.setdefault("assistant_models_cache", {})
-    if provider not in cache:
-        r = client.request("GET", "/models", params={"provider": provider})
-        if r.ok and isinstance(r.body, dict):
-            cache[provider] = r.body.get("models", [])
-            if not st.session_state.get("assistant_model"):
-                st.session_state["assistant_model"] = r.body.get("current")
-        else:
-            cache[provider] = []
-
-    models = cache.get(provider, [])
-    selected_model: str | None = None
     with model_col:
-        if models:
-            current = st.session_state.get("assistant_model")
-            # Avoid defaulting to the first option from a raw provider list,
-            # which may be a meta/safeguard model that cannot chat.
-            if current not in models:
-                preferred = [
-                    "openai/gpt-4o-mini",
-                    "openai/gpt-4o",
-                    "anthropic/claude-3.5-sonnet",
-                    "anthropic/claude-3.5-haiku",
-                    "deepseek/deepseek-v4-flash",
-                ]
-                current = next((m for m in preferred if m in models), models[0])
-                st.session_state["assistant_model"] = current
-            index = models.index(current)
-            selected_model = st.selectbox(
-                "Model",
-                models,
-                index=index,
-                key="assistant_model",
+        selected_model = _select_model(provider, key="assistant_model")
+    with compare_col:
+        compare_enabled = st.toggle(
+            "Compare",
+            key="assistant_compare_enabled",
+            width="stretch",
+        )
+
+    slots = [{"provider": provider, "model": selected_model}]
+    if compare_enabled:
+        primary_slot = {"provider": provider, "model": selected_model}
+        options = _compare_options(providers, primary_slot)
+        primary = f"{provider}::{selected_model}" if selected_model else None
+        default = st.session_state.get("assistant_compare_models")
+        if not default:
+            default = [primary] if primary in options else []
+            default.extend(option for option in options if option not in default)
+            default = default[:2]
+        if options:
+            selected = st.multiselect(
+                "Compare models",
+                options,
+                default=[item for item in default if item in options],
+                format_func=_option_label,
+                key="assistant_compare_models",
+                label_visibility="collapsed",
+                placeholder="Choose models to compare",
             )
+            slots = [_slot_from_option(option) for option in selected]
         else:
-            selected_model = (
-                st.text_input(
-                    "Model",
-                    value=st.session_state.get("assistant_model", ""),
-                    key="assistant_model",
-                )
-                or None
-            )
-    return selected_model
+            st.caption("No comparable models returned by the configured providers.")
+            slots = []
+
+    return {
+        "provider": provider,
+        "model": selected_model,
+        "compare": compare_enabled,
+        "slots": [slot for slot in slots if slot.get("model")],
+    }
 
 
 def _render_assistant() -> None:
@@ -1727,10 +1802,39 @@ def _render_assistant() -> None:
             _persist_session()
             st.rerun()
     _render_session_controls()
-    selected_model = _render_model_picker()
-    st.session_state["assistant_selected_model"] = selected_model
+    selection = _render_model_picker()
+    st.session_state["assistant_selection"] = selection
+    st.session_state["assistant_selected_model"] = selection.get("model")
+    st.session_state["assistant_selected_provider"] = selection.get("provider")
     _render_chat()
     _persist_session()
+
+
+def _model_label(slot: dict[str, Any]) -> str:
+    return f"{slot.get('provider', 'provider')} / {slot.get('model', 'model')}"
+
+
+def _render_comparisons(comparisons: list[dict[str, Any]]) -> None:
+    if not comparisons:
+        st.warning("No comparison models selected.")
+        return
+    for row_start in range(0, len(comparisons), 2):
+        row = comparisons[row_start : row_start + 2]
+        cols = st.columns(len(row))
+        for offset, (col, item) in enumerate(zip(cols, row)):
+            variant = chr(ord("A") + row_start + offset)
+            with col:
+                with st.container(border=True):
+                    st.caption(f"Variant {variant}")
+                    st.markdown(f"**{_model_label(item)}**")
+                    if item.get("error"):
+                        st.error(item["error"])
+                    else:
+                        st.markdown(item.get("response", ""))
+                        metrics = item.get("metrics") or {}
+                        if metrics:
+                            with st.expander("Stats", expanded=False):
+                                st.json(metrics)
 
 
 def _render_chat() -> None:
@@ -1763,6 +1867,9 @@ def _render_chat() -> None:
 
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            comparisons = msg.get("comparisons", [])
+            if comparisons:
+                _render_comparisons(comparisons)
             images = msg.get("images", [])
             if images:
                 cols = st.columns(min(len(images), 3))
@@ -1829,6 +1936,58 @@ def _render_chat() -> None:
             with st.chat_message("user"):
                 st.markdown(prompt)
 
+        selection = st.session_state.get("assistant_selection", {})
+        if selection.get("compare"):
+            comparisons: list[dict[str, Any]] = []
+            with st.chat_message("assistant"):
+                status = st.empty()
+                slots = selection.get("slots", [])
+                if not slots:
+                    st.warning("Select at least one model to compare.")
+                for slot in slots:
+                    label = _model_label(slot)
+                    status.caption(f"Asking {label}...")
+                    r = client.request(
+                        "POST",
+                        "/chat",
+                        json={
+                            "messages": st.session_state["assistant_messages"],
+                            "provider": slot.get("provider"),
+                            "model": slot.get("model"),
+                            "allow_actions": False,
+                        },
+                        timeout=PLAN_TIMEOUT,
+                    )
+                    if r.ok and isinstance(r.body, dict):
+                        comparisons.append(
+                            {
+                                "provider": slot.get("provider"),
+                                "model": slot.get("model"),
+                                "response": str(r.body.get("response", "")),
+                                "tool_calls": r.body.get("tool_calls", []) or [],
+                                "metrics": r.body.get("metrics", {}) or {},
+                            }
+                        )
+                    else:
+                        comparisons.append(
+                            {
+                                "provider": slot.get("provider"),
+                                "model": slot.get("model"),
+                                "error": r.error_message(),
+                            }
+                        )
+                status.empty()
+                _render_comparisons(comparisons)
+            st.session_state["assistant_messages"].append(
+                {
+                    "role": "assistant",
+                    "content": "Model comparison",
+                    "comparisons": comparisons,
+                }
+            )
+            _persist_session()
+            st.rerun()
+
         thinking = st.empty()
         thinking.caption("🤖 Assistant is thinking…")
         with st.chat_message("assistant"):
@@ -1860,11 +2019,14 @@ def _render_chat() -> None:
             try:
                 for event in client.stream(
                     "POST",
-                    "/chat/stream",
-                    json={
-                        "messages": st.session_state["assistant_messages"],
-                        "model": st.session_state.get("assistant_selected_model"),
-                    },
+                        "/chat/stream",
+                        json={
+                            "messages": st.session_state["assistant_messages"],
+                            "provider": st.session_state.get(
+                                "assistant_selected_provider"
+                            ),
+                            "model": st.session_state.get("assistant_selected_model"),
+                        },
                     timeout=PLAN_TIMEOUT,
                 ):
                     etype = event.get("type")
@@ -1931,6 +2093,9 @@ def _render_chat() -> None:
                         "/chat",
                         json={
                             "messages": st.session_state["assistant_messages"],
+                            "provider": st.session_state.get(
+                                "assistant_selected_provider"
+                            ),
                             "model": st.session_state.get("assistant_selected_model"),
                         },
                         timeout=PLAN_TIMEOUT,
@@ -2168,6 +2333,10 @@ def _restore_session() -> None:
     st.session_state["assistant_selected_model"] = snapshot.get(
         "assistant_selected_model"
     )
+    st.session_state["assistant_selected_provider"] = snapshot.get(
+        "assistant_selected_provider"
+    )
+    st.session_state["assistant_selection"] = snapshot.get("assistant_selection", {})
     st.session_state["assistant_metrics"] = snapshot.get("assistant_metrics", {})
     st.session_state["executed_plans"] = snapshot.get("executed_plans", [])
     st.session_state["refresh_position_s"] = snapshot.get("refresh_position_s", 2)
@@ -2199,6 +2368,10 @@ def _persist_session() -> None:
     snapshot["assistant_selected_model"] = st.session_state.get(
         "assistant_selected_model"
     )
+    snapshot["assistant_selected_provider"] = st.session_state.get(
+        "assistant_selected_provider"
+    )
+    snapshot["assistant_selection"] = st.session_state.get("assistant_selection", {})
     snapshot["assistant_metrics"] = st.session_state.get("assistant_metrics", {})
     snapshot["refresh_position_s"] = st.session_state.get("refresh_position_s", 2)
     snapshot["refresh_stats_s"] = st.session_state.get("refresh_stats_s", 300)
@@ -2287,8 +2460,10 @@ def _render_plan() -> None:
         "Describe a task. The LLM builds a step-by-step plan; review it before running."
     )
 
-    selected_model = _render_model_picker()
-    st.session_state["assistant_selected_model"] = selected_model
+    selection = _render_model_picker()
+    st.session_state["assistant_selection"] = selection
+    st.session_state["assistant_selected_model"] = selection.get("model")
+    st.session_state["assistant_selected_provider"] = selection.get("provider")
 
     if "assistant_plan_response" not in st.session_state:
         st.session_state["assistant_plan_response"] = None
@@ -2335,6 +2510,7 @@ def _render_plan() -> None:
                 json={
                     "request": request,
                     "debug": True,
+                    "provider": st.session_state.get("assistant_selected_provider"),
                     "model": st.session_state.get("assistant_selected_model"),
                 },
                 timeout=PLAN_TIMEOUT,

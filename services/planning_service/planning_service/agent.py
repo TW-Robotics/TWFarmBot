@@ -19,14 +19,17 @@ def build_base_model(
     model: Any | None = None,
     config: PlannerConfig | None = None,
     model_name: str | None = None,
+    provider_name: str | None = None,
 ) -> tuple[PlannerConfig, BaseChatModel]:
     """Resolve config and build the chat model.
 
-    ``model_name`` overrides the configured model name for this call only.
+    ``model_name`` and ``provider_name`` override the configured defaults for
+    this call only.
     """
     cfg = config or load_config()
     init_weave(cfg.weave_project)
-    provider = get_provider(cfg.provider)
+    provider = get_provider(provider_name or cfg.provider)
+    cfg = provider.configure(cfg)
     selected_model = model_name or cfg.model
     base_model = model or provider.build_chat_model(selected_model, cfg)
     return cfg, base_model

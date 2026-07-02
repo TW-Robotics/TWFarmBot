@@ -9,12 +9,18 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
+from dataclasses import replace
 
 import requests
 from langchain_core.language_models import BaseChatModel
 
 from .client import build_chat_model
 from .config import PlannerConfig
+
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OLLAMA_BASE_URL = "http://100.102.103.44:11434/v1"
+OLLAMA_MODEL = "gemma4:e4b"
 
 
 class LLMProvider(ABC):
@@ -31,33 +37,20 @@ class LLMProvider(ABC):
         """Return a list of model ids available from this provider."""
         return []
 
-
-# Curated OpenRouter models known to support tool/function calling. Used as a
-# fallback when the live /models endpoint cannot be reached.
-_OPENROUTER_TOOL_MODELS = [
-    "anthropic/claude-3.5-sonnet",
-    "anthropic/claude-3.5-haiku",
-    "anthropic/claude-3-opus",
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "openai/gpt-4-turbo",
-    "google/gemini-flash-1.5",
-    "google/gemini-pro-1.5",
-    "deepseek/deepseek-v4-flash",
-    "deepseek/deepseek-v3",
-    "mistralai/mistral-nemo",
-    "mistralai/mistral-large",
-    "meta-llama/llama-3.1-70b-instruct",
-    "meta-llama/llama-3.1-405b-instruct",
-    "meta-llama/llama-3.3-70b-instruct",
-    "nousresearch/hermes-3-llama-3.1-405b",
-]
+    def configure(self, config: PlannerConfig) -> PlannerConfig:
+        """Return config adjusted for this provider."""
+        return replace(config, provider=self.name)
 
 
 class OpenRouterProvider(LLMProvider):
     """OpenRouter (https://openrouter.ai) provider."""
 
     name = "openrouter"
+
+    def configure(self, config: PlannerConfig) -> PlannerConfig:
+        if config.provider == self.name:
+            return config
+        return replace(config, provider=self.name, base_url=OPENROUTER_BASE_URL)
 
     def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
         return build_chat_model(
@@ -88,8 +81,7 @@ class OpenRouterProvider(LLMProvider):
             if ids:
                 return ids
         except Exception:  # noqa: BLE001
-            pass
-        return list(_OPENROUTER_TOOL_MODELS)
+            return []
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -131,6 +123,37 @@ class OllamaProvider(OpenAICompatibleProvider):
     """Ollama via its OpenAI-compatible `/v1` API."""
 
     name = "ollama"
+
+    def configure(self, config: PlannerConfig) -> PlannerConfig:
+        if config.provider == self.name:
+            return config
+        return replace(
+            config,
+            provider=self.name,
+            base_url=os.getenv("PLANNING_OLLAMA_BASE_URL", OLLAMA_BASE_URL),
+            model=os.getenv("PLANNING_OLLAMA_MODEL", OLLAMA_MODEL),
+            api_key=None,
+        )
+
+    def list_models(self, config: PlannerConfig) -> list[str]:
+        ids = super().list_models(config)
+        if ids:
+            return ids
+        try:
+            base_url = config.base_url.removesuffix("/v1")
+            r = requests.get(f"{base_url}/api/tags", timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            return sorted(
+                {
+                    model.get("name") or model.get("model")
+                    for model in data.get("models", [])
+                    if model.get("name") or model.get("model")
+                },
+                key=lambda s: s.lower(),
+            )
+        except Exception:  # noqa: BLE001
+            return []
 
 
 _PROVIDER_REGISTRY: dict[str, type[LLMProvider]] = {

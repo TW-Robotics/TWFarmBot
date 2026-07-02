@@ -47,9 +47,10 @@ def _make_loop(
     allow_actions: bool = True,
     propose_only: bool = False,
     model_name: str | None = None,
+    provider_name: str | None = None,
 ) -> AgentLoop:
     cfg, base_model = build_base_model(
-        model=model, config=config, model_name=model_name
+        model=model, config=config, model_name=model_name, provider_name=provider_name
     )
     tool_registry = ToolRegistry(registry, system_state)
     approval_gate = ApprovalGate(registry)
@@ -86,6 +87,7 @@ def chat(
     allow_actions: bool = True,
     propose_only: bool = False,
     model_name: str | None = None,
+    provider_name: str | None = None,
 ) -> ChatResult:
     """Run one conversational turn with tool use.
 
@@ -104,6 +106,7 @@ def chat(
         allow_actions=allow_actions,
         propose_only=propose_only,
         model_name=model_name,
+        provider_name=provider_name,
     )
     result = loop.run(messages)
     out_messages = list(messages)
@@ -129,6 +132,7 @@ def stream_chat(
     allow_actions: bool = True,
     propose_only: bool = False,
     model_name: str | None = None,
+    provider_name: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Streaming conversational assistant.
 
@@ -148,5 +152,6 @@ def stream_chat(
         allow_actions=allow_actions,
         propose_only=propose_only,
         model_name=model_name,
+        provider_name=provider_name,
     )
     yield from loop.stream(messages)

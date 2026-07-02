@@ -70,6 +70,7 @@ def plan(
     config: PlannerConfig | None = None,
     system_state: SystemStateProvider | None = None,
     model_name: str | None = None,
+    provider_name: str | None = None,
 ) -> PlanResult:
     """Translate a natural-language ``request`` into a validated PlanResult.
 
@@ -79,7 +80,7 @@ def plan(
     execute or preview.
     """
     cfg, base_model = build_base_model(
-        model=model, config=config, model_name=model_name
+        model=model, config=config, model_name=model_name, provider_name=provider_name
     )
     registry = registry or get_default_registry()
 
