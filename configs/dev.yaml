@@ -6,8 +6,9 @@ log_level: INFO
 # Secrets (api_key) are NEVER stored here — set PLANNING_LLM_API_KEY in
 # the environment, or reference a different env var via api_key_env.
 planning:
-  base_url: https://openrouter.ai/api/v1   # OpenAI-compatible endpoint
-  model: ibm-granite/granite-4.1-8b           # tool-calling model
+  provider: ollama
+  base_url: http://100.102.103.44:11434/v1   # Ollama OpenAI-compatible endpoint
+  model: gemma4:e4b                           # tool-calling model
   api_key_env: PLANNING_LLM_API_KEY  # name of the env var that holds the secret
   timeout_s: 120                       # raise this for slower models
   temperature: 0.0

@@ -86,8 +86,7 @@ def build_chat_model(
         "base_url": base_url,
         "model": model,
         "timeout": timeout_s,
+        "api_key": api_key or "local-no-auth",
     }
-    if api_key:
-        kwargs["api_key"] = api_key
     kwargs.update(overrides)
     return ChatOpenAI(**kwargs)

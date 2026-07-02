@@ -127,9 +127,16 @@ class OpenAICompatibleProvider(LLMProvider):
             return []
 
 
+class OllamaProvider(OpenAICompatibleProvider):
+    """Ollama via its OpenAI-compatible `/v1` API."""
+
+    name = "ollama"
+
+
 _PROVIDER_REGISTRY: dict[str, type[LLMProvider]] = {
     OpenRouterProvider.name: OpenRouterProvider,
     OpenAICompatibleProvider.name: OpenAICompatibleProvider,
+    OllamaProvider.name: OllamaProvider,
 }
 
 

@@ -20,9 +20,18 @@ OpenAI-compatible `/chat/completions` protocol, so it works with:
   `/chat/completions` (`llama.cpp`, vLLM, Ollama with
   `OLLAMA_OPENAI_COMPAT=true`, TGI, etc.).
   ```
+  PLANNING_LLM_PROVIDER=local
   PLANNING_LLM_BASE_URL=http://localhost:8000/v1
   PLANNING_LLM_MODEL=my-checkpoint-name
   PLANNING_LLM_API_KEY=                   # optional for local
+  ```
+- **Ollama over Tailscale** — the default dev config points at the local
+  Ollama service on the Tailnet.
+  ```
+  PLANNING_LLM_PROVIDER=ollama
+  PLANNING_LLM_BASE_URL=http://100.102.103.44:11434/v1
+  PLANNING_LLM_MODEL=gemma4:e4b
+  PLANNING_LLM_API_KEY=                   # optional for Ollama
   ```
 
 No code change is needed to swap backends — set the env vars.

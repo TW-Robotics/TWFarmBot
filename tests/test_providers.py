@@ -9,6 +9,7 @@ from planning_service.config import PlannerConfig
 from twfarmbot_api_server.app import create_app
 from planning_service.providers import (
     OpenAICompatibleProvider,
+    OllamaProvider,
     OpenRouterProvider,
     get_provider,
     list_provider_names,
@@ -24,11 +25,13 @@ def test_list_provider_names() -> None:
     names = list_provider_names()
     assert "openrouter" in names
     assert "local" in names
+    assert "ollama" in names
 
 
 def test_get_provider_returns_instance() -> None:
     assert isinstance(get_provider("openrouter"), OpenRouterProvider)
     assert isinstance(get_provider("local"), OpenAICompatibleProvider)
+    assert isinstance(get_provider("ollama"), OllamaProvider)
 
 
 def test_providers_build_model() -> None:
@@ -58,12 +61,26 @@ def test_providers_build_model() -> None:
     assert local_model is not None
     assert local_model.model_name == "qwen2.5"  # type: ignore[attr-defined]
 
+    ollama_cfg = PlannerConfig(
+        provider="ollama",
+        base_url="http://100.102.103.44:11434/v1",
+        model="gemma4:e4b",
+        api_key=None,
+        timeout_s=120.0,
+        temperature=0.0,
+    )
+    ollama = OllamaProvider()
+    ollama_model = ollama.build_chat_model("gemma4:e4b", ollama_cfg)
+    assert ollama_model is not None
+    assert ollama_model.model_name == "gemma4:e4b"  # type: ignore[attr-defined]
+
 
 def test_providers_endpoints(client) -> None:  # noqa: ANN001
     r = client.get("/providers")
     assert r.status_code == 200
     body = r.json()
     assert "openrouter" in body["providers"]
+    assert "ollama" in body["providers"]
 
     r = client.get("/models?provider=local")
     assert r.status_code == 200
