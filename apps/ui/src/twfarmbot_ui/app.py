@@ -130,10 +130,7 @@ def _render_assistant_metrics() -> None:
     )
 
 
-def _render_tool_call(
-    name: str, args: Any, result: Any, *, show_image: bool = True
-) -> None:
-    """Render a compact tool call; shows AI-analysis images inline if present."""
+def _tool_call_label(name: str, args: Any) -> str:
     label = f"🔧 {name}"
     if name == "analyze_image" and isinstance(args, dict) and args.get("prompt"):
         label += f" · '{args['prompt']}'"
@@ -149,10 +146,10 @@ def _render_tool_call(
         label += f" · '{args['prompt']}'"
     elif name == "get_images" and isinstance(args, dict) and args.get("limit"):
         label += f" · limit={args['limit']}"
+    return label
 
-    with st.expander(label, expanded=False):
-        st.json({"args": args, "result": result})
 
+def _render_tool_call_images(name: str, result: Any, *, show_image: bool = True) -> None:
     if not show_image or not isinstance(result, dict):
         return
 
@@ -173,14 +170,40 @@ def _render_tool_call(
         st.image(result["image_url"], use_container_width=True)
 
 
+def _render_tool_call(
+    name: str, args: Any, result: Any, *, show_image: bool = True
+) -> None:
+    """Render a compact standalone tool call."""
+    label = _tool_call_label(name, args)
+    with st.expander(label, expanded=False):
+        st.json({"args": args, "result": result})
+    _render_tool_call_images(name, result, show_image=show_image)
+
+
+def _render_tool_call_details(tool_calls: list[dict[str, Any]]) -> None:
+    if not tool_calls:
+        return
+    with st.expander(f"Tool details ({len(tool_calls)})", expanded=False):
+        for idx, tc in enumerate(tool_calls):
+            if idx:
+                st.divider()
+            name = str(tc.get("name", "tool"))
+            args = tc.get("args")
+            result = tc.get("result")
+            st.markdown(f"**{_tool_call_label(name, args)}**")
+            st.json({"args": args, "result": result})
+            _render_tool_call_images(name, result, show_image=True)
+
+
 def _render_proposed_actions_inline(
     message: dict[str, Any], actions: list[dict[str, Any]], idx: int
 ) -> None:
-    """Render proposed actions as compact inline chat-style approval."""
-    with st.container(key=f"proposal_{idx}"):
-        st.markdown("*I can do this:*")
+    """Render proposed actions as the primary decision block."""
+    with st.container(key=f"proposal_{idx}", border=True):
+        st.markdown("**Approval required**")
+        st.caption("Review the proposed robot action before it runs.")
         for action in actions:
-            st.markdown(f"• {_action_summary(action)}")
+            st.markdown(f"- {_action_summary(action)}")
         approve_col, reject_col = st.columns([1, 1])
         if approve_col.button(
             "✓ Approve", key=f"approve_{idx}", use_container_width=True
@@ -530,6 +553,12 @@ st.set_page_config(
 st.markdown(
     """
 <style>
+  :root, body, .stApp, [data-testid="stAppViewContainer"],
+  [data-testid="stSidebar"], button, input, textarea, select {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system,
+      BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+    letter-spacing: 0 !important;
+  }
   header[data-testid="stHeader"], [data-testid="stToolbar"],
   [data-testid="stDecoration"] { display:none !important; }
   section[data-testid="stSidebar"] {
@@ -679,6 +708,32 @@ st.markdown(
   }
   [class*="st-key-user_msg_"] [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] p {
     text-align: right !important;
+  }
+  [class*="st-key-feedback_panel_"] {
+    max-width: 28rem;
+    margin-top: 0.15rem;
+    opacity: 0.9;
+  }
+  [class*="st-key-feedback_panel_"] details {
+    border-width: 0 !important;
+  }
+  [class*="st-key-feedback_panel_"] summary {
+    min-height: 1.7rem !important;
+    padding: 0.15rem 0 !important;
+    font-size: 0.72rem !important;
+    opacity: 0.75;
+  }
+  [class*="st-key-feedback_panel_"] [data-testid="stExpanderDetails"] {
+    padding: 0.2rem 0 0 0 !important;
+  }
+  [class*="st-key-feedback_panel_"] iframe,
+  [class*="st-key-feedback_panel_"] [data-testid="stWidgetLabel"] {
+    transform: scale(0.88);
+    transform-origin: left center;
+  }
+  [class*="st-key-feedback_panel_"] [data-testid="stTextInput"],
+  [class*="st-key-feedback_panel_"] [data-testid="stMultiSelect"] {
+    max-width: 24rem;
   }
   @media (max-width: 760px) {
     section[data-testid="stSidebar"] { width: 14rem !important; min-width: 14rem !important; }
@@ -1802,6 +1857,7 @@ def _render_assistant() -> None:
             _persist_session()
             st.rerun()
     _render_session_controls()
+    _apply_pending_model_choice()
     selection = _render_model_picker()
     st.session_state["assistant_selection"] = selection
     st.session_state["assistant_selected_model"] = selection.get("model")
@@ -1814,7 +1870,203 @@ def _model_label(slot: dict[str, Any]) -> str:
     return f"{slot.get('provider', 'provider')} / {slot.get('model', 'model')}"
 
 
-def _render_comparisons(comparisons: list[dict[str, Any]]) -> None:
+def _turn_id(index: int) -> str:
+    session_id = st.session_state.get("assistant_session_id", "session")
+    return f"{session_id}:turn:{index}"
+
+
+def _append_turn_feedback(
+    message: dict[str, Any],
+    index: int,
+    *,
+    rating: str,
+    tags: list[str] | None = None,
+    note: str = "",
+) -> None:
+    event = {
+        "type": "turn_feedback",
+        "session_id": st.session_state.get("assistant_session_id"),
+        "turn_id": message.get("turn_id") or _turn_id(index),
+        "message_index": index,
+        "rating": rating,
+        "tags": tags or [],
+        "note": note.strip(),
+        "provider": (
+            message.get("chosen_model", {}).get("provider")
+            or message.get("provider")
+            or st.session_state.get("assistant_selected_provider")
+        ),
+        "model": (
+            message.get("chosen_model", {}).get("model")
+            or message.get("model")
+            or st.session_state.get("assistant_selected_model")
+        ),
+        "mode": "ab_chosen" if message.get("chosen_model") else "normal",
+        "messages_before": history.compact_messages(
+            st.session_state.get("assistant_messages", [])[:index]
+        ),
+        "assistant_message": message,
+        "tool_calls": message.get("tool_calls", []) or [],
+        "metrics": message.get("metrics", {}) or {},
+    }
+    history.append_feedback_event(event)
+    message["feedback"] = {
+        "rating": rating,
+        "tags": tags or [],
+        "note": note.strip(),
+    }
+    message.setdefault("turn_id", event["turn_id"])
+    _persist_session()
+
+
+def _render_turn_feedback(message: dict[str, Any], index: int) -> None:
+    feedback = message.get("feedback") or {}
+    current = feedback.get("rating")
+    label = "Rate this answer"
+    if current:
+        label += f" ({current})"
+    with st.expander(
+        label,
+        expanded=False,
+        key=f"feedback_panel_{index}",
+        type="compact",
+    ):
+        default = {"down": 0, "up": 1}.get(current)
+        selected = st.feedback(
+            "thumbs",
+            key=f"feedback_rating_{index}",
+            default=default,
+        )
+        selected_rating = {0: "down", 1: "up"}.get(selected)
+        if selected_rating and selected_rating != current:
+            _append_turn_feedback(message, index, rating=selected_rating)
+            st.toast("Feedback saved")
+            st.rerun()
+        tags = st.multiselect(
+            "Tags",
+            [
+                "helpful",
+                "wrong_answer",
+                "wrong_tool_use",
+                "missing_tool_use",
+                "bad_resi_prompt",
+                "unsafe",
+                "too_verbose",
+                "hallucinated",
+            ],
+            default=feedback.get("tags", []),
+            key=f"feedback_tags_{index}",
+        )
+        note = st.text_input(
+            "Note",
+            value=feedback.get("note", ""),
+            key=f"feedback_note_{index}",
+            placeholder="Optional short note",
+        )
+        if st.button("Save feedback details", key=f"feedback_save_{index}"):
+            _append_turn_feedback(
+                message,
+                index,
+                rating=current or "note",
+                tags=tags,
+                note=note,
+            )
+            st.toast("Feedback details saved")
+            st.rerun()
+
+
+def _append_preference_event(
+    message_index: int,
+    comparisons: list[dict[str, Any]],
+    chosen_index: int,
+) -> None:
+    chosen = comparisons[chosen_index]
+    history.append_feedback_event(
+        {
+            "type": "preference",
+            "session_id": st.session_state.get("assistant_session_id"),
+            "turn_id": _turn_id(message_index),
+            "message_index": message_index,
+            "mode": "ab_test",
+            "chosen_index": chosen_index,
+            "chosen_provider": chosen.get("provider"),
+            "chosen_model": chosen.get("model"),
+            "messages_before": history.compact_messages(
+                st.session_state.get("assistant_messages", [])[:message_index]
+            ),
+            "candidates": comparisons,
+        }
+    )
+
+
+def _apply_pending_model_choice() -> None:
+    pending = st.session_state.pop("assistant_pending_model_choice", None)
+    if not pending:
+        return
+    provider = pending.get("provider")
+    model = pending.get("model")
+    if not provider or not model:
+        return
+
+    st.session_state["assistant_provider"] = provider
+    st.session_state["assistant_model"] = model
+    st.session_state["assistant_compare_enabled"] = False
+    st.session_state.pop("assistant_compare_models", None)
+    st.session_state["assistant_selected_provider"] = provider
+    st.session_state["assistant_selected_model"] = model
+    st.session_state["assistant_selection"] = {
+        "provider": provider,
+        "model": model,
+        "compare": False,
+        "slots": [{"provider": provider, "model": model}],
+    }
+
+
+def _choose_comparison_model(message_index: int, item: dict[str, Any]) -> None:
+    provider = item.get("provider")
+    model = item.get("model")
+    if not provider or not model:
+        st.toast("Cannot choose a comparison without provider and model.", icon="⚠️")
+        return
+
+    st.session_state["assistant_pending_model_choice"] = {
+        "provider": provider,
+        "model": model,
+    }
+
+    messages = st.session_state.get("assistant_messages", [])
+    if 0 <= message_index < len(messages):
+        comparisons = messages[message_index].get("comparisons", []) or []
+        chosen_index = next(
+            (
+                idx
+                for idx, candidate in enumerate(comparisons)
+                if candidate.get("provider") == provider
+                and candidate.get("model") == model
+                and candidate.get("response") == item.get("response")
+            ),
+            -1,
+        )
+        if chosen_index >= 0:
+            _append_preference_event(message_index, comparisons, chosen_index)
+        messages[message_index] = {
+            "role": "assistant",
+            "content": str(item.get("response", "")),
+            "tool_calls": item.get("tool_calls", []) or [],
+            "proposed_actions": item.get("proposed_actions", []) or [],
+            "metrics": item.get("metrics", {}) or {},
+            "provider": provider,
+            "model": model,
+            "chosen_model": {"provider": provider, "model": model},
+            "turn_id": _turn_id(message_index),
+        }
+
+    st.rerun()
+
+
+def _render_comparisons(
+    comparisons: list[dict[str, Any]], *, message_index: int | None = None
+) -> None:
     if not comparisons:
         st.warning("No comparison models selected.")
         return
@@ -1831,18 +2083,36 @@ def _render_comparisons(comparisons: list[dict[str, Any]]) -> None:
                         st.error(item["error"])
                     else:
                         st.markdown(item.get("response", ""))
+                        if message_index is not None:
+                            if st.button(
+                                "Choose this model",
+                                key=f"choose_model_{message_index}_{row_start}_{offset}",
+                                use_container_width=True,
+                            ):
+                                _choose_comparison_model(message_index, item)
                         metrics = item.get("metrics") or {}
                         if metrics:
                             with st.expander("Stats", expanded=False):
                                 st.json(metrics)
 
 
+def _tool_message_is_grouped(messages: list[dict[str, Any]], index: int) -> bool:
+    for later in messages[index + 1 :]:
+        if later.get("role") == "tool":
+            continue
+        return bool(later.get("role") == "assistant" and later.get("tool_calls"))
+    return False
+
+
 def _render_chat() -> None:
     if "assistant_messages" not in st.session_state:
         st.session_state["assistant_messages"] = []
 
-    for idx, msg in enumerate(st.session_state["assistant_messages"]):
+    messages_for_render = st.session_state["assistant_messages"]
+    for idx, msg in enumerate(messages_for_render):
         if msg.get("role") == "tool":
+            if _tool_message_is_grouped(messages_for_render, idx):
+                continue
             with st.chat_message("assistant"):
                 _render_tool_call(
                     msg.get("name", "tool"),
@@ -1866,23 +2136,42 @@ def _render_chat() -> None:
                     st.markdown(msg["thinking"])
 
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
             comparisons = msg.get("comparisons", [])
             if comparisons:
-                _render_comparisons(comparisons)
-            images = msg.get("images", [])
-            if images:
-                cols = st.columns(min(len(images), 3))
-                for i, image in enumerate(images):
-                    cols[i % len(cols)].image(image.get("attachment_url"), width=220)
+                st.markdown(msg["content"])
+                _render_comparisons(comparisons, message_index=idx)
+                continue
 
             proposed_actions = msg.get("proposed_actions", [])
-            if proposed_actions and not msg.get("approved") and not msg.get("rejected"):
+            pending_approval = (
+                proposed_actions
+                and not msg.get("approved")
+                and not msg.get("rejected")
+            )
+            if pending_approval:
                 _render_proposed_actions_inline(msg, proposed_actions, idx)
-            elif msg.get("approved"):
-                st.caption("Approved")
-            elif msg.get("rejected"):
-                st.caption("Rejected")
+                if msg.get("content"):
+                    with st.expander("Assistant note", expanded=False):
+                        st.markdown(msg["content"])
+            else:
+                st.markdown(msg["content"])
+                if msg.get("approved"):
+                    st.caption("Approved")
+                elif msg.get("rejected"):
+                    st.caption("Rejected")
+
+            _render_tool_call_details(msg.get("tool_calls", []) or [])
+
+            images = msg.get("images", [])
+            if images:
+                with st.expander("Images", expanded=False):
+                    cols = st.columns(min(len(images), 3))
+                    for i, image in enumerate(images):
+                        cols[i % len(cols)].image(
+                            image.get("attachment_url"), width=220
+                        )
+
+            _render_turn_feedback(msg, idx)
 
     _render_assistant_metrics()
 
@@ -1977,14 +2266,13 @@ def _render_chat() -> None:
                             }
                         )
                 status.empty()
-                _render_comparisons(comparisons)
-            st.session_state["assistant_messages"].append(
-                {
-                    "role": "assistant",
-                    "content": "Model comparison",
-                    "comparisons": comparisons,
-                }
-            )
+            comparison_message = {
+                "role": "assistant",
+                "content": "Model comparison",
+                "comparisons": comparisons,
+                "turn_id": _turn_id(len(st.session_state["assistant_messages"])),
+            }
+            st.session_state["assistant_messages"].append(comparison_message)
             _persist_session()
             st.rerun()
 
@@ -2159,6 +2447,13 @@ def _render_chat() -> None:
                     {
                         "role": "assistant",
                         "content": accumulated,
+                        "provider": st.session_state.get(
+                            "assistant_selected_provider"
+                        ),
+                        "model": st.session_state.get("assistant_selected_model"),
+                        "turn_id": _turn_id(
+                            len(st.session_state["assistant_messages"])
+                        ),
                         "thinking": "".join(stream_thinking),
                         "tool_calls": stream_meta["tool_calls"],
                         "proposed_actions": stream_meta["proposed_actions"],

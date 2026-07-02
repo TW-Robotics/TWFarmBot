@@ -15,10 +15,34 @@ from pathlib import Path
 from typing import Any
 
 
+MAX_FEEDBACK_TEXT_CHARS = int(os.getenv("TWFB_FEEDBACK_MAX_TEXT_CHARS", "4000"))
+MAX_FEEDBACK_CONTEXT_MESSAGES = int(
+    os.getenv("TWFB_FEEDBACK_MAX_CONTEXT_MESSAGES", "20")
+)
+MAX_FEEDBACK_LIST_ITEMS = int(os.getenv("TWFB_FEEDBACK_MAX_LIST_ITEMS", "25"))
+
+
 def session_data_dir() -> Path:
     """Return the directory used to store session JSON files."""
     path = Path(os.getenv("TWFB_UI_DATA_DIR", Path.cwd() / "data" / "ui_sessions"))
     path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def feedback_log_path(session_id: str | None = None) -> Path:
+    """Return the append-only feedback/event log path.
+
+    By default each assistant chat session gets its own JSONL dataset file.
+    ``TWFB_FEEDBACK_LOG`` can still force a single explicit path for exports
+    or deployments that want central collection.
+    """
+    override = os.getenv("TWFB_FEEDBACK_LOG")
+    if override:
+        path = Path(override)
+    else:
+        name = session_id or "feedback_events"
+        path = session_data_dir() / "feedback" / f"{name}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -35,6 +59,72 @@ def new_session_id() -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
     suffix = secrets.token_hex(4)
     return f"{stamp}-{suffix}"
+
+
+def new_event_id() -> str:
+    """Generate a compact event id for feedback/preference records."""
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+    return f"{stamp}-{secrets.token_hex(6)}"
+
+
+def sanitize_for_feedback(value: Any) -> Any:
+    """Return a compact JSON-safe copy suitable for feedback datasets.
+
+    This keeps tool-call structure and text, but strips bulky image payloads
+    and caps large strings/lists so JSONL logs remain small.
+    """
+    if isinstance(value, dict):
+        return {str(k): sanitize_for_feedback(v) for k, v in value.items()}
+    if isinstance(value, list):
+        out = [sanitize_for_feedback(v) for v in value[:MAX_FEEDBACK_LIST_ITEMS]]
+        if len(value) > MAX_FEEDBACK_LIST_ITEMS:
+            out.append({"_truncated_items": len(value) - MAX_FEEDBACK_LIST_ITEMS})
+        return out
+    if isinstance(value, str):
+        if value.startswith("data:image/"):
+            return "[image data omitted]"
+        if len(value) > MAX_FEEDBACK_TEXT_CHARS:
+            return value[:MAX_FEEDBACK_TEXT_CHARS] + "...[truncated]"
+        return value
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def compact_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the bounded, sanitized message context stored with feedback."""
+    return sanitize_for_feedback(messages[-MAX_FEEDBACK_CONTEXT_MESSAGES:])
+
+
+def append_feedback_event(event: dict[str, Any]) -> Path:
+    """Append one compact feedback/preference event as JSONL."""
+    payload = sanitize_for_feedback(
+        {
+            "event_id": event.get("event_id") or new_event_id(),
+            "created_at": event.get("created_at") or _utc_now(),
+            **event,
+        }
+    )
+    path = feedback_log_path(event.get("session_id"))
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, separators=(",", ":"), default=str) + "\n")
+    return path
+
+
+def load_feedback_events(session_id: str | None = None) -> list[dict[str, Any]]:
+    """Load feedback events from JSONL. Intended for tests/export scripts."""
+    path = feedback_log_path(session_id)
+    if not path.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return events
 
 
 def save_session(snapshot: dict[str, Any]) -> Path:

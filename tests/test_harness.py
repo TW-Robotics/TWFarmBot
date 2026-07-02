@@ -24,6 +24,7 @@ from planning_service.harness import (
     ToolCategory,
     ToolRegistry,
 )
+from planning_service.introspection import InMemorySystemStateProvider
 from twfarmbot_core.actions import ActionRegistry
 
 
@@ -92,6 +93,21 @@ def test_tool_registry_contains_all_action_kinds() -> None:
     tool_registry = ToolRegistry(reg)
     names = {d.name for d in tool_registry.descriptors()}
     assert names >= {"move", "water", "take_photo", "e_stop"}
+
+
+def test_vision_tool_schemas_tell_model_to_derive_prompts() -> None:
+    reg = _make_registry()
+    state = InMemorySystemStateProvider()
+    tools = {tool.name: tool for tool in ToolRegistry(reg, state).langchain_tools()}
+    analyze_schema = tools["analyze_image"].args_schema.model_json_schema()
+    segment_schema = tools["segment_image"].args_schema.model_json_schema()
+
+    assert "do not blindly copy" in analyze_schema["properties"]["prompt"][
+        "description"
+    ]
+    assert "known crops/zones/entities" in segment_schema["properties"]["classes"][
+        "description"
+    ]
 
 
 def test_action_policies_are_categorized() -> None:

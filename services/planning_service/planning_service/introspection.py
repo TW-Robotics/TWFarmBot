@@ -58,7 +58,9 @@ class AnalyzeImageArgs(BaseModel):
     prompt: str = Field(
         description=(
             "What to analyse or highlight in the image. "
-            "Examples: 'plants', 'weeds', 'dry soil', 'red markers'."
+            "Derive this from the user's intent plus the garden/zone context; "
+            "do not blindly copy the user's words. Examples: 'tomato fruit', "
+            "'weeds among tomato plants', 'dry soil', 'red markers'."
         ),
     )
     image_url: str | None = Field(
@@ -76,7 +78,9 @@ class AnalyzeImageArgs(BaseModel):
 class SegmentImageArgs(BaseModel):
     classes: str = Field(
         description=(
-            "Comma-separated class names to segment, e.g. 'plant, weed, soil, path'."
+            "Comma-separated class names to segment. Choose classes from the "
+            "user's intent, known crops/zones/entities, and useful background "
+            "or confounder labels, e.g. 'tomato plant, tomato fruit, weed, soil'."
         ),
     )
     image_url: str | None = Field(

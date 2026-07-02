@@ -104,3 +104,62 @@ def test_list_sessions_respects_limit(tmp_history_dir: Any) -> None:
         history.save_session(snap)
     assert len(history.list_sessions(limit=2)) == 2
     assert len(history.list_sessions(limit=10)) == 5
+
+
+def test_feedback_events_are_jsonl_and_sanitize_images(tmp_history_dir: Any) -> None:
+    path = history.append_feedback_event(
+        {
+            "type": "turn_feedback",
+            "session_id": "sess",
+            "assistant_message": {
+                "content": "ok",
+                "tool_calls": [
+                    {
+                        "name": "analyze_image",
+                        "result": {
+                            "image_url": "data:image/png;base64,"
+                            + ("x" * 10_000)
+                        },
+                    }
+                ],
+            },
+        }
+    )
+
+    events = history.load_feedback_events("sess")
+    assert path.name == "sess.jsonl"
+    assert path.parent.name == "feedback"
+    assert len(events) == 1
+    image_url = events[0]["assistant_message"]["tool_calls"][0]["result"]["image_url"]
+    assert image_url == "[image data omitted]"
+
+
+def test_feedback_events_are_scoped_per_session(tmp_history_dir: Any) -> None:
+    first_path = history.append_feedback_event({"type": "turn_feedback", "session_id": "a"})
+    second_path = history.append_feedback_event(
+        {"type": "turn_feedback", "session_id": "b"}
+    )
+
+    assert first_path != second_path
+    assert first_path.name == "a.jsonl"
+    assert second_path.name == "b.jsonl"
+    assert len(history.load_feedback_events("a")) == 1
+    assert len(history.load_feedback_events("b")) == 1
+
+
+def test_compact_messages_limits_context_and_text(
+    tmp_history_dir: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(history, "MAX_FEEDBACK_CONTEXT_MESSAGES", 2)
+    monkeypatch.setattr(history, "MAX_FEEDBACK_TEXT_CHARS", 8)
+    messages = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "second"},
+        {"role": "user", "content": "0123456789abcdef"},
+    ]
+
+    compact = history.compact_messages(messages)
+
+    assert len(compact) == 2
+    assert compact[0]["content"] == "second"
+    assert compact[1]["content"] == "01234567...[truncated]"

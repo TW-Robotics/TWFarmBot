@@ -30,6 +30,14 @@ def test_chat_prompt_lists_execution_tools() -> None:
     assert "move" in prompt
 
 
+def test_chat_prompt_treats_vision_as_investigation() -> None:
+    reg = _make_registry()
+    prompt = ContextBuilder(ToolRegistry(reg)).chat_system_prompt()
+    assert "Treat vision requests as investigations" in prompt
+    assert "verify whether tomato zones/entities exist" in prompt
+    assert "tomato plant, tomato fruit, leaves, soil, weed" in prompt
+
+
 def test_user_prompt_includes_world_context() -> None:
     prompt = build_user_prompt(
         "water the tomato",

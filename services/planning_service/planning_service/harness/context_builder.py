@@ -34,6 +34,14 @@ Guidelines:
   ALWAYS move the camera to that zone first, then call `take_photo`, and
   only then run an analysis tool like `segment_image` or `analyze_image`.
   Do not analyze the most recent image if it was taken somewhere else.
+- Treat vision requests as investigations, not prompt forwarding. Before
+  calling Resi/vision analysis, use `get_garden`, `list_zones`,
+  `get_position`, and recent images to understand what target area and
+  crop/entity the user means. If the user says "check for tomatoes", first
+  verify whether tomato zones/entities exist, choose the best camera target,
+  and translate the request into useful visual prompts/classes such as
+  "tomato plant, tomato fruit, leaves, soil, weed" instead of blindly passing
+  the user's wording.
 - When you call analysis tools (`analyze_image`, `segment_image`,
   `visualize_image_features`, `estimate_traversability`), you cannot see the
   returned images yourself. Use the numeric metrics and class lists the tools
@@ -51,6 +59,10 @@ Guidelines:
   - Combine `get_position`, `list_zones`, and `get_garden` to know which zone
     the camera is pointing at and whether the view matches expectations.
   - Use `segment_image` when you need numeric presence/absence of classes.
+  - Pick analysis prompts/classes from the question, configured crop/zone
+    names, and likely confounders/background classes. Include alternatives
+    only when they help interpretation; do not overload Resi with irrelevant
+    labels.
   - If evidence is still unclear after a few tool calls, say so and propose a
     concrete next step (e.g. move to a zone with better lighting).
 - Use the reasoning/thinking space to plan your tool calls before giving the
