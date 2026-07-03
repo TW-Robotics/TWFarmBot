@@ -170,13 +170,40 @@ def _render_tool_call_images(name: str, result: Any, *, show_image: bool = True)
         st.image(result["image_url"], use_container_width=True)
 
 
+def _compact_tool_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _compact_tool_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_compact_tool_value(v) for v in value]
+    if isinstance(value, str):
+        if value.startswith("data:image/"):
+            return "[image data shown below]"
+        if value.startswith(("http://", "https://")):
+            return "[url hidden]"
+        if len(value) > 300:
+            return value[:300] + "...[truncated]"
+    return value
+
+
+def _compact_tool_json(args: Any, result: Any) -> dict[str, Any]:
+    compact_result = _compact_tool_value(result)
+    if isinstance(compact_result, dict):
+        for key in ("image_url", "image_urls", "source_url", "attachment_url"):
+            if key in compact_result:
+                compact_result[key] = "[shown below]" if "image" in key else "[hidden]"
+    return {
+        "args": _compact_tool_value(args),
+        "result": compact_result,
+    }
+
+
 def _render_tool_call(
     name: str, args: Any, result: Any, *, show_image: bool = True
 ) -> None:
     """Render a compact standalone tool call."""
     label = _tool_call_label(name, args)
     with st.expander(label, expanded=False):
-        st.json({"args": args, "result": result})
+        st.json(_compact_tool_json(args, result))
     _render_tool_call_images(name, result, show_image=show_image)
 
 
@@ -191,7 +218,7 @@ def _render_tool_call_details(tool_calls: list[dict[str, Any]]) -> None:
             args = tc.get("args")
             result = tc.get("result")
             st.markdown(f"**{_tool_call_label(name, args)}**")
-            st.json({"args": args, "result": result})
+            st.json(_compact_tool_json(args, result))
             _render_tool_call_images(name, result, show_image=True)
 
 
