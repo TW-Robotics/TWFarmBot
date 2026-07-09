@@ -1,5 +1,5 @@
 import { api, resireg, postAction, errorMessage, getSettings } from "../api.js";
-import { h, icon, snack, page, section, card, toolbar, split, stack, metricRow, emptyState } from "../ui.js";
+import { h, btn, snack, page, section, card, toolbar, split, stack, metricRow, emptyState } from "../ui.js";
 import * as state from "../state.js";
 
 function parseSegmentationLabels(labels) {
@@ -36,16 +36,18 @@ const MODES = [
 ];
 
 export async function render(container) {
-  const takePhotoBtn = h("md-filled-button", {
+  const takePhotoBtn = btn("filled", {
+    icon: "photo_camera",
     onClick: async () => {
       const r = await postAction("take_photo");
       if (r.ok) { snack("Capture queued"); loadGallery(); }
       else snack(errorMessage(r), { error: true });
     },
-  }, icon("photo_camera"), "Take photo");
-  const refreshBtn = h("md-outlined-button", {
+  }, "Take photo");
+  const refreshBtn = btn("outlined", {
+    icon: "refresh",
     onClick: () => loadGallery(true),
-  }, icon("refresh"), "Refresh gallery");
+  }, "Refresh gallery");
 
   const { root, body } = page("Camera", undefined, { actions: [takePhotoBtn, refreshBtn] });
   const galleryArea = h("div", { class: "stack" });
@@ -152,7 +154,7 @@ export async function render(container) {
       split(
         h("div", {}, frame),
         card("AI analysis", stack(modeSelect, promptField, classesField, negativeField, clusterSlider,
-          toolbar(h("md-filled-button", { onClick: analyze }, icon("neurology"), "Analyze"), spinner))),
+          toolbar(btn("filled", { icon: "neurology", onClick: analyze }, "Analyze"), spinner))),
       ),
       images.length > 1 ? section("Recent captures", h("div", { class: "gallery" },
         images.slice(1, 7).map((img) => {

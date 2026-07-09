@@ -21,38 +21,38 @@
   --topbar-h: 80px;
   --chat-bar-h: 92px;
 
-  /* Material 3 — seed #3F8F64 */
-  --md-sys-color-primary: #256a4a;
+  /* Material 3 expressive palette — indigo, azure, and coral */
+  --md-sys-color-primary: #554fd8;
   --md-sys-color-on-primary: #ffffff;
-  --md-sys-color-primary-container: #aaf2c8;
-  --md-sys-color-on-primary-container: #00210f;
-  --md-sys-color-secondary: #4e6355;
+  --md-sys-color-primary-container: #e4dfff;
+  --md-sys-color-on-primary-container: #171064;
+  --md-sys-color-secondary: #42618a;
   --md-sys-color-on-secondary: #ffffff;
-  --md-sys-color-secondary-container: #d0e8d6;
-  --md-sys-color-on-secondary-container: #0b1f14;
-  --md-sys-color-tertiary: #3c6472;
+  --md-sys-color-secondary-container: #d8e6ff;
+  --md-sys-color-on-secondary-container: #0b1b33;
+  --md-sys-color-tertiary: #a23f5c;
   --md-sys-color-on-tertiary: #ffffff;
-  --md-sys-color-tertiary-container: #bfe9fa;
-  --md-sys-color-on-tertiary-container: #001f28;
+  --md-sys-color-tertiary-container: #ffd9e1;
+  --md-sys-color-on-tertiary-container: #3f0019;
   --md-sys-color-error: #ba1a1a;
   --md-sys-color-on-error: #ffffff;
   --md-sys-color-error-container: #ffdad6;
   --md-sys-color-on-error-container: #410002;
-  --md-sys-color-background: #f6faf4;
-  --md-sys-color-on-background: #171d18;
-  --md-sys-color-surface: #f6faf4;
-  --md-sys-color-on-surface: #171d18;
-  --md-sys-color-surface-variant: #dce5db;
-  --md-sys-color-on-surface-variant: #404942;
-  --md-sys-color-outline: #707971;
-  --md-sys-color-outline-variant: #c5cec5;
+  --md-sys-color-background: #fbf8ff;
+  --md-sys-color-on-background: #1b1b22;
+  --md-sys-color-surface: #fbf8ff;
+  --md-sys-color-on-surface: #1b1b22;
+  --md-sys-color-surface-variant: #e4e1ec;
+  --md-sys-color-on-surface-variant: #47464f;
+  --md-sys-color-outline: #787680;
+  --md-sys-color-outline-variant: #c9c5d0;
   --md-sys-color-surface-container-lowest: #ffffff;
-  --md-sys-color-surface-container-low: #f0f5ed;
-  --md-sys-color-surface-container: #eaefe7;
-  --md-sys-color-surface-container-high: #e4eae1;
-  --md-sys-color-surface-container-highest: #dee4dc;
-  --md-sys-color-inverse-surface: #2c322d;
-  --md-sys-color-inverse-on-surface: #edf2ea;
+  --md-sys-color-surface-container-low: #f5f2fa;
+  --md-sys-color-surface-container: #efecf4;
+  --md-sys-color-surface-container-high: #e9e6ee;
+  --md-sys-color-surface-container-highest: #e3e0e8;
+  --md-sys-color-inverse-surface: #303038;
+  --md-sys-color-inverse-on-surface: #f2eff7;
   --md-ref-typeface-plain: "Roboto Flex", system-ui, sans-serif;
   --md-ref-typeface-brand: "Roboto Flex", system-ui, sans-serif;
   --ok-bg: #d1fae5; --ok-fg: #065f46;
@@ -67,37 +67,37 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --md-sys-color-primary: #8fd5ad;
-    --md-sys-color-on-primary: #003920;
-    --md-sys-color-primary-container: #005231;
-    --md-sys-color-on-primary-container: #aaf2c8;
-    --md-sys-color-secondary: #b5ccbb;
-    --md-sys-color-on-secondary: #213528;
-    --md-sys-color-secondary-container: #374b3e;
-    --md-sys-color-on-secondary-container: #d0e8d6;
-    --md-sys-color-tertiary: #a3cddd;
-    --md-sys-color-on-tertiary: #033542;
-    --md-sys-color-tertiary-container: #224c59;
-    --md-sys-color-on-tertiary-container: #bfe9fa;
+    --md-sys-color-primary: #c5c0ff;
+    --md-sys-color-on-primary: #262080;
+    --md-sys-color-primary-container: #3d37a9;
+    --md-sys-color-on-primary-container: #e4dfff;
+    --md-sys-color-secondary: #a9c8f5;
+    --md-sys-color-on-secondary: #113253;
+    --md-sys-color-secondary-container: #29496f;
+    --md-sys-color-on-secondary-container: #d8e6ff;
+    --md-sys-color-tertiary: #ffb1c2;
+    --md-sys-color-on-tertiary: #62002e;
+    --md-sys-color-tertiary-container: #822344;
+    --md-sys-color-on-tertiary-container: #ffd9e1;
     --md-sys-color-error: #ffb4ab;
     --md-sys-color-on-error: #690005;
     --md-sys-color-error-container: #93000a;
     --md-sys-color-on-error-container: #ffdad6;
-    --md-sys-color-background: #0f1511;
-    --md-sys-color-on-background: #dee4dc;
-    --md-sys-color-surface: #0f1511;
-    --md-sys-color-on-surface: #dee4dc;
-    --md-sys-color-surface-variant: #404942;
-    --md-sys-color-on-surface-variant: #c0c9c0;
-    --md-sys-color-outline: #8a938a;
-    --md-sys-color-outline-variant: #404942;
-    --md-sys-color-surface-container-lowest: #0a100c;
-    --md-sys-color-surface-container-low: #171d18;
-    --md-sys-color-surface-container: #1b211c;
-    --md-sys-color-surface-container-high: #252b26;
-    --md-sys-color-surface-container-highest: #303631;
-    --md-sys-color-inverse-surface: #dee4dc;
-    --md-sys-color-inverse-on-surface: #2c322d;
+    --md-sys-color-background: #131318;
+    --md-sys-color-on-background: #e5e1e9;
+    --md-sys-color-surface: #131318;
+    --md-sys-color-on-surface: #e5e1e9;
+    --md-sys-color-surface-variant: #47464f;
+    --md-sys-color-on-surface-variant: #c9c5d0;
+    --md-sys-color-outline: #928f99;
+    --md-sys-color-outline-variant: #47464f;
+    --md-sys-color-surface-container-lowest: #0e0e13;
+    --md-sys-color-surface-container-low: #1b1b20;
+    --md-sys-color-surface-container: #1f1f24;
+    --md-sys-color-surface-container-high: #29292e;
+    --md-sys-color-surface-container-highest: #343339;
+    --md-sys-color-inverse-surface: #e5e1e9;
+    --md-sys-color-inverse-on-surface: #303038;
     --ok-bg: #064e3b; --ok-fg: #a7f3d0;
     --warn-bg: #78350f; --warn-fg: #fde68a;
     --bad-bg: #7f1d1d; --bad-fg: #fecaca;
@@ -290,7 +290,7 @@ body.has-chat-bar #content { padding-bottom: var(--chat-bar-h); }
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-tertiary);
   margin: 0 0 var(--space-1);
 }
 
@@ -332,8 +332,6 @@ body.has-chat-bar #content { padding-bottom: var(--chat-bar-h); }
   margin: 0;
   color: var(--md-sys-color-on-surface);
 }
-
-.section + .section { margin-top: 0; }
 
 /* ── Cards & surfaces ───────────────────────────────────────────────── */
 
@@ -561,7 +559,6 @@ md-outlined-text-field.grow,
 md-outlined-select.grow { flex: 1; }
 
 .field-sm { width: 120px; flex-shrink: 0; }
-.field-md { width: 200px; flex-shrink: 0; }
 .field-lg { min-width: 280px; flex: 1; }
 
 .chip-row {
@@ -608,14 +605,48 @@ svg.garden-map {
 
 /* ── Motion D-pad ───────────────────────────────────────────────────── */
 
+.jog-area {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+
 .dpad {
   display: grid;
-  grid-template-columns: repeat(3, 80px);
+  grid-template-columns: repeat(3, 48px);
+  grid-auto-rows: 48px;
   gap: var(--space-2);
+  place-items: center;
   width: fit-content;
 }
-.dpad md-filled-tonal-button,
-.dpad md-filled-button { width: 80px; height: 48px; }
+
+.z-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+.z-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* Restrained M3 Expressive motion: circular controls become softly squared
+   while pressed, making state change tactile without distracting animation. */
+.dpad md-filled-icon-button,
+.dpad md-filled-tonal-icon-button,
+.z-col md-filled-tonal-icon-button {
+  transition: border-radius 160ms cubic-bezier(0.2, 0, 0, 1),
+              transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+.dpad md-filled-icon-button:active,
+.dpad md-filled-tonal-icon-button:active,
+.z-col md-filled-tonal-icon-button:active {
+  border-radius: var(--radius-md);
+  transform: scale(0.94);
+}
 
 /* ── Camera ─────────────────────────────────────────────────────────── */
 
@@ -687,6 +718,7 @@ img.frame {
 }
 .msg .bubble > div > p { margin: 0 0 var(--space-2); }
 .msg .bubble > div > p:last-child { margin-bottom: 0; }
+.streaming-text { white-space: pre-wrap; }
 .msg .bubble img { max-width: 100%; max-height: 50vh; border-radius: var(--radius-sm); }
 .chat-images { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
 .chat-images img { width: 200px; border-radius: var(--radius-sm); }

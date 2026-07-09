@@ -1,5 +1,5 @@
 import { errorMessage } from "../api.js";
-import { h, icon, snack, page, section, card, toolbar, metricRow, dataTable, emptyState } from "../ui.js";
+import { h, btn, snack, page, section, card, toolbar, metricRow, dataTable, emptyState } from "../ui.js";
 import * as state from "../state.js";
 
 export async function render(container) {
@@ -7,13 +7,14 @@ export async function render(container) {
   const contentBox = h("div");
 
   body.append(
-    toolbar(h("md-filled-tonal-button", {
+    toolbar(btn("filled-tonal", {
+      icon: "troubleshoot",
       onClick: async () => {
         const r = await state.refreshStatus();
         if (!r.ok) snack(`Read failed: ${errorMessage(r)}`, { error: true });
         draw();
       },
-    }, icon("troubleshoot"), "Load /status")),
+    }, "Load /status")),
     contentBox,
   );
   container.append(root);

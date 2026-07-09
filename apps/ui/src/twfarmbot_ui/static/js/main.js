@@ -1,32 +1,22 @@
-import "@material/web/all.js";
+import "./material.js";
 import { styles as typescaleStyles } from "@material/web/typography/md-typescale-styles.js";
 
 import { postAction, errorMessage } from "./api.js";
 import { h, icon, snack, timeAgo, num } from "./ui.js";
 import * as state from "./state.js";
 
-import * as overview from "./views/overview.js";
-import * as garden from "./views/garden.js";
-import * as motion from "./views/motion.js";
-import * as camera from "./views/camera.js";
-import * as io from "./views/io.js";
-import * as assistant from "./views/assistant.js";
-import * as historyView from "./views/history.js";
-import * as diagnostics from "./views/diagnostics.js";
-import * as settings from "./views/settings.js";
-
 document.adoptedStyleSheets.push(typescaleStyles.styleSheet);
 
 const TABS = [
-  { key: "overview", label: "Overview", icon: "monitoring", view: overview },
-  { key: "garden", label: "Garden", icon: "psychiatry", view: garden },
-  { key: "motion", label: "Motion", icon: "open_with", view: motion },
-  { key: "camera", label: "Camera", icon: "photo_camera", view: camera },
-  { key: "io", label: "I/O", icon: "settings_input_component", view: io },
-  { key: "assistant", label: "Assistant", icon: "smart_toy", view: assistant },
-  { key: "history", label: "History", icon: "history", view: historyView },
-  { key: "diagnostics", label: "Diagnostics", icon: "troubleshoot", view: diagnostics },
-  { key: "settings", label: "Settings", icon: "settings", view: settings },
+  { key: "overview", label: "Overview", icon: "monitoring" },
+  { key: "garden", label: "Garden", icon: "psychiatry" },
+  { key: "motion", label: "Motion", icon: "open_with" },
+  { key: "camera", label: "Camera", icon: "photo_camera" },
+  { key: "io", label: "I/O", icon: "settings_input_component" },
+  { key: "assistant", label: "Assistant", icon: "smart_toy" },
+  { key: "history", label: "History", icon: "history" },
+  { key: "diagnostics", label: "Diagnostics", icon: "troubleshoot" },
+  { key: "settings", label: "Settings", icon: "settings" },
 ];
 
 // Legacy routes from the old Sensors / Operations tabs now live under I/O.
@@ -56,7 +46,10 @@ async function showTab(key) {
   const content = document.getElementById("content");
   content.replaceChildren();
   const tab = TABS.find((t) => t.key === key);
-  teardown = await tab.view.render(content);
+  const view = await import(`./views/${tab.key}.js`);
+  // Ignore a slow module import if the user already selected another tab.
+  if (activeTab !== key) return;
+  teardown = await view.render(content);
 }
 
 function buildNav() {
@@ -85,10 +78,10 @@ function bindSidebar() {
   state.on("position", (pos) => {
     livePos.textContent = `X ${num(pos?.x)} · Y ${num(pos?.y)} · Z ${num(pos?.z)}`;
   });
-  setInterval(() => {
+  const updatePositionAge = () => {
     posAge.textContent = state.store.lastPositionRefresh
       ? `updated ${timeAgo(state.store.lastPositionRefresh)}` : "";
-  }, 1000);
+  };
 
   const refreshAll = () => {
     state.refreshPosition();
@@ -101,16 +94,17 @@ function bindSidebar() {
     if (r.ok) snack("🛑 ESTOP sent");
     else snack(errorMessage(r), { error: true });
   });
+  return updatePositionAge;
 }
 
 async function boot() {
   buildNav();
-  bindSidebar();
+  const updatePositionAge = bindSidebar();
   await state.initSession();
   state.refreshHealth();
   state.refreshPosition();
   state.refreshMessages();
-  state.startPolling();
+  state.startPolling(updatePositionAge);
   showTab(tabFromUrl());
   window.addEventListener("popstate", () => showTab(tabFromUrl()));
 }

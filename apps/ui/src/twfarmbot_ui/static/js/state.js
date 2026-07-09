@@ -126,7 +126,6 @@ export function loadSessionSnapshot(snapshot) {
   const params = new URLSearchParams(location.search);
   params.set("session", snapshot.session_id);
   history.replaceState(null, "", `?${params}`);
-  emit("session", store.session);
 }
 
 export function newSession() {
@@ -134,15 +133,15 @@ export function newSession() {
   const params = new URLSearchParams(location.search);
   params.delete("session");
   history.replaceState(null, "", params.size ? `?${params}` : location.pathname);
-  emit("session", store.session);
 }
 
 // ── Background polling ──────────────────────────────────────────────────
 
-export function startPolling() {
+export function startPolling(onTick) {
   setInterval(() => {
     const settings = getSettings();
     const now = Date.now();
+    onTick?.();
     if (now - store.lastPositionRefresh >= settings.refreshPositionS * 1000) {
       refreshPosition();
     }

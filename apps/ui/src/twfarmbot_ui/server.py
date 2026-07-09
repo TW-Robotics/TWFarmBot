@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -94,16 +95,17 @@ def add_garden_entity(x: float, y: float, kind: str, name: str) -> dict[str, Any
 
 
 def create_app(http_client: httpx.AsyncClient | None = None) -> FastAPI:
-    app = FastAPI(title="TWFarmBot UI", version="0.2.0")
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        yield
+        await application.state.http.aclose()
+
+    app = FastAPI(title="TWFarmBot UI", version="0.2.0", lifespan=lifespan)
     app.state.api_base = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000").rstrip("/")
     app.state.resireg_base = os.getenv(
         "TWFB_RESIREG_URL", "http://127.0.0.1:8080"
     ).rstrip("/")
     app.state.http = http_client or httpx.AsyncClient(timeout=_PROXY_TIMEOUT)
-
-    @app.on_event("shutdown")
-    async def close_client() -> None:
-        await app.state.http.aclose()
 
     async def _proxy(request: Request, base: str, path: str) -> StreamingResponse:
         client: httpx.AsyncClient = app.state.http
@@ -203,7 +205,18 @@ def create_app(http_client: httpx.AsyncClient | None = None) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(
+            STATIC_DIR / "index.html",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.middleware("http")
+    async def cache_static_assets(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/app.css" or path.startswith("/js/"):
+            response.headers["Cache-Control"] = "public, max-age=3600"
+        return response
 
     app.mount("/", StaticFiles(directory=STATIC_DIR), name="static")
 

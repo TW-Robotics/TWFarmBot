@@ -1,5 +1,5 @@
 import Chart from "chart.js/auto";
-import { h, icon, page, section, card, toolbar, metricRow, num, timeAgo } from "../ui.js";
+import { h, btn, page, section, card, toolbar, metricRow, num, timeAgo } from "../ui.js";
 import * as state from "../state.js";
 
 const EXPERIMENT_KEY = "twfb_experiment";
@@ -42,14 +42,17 @@ export async function render(container) {
   const networkBox = h("div", { class: "stack" });
   const eventsBox = h("div");
   const charts = [];
+  let renderedTelemetryLast = null;
+  let renderedTelemetryLength = -1;
 
-  const refreshBtn = h("md-filled-tonal-button", {
+  const refreshBtn = btn("filled-tonal", {
+    icon: "refresh",
     onClick: async () => {
       await Promise.all([state.refreshHealth(), state.refreshPosition(), state.refreshStatus()]);
       update();
     },
-  }, icon("refresh"), "Refresh status");
-  const clearBtn = h("md-outlined-button", {
+  }, "Refresh status");
+  const clearBtn = btn("outlined", {
     onClick: () => { state.store.telemetry = []; update(); },
   }, "Clear history");
 
@@ -114,18 +117,26 @@ export async function render(container) {
       ? h("pre", { class: "codeblock" }, messages.slice(-10).join("\n"))
       : h("p", { class: "caption" }, "No events recorded."));
 
+    const telemetry = state.store.telemetry;
+    const telemetryLast = telemetry.at(-1);
+    if (telemetry.length === renderedTelemetryLength && telemetryLast === renderedTelemetryLast) {
+      return;
+    }
+    renderedTelemetryLength = telemetry.length;
+    renderedTelemetryLast = telemetryLast;
+
     charts.forEach((c) => c.destroy());
     charts.length = 0;
-    if (state.store.telemetry.length) {
+    if (telemetry.length) {
       const usageBox = h("div", { class: "chart-box tall" }, h("canvas"));
       const wifiBox = h("div", { class: "chart-box" }, h("canvas"));
       const socBox = h("div", { class: "chart-box" }, h("canvas"));
       chartsArea.replaceChildren(usageBox, h("div", { class: "split", style: "--split-ratio:1fr 1fr" }, wifiBox, socBox));
       charts.push(
         new Chart(usageBox.firstChild, chartConfig(
-          [series("cpu", "CPU", "#256a4a"), series("memory", "Memory", "#3c6472"), series("disk", "Disk", "#8b7355")],
+          [series("cpu", "CPU", "#554fd8"), series("memory", "Memory", "#2685c7"), series("disk", "Disk", "#d35d7b")],
           { yMax: 100 })),
-        new Chart(wifiBox.firstChild, chartConfig([series("wifi", "Wi-Fi %", "#3c6472")], { yMax: 100 })),
+        new Chart(wifiBox.firstChild, chartConfig([series("wifi", "Wi-Fi %", "#2685c7")], { yMax: 100 })),
         new Chart(socBox.firstChild, chartConfig([series("soc", "SoC °C", "#ba1a1a")])));
     } else {
       chartsArea.replaceChildren(h("p", { class: "caption" },

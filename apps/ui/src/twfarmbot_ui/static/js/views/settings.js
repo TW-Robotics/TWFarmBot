@@ -1,5 +1,5 @@
-import { api, ui, postAction, errorMessage, getSettings, saveSettings } from "../api.js";
-import { h, icon, snack, page, section, card, toolbar, expander, jsonBlock } from "../ui.js";
+import { ui, postAction, errorMessage, getSettings, saveSettings } from "../api.js";
+import { h, btn, snack, page, section, card, toolbar, expander, jsonBlock } from "../ui.js";
 import * as state from "../state.js";
 
 export async function render(container) {
@@ -18,7 +18,7 @@ export async function render(container) {
 
   body.append(
     section("Connection", toolbar(apiField,
-      h("md-outlined-button", {
+      btn("outlined", {
         onClick: async () => {
           const r = await ui("/config", { method: "PUT", json: { api_url: apiField.value } });
           if (!r.ok) { snack(errorMessage(r), { error: true }); return; }
@@ -27,9 +27,10 @@ export async function render(container) {
           drawStatus();
         },
       }, "Apply"),
-      h("md-filled-tonal-button", {
+      btn("filled-tonal", {
+        icon: "ecg_heart",
         onClick: async () => { await state.refreshHealth(); drawStatus(); snack("Health checked"); },
-      }, icon("ecg_heart"), "Health check")),
+      }, "Health check")),
       statusBox),
     section("Auto-refresh intervals", (() => {
       const settings = getSettings();
@@ -53,7 +54,8 @@ export async function render(container) {
       });
       const resultBox = h("div");
       return card(null, toolbar(kindField, paramsField,
-        h("md-filled-button", {
+        btn("filled", {
+          icon: "bolt",
           onClick: async () => {
             let params;
             try { params = JSON.parse(paramsField.value); }
@@ -61,7 +63,7 @@ export async function render(container) {
             const r = await postAction(kindField.value.trim(), params);
             resultBox.replaceChildren(jsonBlock(r.body));
           },
-        }, icon("bolt"), "Fire")),
+        }, "Fire")),
         resultBox);
     })())),
   );

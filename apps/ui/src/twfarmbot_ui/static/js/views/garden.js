@@ -1,10 +1,10 @@
 import { api, ui, errorMessage } from "../api.js";
-import { h, icon, snack, page, section, card, toolbar, metricRow, split, stack, num, dataTable } from "../ui.js";
+import { h, btn, snack, page, section, card, toolbar, metricRow, split, stack, num, dataTable } from "../ui.js";
 import * as state from "../state.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const GRID_STEP = 25;
-const PALETTE = ["#256a4a", "#3c6472", "#8b7355", "#6b4c8a", "#a64b4b", "#3a8f7d", "#9b4b7a"];
+const PALETTE = ["#554fd8", "#2685c7", "#d35d7b", "#8b5ed7", "#e57a44", "#00a59b", "#b54fc8"];
 const KINDS = ["plant", "obstacle", "tool", "marker", "sensor", "valve", "custom"];
 
 const kindColor = (kind, offset = 0) => {
@@ -28,7 +28,7 @@ export async function render(container) {
   let selected = [];
 
   body.append(
-    toolbar(h("md-filled-tonal-button", { onClick: () => loadWorld(true) }, icon("refresh"), "Refresh map")),
+    toolbar(btn("filled-tonal", { icon: "refresh", onClick: () => loadWorld(true) }, "Refresh map")),
     metricsBox,
     split(mapBox, sideBox),
   );
@@ -91,9 +91,9 @@ export async function render(container) {
       svg.append(marker(p.x, p.y, Math.max(entity.radius_mm || 20, 12), kindColor(entity.kind, 3),
         `${entity.name} (${entity.kind})`));
     }
-    svg.append(marker(robot.x || 0, robot.y || 0, 20, "#1a73e8", "FarmBot"));
+    svg.append(marker(robot.x || 0, robot.y || 0, 20, "#554fd8", "FarmBot"));
     const camPos = camera.position || {};
-    svg.append(marker(camPos.x || 0, camPos.y || 0, 14, "#7c4dff", "Camera"));
+    svg.append(marker(camPos.x || 0, camPos.y || 0, 14, "#d35d7b", "Camera"));
 
     const selectionLayer = svgEl("g", {});
     svg.append(selectionLayer);
@@ -119,8 +119,8 @@ export async function render(container) {
       h("div", { class: "garden-legend" },
         ...zones.map((z) => h("span", {},
           h("span", { class: "swatch", style: `background:${kindColor(z.kind)}` }), z.name)),
-        h("span", {}, h("span", { class: "swatch", style: "background:#1a73e8" }), "FarmBot"),
-        h("span", {}, h("span", { class: "swatch", style: "background:#7c4dff" }), "Camera"),
+        h("span", {}, h("span", { class: "swatch", style: "background:#554fd8" }), "FarmBot"),
+        h("span", {}, h("span", { class: "swatch", style: "background:#d35d7b" }), "Camera"),
         h("span", { class: "caption" }, `Click to select ${GRID_STEP} mm grid points`)));
 
     function drawSide() {

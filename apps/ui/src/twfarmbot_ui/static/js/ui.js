@@ -1,8 +1,5 @@
 // Tiny DOM helpers + shared layout primitives for consistent page structure.
 
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -23,15 +20,28 @@ export function h(tag, attrs = {}, ...children) {
 
 export const icon = (name) => h("md-icon", {}, name);
 
+/**
+ * Material button with a correctly slotted icon.
+ * variant: "filled" | "filled-tonal" | "outlined" | "text"
+ */
+export function btn(variant, { icon: iconName, ...attrs } = {}, ...children) {
+  const el = h(`md-${variant}-button`, attrs);
+  if (iconName) el.append(h("md-icon", { slot: "icon" }, iconName));
+  el.append(...children.flat().filter((c) => c !== null && c !== undefined)
+    .map((c) => (c.nodeType ? c : document.createTextNode(String(c)))));
+  return el;
+}
+
+/** Icon-only button (md-icon-button uses the default slot). */
+export function iconBtn(iconName, attrs = {}) {
+  return h("md-icon-button", attrs, icon(iconName));
+}
+
 export function snack(message, { error = false, ms = 3500 } = {}) {
   const host = document.getElementById("snackbar-host");
   const bar = h("div", { class: `snackbar${error ? " error" : ""}` }, message);
   host.append(bar);
   setTimeout(() => bar.remove(), ms);
-}
-
-export function md(text) {
-  return DOMPurify.sanitize(marked.parse(String(text ?? "")));
 }
 
 // ── Layout primitives ───────────────────────────────────────────────────
@@ -107,12 +117,6 @@ export function dataTable(headers, rows) {
     h("thead", {}, h("tr", {}, headers.map((head) => h("th", {}, head)))),
     h("tbody", {}, rows.map((row) => h("tr", {}, row.map((cell) => h("td", {}, cell ?? "—"))))));
 }
-
-// Back-compat alias used by a few views.
-export const pageHeader = (title, eyebrow) => {
-  const { root } = page(title, eyebrow);
-  return [root.querySelector(".eyebrow"), root.querySelector(".page-title")];
-};
 
 // ── Formatting helpers ────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { api, postAction, errorMessage } from "../api.js";
-import { h, icon, snack, page, section, card, toolbar, stack, split, emptyState } from "../ui.js";
+import { h, btn, snack, page, section, card, toolbar, stack, split, emptyState } from "../ui.js";
 
 async function writePin(pin, value, mode, seconds) {
   const params = { pin, value, mode };
@@ -25,7 +25,8 @@ export async function render(container) {
           label: "Duration (seconds)", type: "number", value: "2", min: "0.1", max: "300", step: "0.5", class: "field-sm",
         });
         return stack(
-          toolbar(secondsField, h("md-filled-button", {
+          toolbar(secondsField, btn("filled", {
+            icon: "water_drop",
             onClick: async () => {
               const seconds = parseFloat(secondsField.value);
               if (!Number.isFinite(seconds) || seconds <= 0) { snack("Enter a positive duration.", { error: true }); return; }
@@ -33,7 +34,7 @@ export async function render(container) {
               if (res.ok) snack("Watering queued");
               else snack(errorMessage(res), { error: true });
             },
-          }, icon("water_drop"), "Water")),
+          }, "Water")),
           h("p", { class: "caption" }, "Runs the pump for the selected duration."));
       })()),
       card("Peripheral control", (() => {
@@ -69,8 +70,9 @@ export async function render(container) {
               h("label", { class: "toolbar" }, pulseSwitch, h("span", {}, "Timed pulse")),
               pulseField,
               toolbar(
-                h("md-outlined-button", { onClick: () => writePin(sel.pin, 0, mode) }, icon("power_settings_new"), "OFF"),
-                h("md-filled-button", {
+                btn("outlined", { icon: "power_settings_new", onClick: () => writePin(sel.pin, 0, mode) }, "OFF"),
+                btn("filled", {
+                  icon: "power",
                   onClick: () => {
                     if (pulseSwitch.selected) {
                       const seconds = parseFloat(pulseField.value);
@@ -78,7 +80,7 @@ export async function render(container) {
                       writePin(sel.pin, 1, mode, seconds);
                     } else writePin(sel.pin, 1, mode);
                   },
-                }, icon("power"), "ON")));
+                }, "ON")));
           }
           peripheralBody.replaceChildren(...parts);
         }
@@ -96,12 +98,13 @@ export async function render(container) {
         h("span", { class: "pill" }, sensor.mode || "analog"),
         h("span", { class: "caption" }, `pin ${sensor.pin}`)),
       valueBox,
-      h("md-outlined-button", {
+      btn("outlined", {
+        icon: "sensors",
         onClick: async () => {
           const res = await api(`/pin/${sensor.pin}`, { params: { mode: sensor.mode || "analog" } });
           valueBox.textContent = res.ok ? String(res.body?.value ?? "—") : "—";
           if (!res.ok) snack(errorMessage(res), { error: true });
         },
-      }, icon("sensors"), "Read")));
+      }, "Read")));
   }));
 }

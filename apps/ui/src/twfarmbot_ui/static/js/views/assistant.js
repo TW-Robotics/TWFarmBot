@@ -1,5 +1,6 @@
 import { api, ui, sse, postAction, errorMessage } from "../api.js";
-import { h, icon, snack, md, page, card, toolbar, expander, jsonBlock, actionSummary } from "../ui.js";
+import { h, btn, iconBtn, snack, page, toolbar, expander, jsonBlock, actionSummary } from "../ui.js";
+import { markdown as md } from "../markdown.js";
 import * as state from "../state.js";
 
 const CHAT_TIMEOUT_MS = 90000;
@@ -93,13 +94,14 @@ export async function render(container) {
   const pickerBox = h("div", { class: "model-picker" });
   let busy = false;
 
-  const clearBtn = h("md-outlined-button", {
+  const clearBtn = btn("outlined", {
+    icon: "mop",
     onClick: async () => {
       session.assistant_messages = [];
       await state.persistSession();
       drawMessages();
     },
-  }, icon("mop"), "Clear chat");
+  }, "Clear chat");
 
   const { root, body } = page("Assistant", "TWFarmBot · UAS Technikum Wien", { actions: clearBtn });
   body.append(
@@ -111,7 +113,7 @@ export async function render(container) {
 
   // Fixed chat input bar — attached to body so it spans the full main area.
   const input = h("md-outlined-text-field", { label: "Message", placeholder: "Ask the FarmBot assistant…" });
-  const sendBtn = h("md-filled-button", {}, icon("send"), "Send");
+  const sendBtn = btn("filled", { icon: "send" }, "Send");
   const chatBar = h("div", { class: "chat-input-bar" },
     h("div", { class: "chat-input-inner" },
       metricsBar,
@@ -151,8 +153,8 @@ export async function render(container) {
         h("p", { class: "caption", style: "margin:0 0 8px" }, "Proposed actions:"),
         ...proposals.map((a) => h("p", { class: "caption", style: "margin:0" }, actionSummary(a))),
         toolbar(
-          h("md-filled-button", { onClick: () => resolveProposal(message, true) }, icon("check"), "Approve"),
-          h("md-outlined-button", { onClick: () => resolveProposal(message, false) }, icon("close"), "Reject"))));
+          btn("filled", { icon: "check", onClick: () => resolveProposal(message, true) }, "Approve"),
+          btn("outlined", { icon: "close", onClick: () => resolveProposal(message, false) }, "Reject"))));
     } else if (message.approved) {
       bubble.append(h("p", { class: "caption" }, "Approved"));
     } else if (message.rejected) {
@@ -213,6 +215,7 @@ export async function render(container) {
     let textDiv = null;
     let accumulated = "";
     let segment = "";
+    let lastScrollAt = 0;
     const meta = { tool_calls: [], proposed_actions: [], metrics: {} };
     const thinkingParts = [];
     let streamError = null;
@@ -220,9 +223,17 @@ export async function render(container) {
     const appendText = (chunk) => {
       accumulated += chunk;
       segment += chunk;
-      if (!textDiv) { textDiv = h("div"); liveBubble.append(textDiv); }
-      textDiv.innerHTML = md(segment);
-      liveMsg.scrollIntoView({ behavior: "smooth", block: "end" });
+      if (!textDiv) {
+        textDiv = h("div", { class: "streaming-text" });
+        liveBubble.append(textDiv);
+      }
+      // Parsing + sanitizing the full response for every token is O(n²).
+      // Stream plain text, then render Markdown once in drawMessages().
+      textDiv.textContent = segment;
+      if (performance.now() - lastScrollAt > 120) {
+        liveMsg.scrollIntoView({ block: "end" });
+        lastScrollAt = performance.now();
+      }
     };
 
     try {
@@ -290,7 +301,6 @@ export async function render(container) {
     busy = false;
     await state.persistSession();
     drawMessages();
-    drawSessionBox();
   }
 
   async function drawPicker() {
@@ -337,12 +347,14 @@ export async function render(container) {
     const listBox = h("div", { class: "stack" });
     sessionBox.replaceChildren(expander("Session",
       toolbar(labelField,
-        h("md-outlined-button", {
+        btn("outlined", {
+          icon: "add",
           onClick: async () => { await state.persistSession(); state.newSession(); location.reload(); },
-        }, icon("add"), "New"),
-        h("md-outlined-button", {
+        }, "New"),
+        btn("outlined", {
+          icon: "save",
           onClick: async () => { await state.persistSession(); snack("Session saved"); },
-        }, icon("save"), "Save")),
+        }, "Save")),
       listBox));
 
     const r = await ui("/sessions");
@@ -358,12 +370,12 @@ export async function render(container) {
           location.reload();
         },
       }, "Load"),
-      h("md-icon-button", {
+      iconBtn("delete", {
         onClick: async () => {
           await ui(`/sessions/${encodeURIComponent(s.session_id)}`, { method: "DELETE" });
           drawSessionBox();
         },
-      }, icon("delete")))));
+      }))));
   }
 
   drawMessages();
