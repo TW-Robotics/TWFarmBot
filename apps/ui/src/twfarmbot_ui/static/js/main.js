@@ -90,11 +90,12 @@ function bindSidebar() {
       ? `updated ${timeAgo(state.store.lastPositionRefresh)}` : "";
   }, 1000);
 
-  document.getElementById("refresh-btn").addEventListener("click", () => {
+  const refreshAll = () => {
     state.refreshPosition();
     state.refreshHealth();
     state.refreshMessages();
-  });
+  };
+  document.getElementById("refresh-btn").addEventListener("click", refreshAll);
   document.getElementById("estop-btn").addEventListener("click", async () => {
     const r = await postAction("e_stop");
     if (r.ok) snack("🛑 ESTOP sent");

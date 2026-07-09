@@ -23,28 +23,36 @@
   <script type="module" src="js/main.js?v=3"></script>
 </head>
 <body>
-  <aside id="sidebar">
-    <div class="brand">
-      <div class="kicker">Field robotics</div>
-      <div class="title">TWFarmBot</div>
+  <aside id="sidebar" aria-label="Primary navigation rail">
+    <div class="brand" aria-label="TWFarmBot">
+      <span class="brand-mark" aria-hidden="true">eco</span>
+      <span class="brand-wordmark">TWFarmBot</span>
     </div>
     <nav id="nav" aria-label="Main navigation"></nav>
-    <div class="sidebar-footer">
+  </aside>
+  <header id="top-app-bar" aria-label="Application header">
+    <div>
+      <p class="top-app-bar-title">FarmBot console</p>
+      <p class="top-app-bar-subtitle">Material 3 research controls · live hardware state</p>
+    </div>
+    <div class="top-app-bar-actions" aria-label="Robot status and primary actions">
       <div id="status-block">
         <span id="farmbot-pill" class="pill">● unknown</span>
-        <div id="live-position" class="live-pos">X — · Y — · Z —</div>
-        <div id="position-age" class="pos-age"></div>
+        <div>
+          <div id="live-position" class="live-pos">X — · Y — · Z —</div>
+          <div id="position-age" class="pos-age"></div>
+        </div>
       </div>
-      <md-outlined-button id="refresh-btn" class="sidebar-btn">
+      <md-outlined-button id="refresh-btn">
         <md-icon slot="icon">refresh</md-icon>
         Refresh
       </md-outlined-button>
-      <md-filled-button id="estop-btn" class="estop sidebar-btn">
+      <md-filled-button id="estop-btn" class="estop">
         <md-icon slot="icon">emergency</md-icon>
         ESTOP
       </md-filled-button>
     </div>
-  </aside>
+  </header>
   <main id="content"></main>
   <div id="snackbar-host"></div>
 </body>
