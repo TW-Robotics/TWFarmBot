@@ -6,7 +6,9 @@ ASGITransport, so no sockets are opened.
 
 from __future__ import annotations
 
+import hashlib
 import json
+from pathlib import Path
 from typing import Any, Iterator
 
 import httpx
@@ -154,3 +156,55 @@ def test_config_endpoint_updates_upstream(client: TestClient) -> None:
     r = client.put("/ui/config", json={"api_url": "http://other:9000/"})
     assert r.json()["api_url"] == "http://other:9000"
     assert client.get("/ui/config").json()["api_url"] == "http://other:9000"
+
+
+def _static_dir() -> Path:
+    from twfarmbot_ui.server import STATIC_DIR
+
+    return STATIC_DIR
+
+
+def test_vendored_js_importmap_is_local_and_offline_capable(client: TestClient) -> None:
+    """Every entry in the importmap must resolve to a file under vendor/
+    that the FastAPI server can serve — no esm.run / jsdelivr references."""
+    html = client.get("/").text
+    assert "https://esm.run" not in html, (
+        "importmap still points at esm.run — UI would break offline"
+    )
+    static = _static_dir()
+    vendor = static / "vendor"
+    manifest = json.loads((vendor / "manifest.json").read_text())
+    seen: set[str] = set()
+    for entry in manifest:
+        path = vendor / entry["path"]
+        assert path.is_file(), f"missing vendored file: {path}"
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        assert digest == entry["sha256"], f"hash mismatch for {path}"
+        served = client.get(f"/vendor/{entry['path']}")
+        assert served.status_code == 200
+        assert served.headers["cache-control"].startswith("public")
+        seen.add(entry["path"])
+    assert len(seen) == len(manifest)
+
+
+def test_vendored_assets_satisfy_importmap_targets(client: TestClient) -> None:
+    """Each pinned importmap target must have a corresponding vendored file."""
+    import re
+
+    html = client.get("/").text
+    match = re.search(r'<script type="importmap">\s*({.*?})\s*</script>', html, re.DOTALL)
+    assert match, "importmap block not found"
+    importmap = json.loads(match.group(1))
+    static = _static_dir()
+    for specifier, target in importmap["imports"].items():
+        if target.startswith(("http://", "https://")):
+            assert False, f"{specifier} still resolves to {target}"
+        prefix = target.rstrip("/")
+        if specifier.endswith("/"):
+            # Bare directory specifier: at least one file must exist beneath it.
+            assert any((static / prefix).rglob("*.js")), (
+                f"no JS files under {static / prefix}"
+            )
+        else:
+            file_path = static / target
+            assert file_path.is_file(), f"missing vendored file {file_path}"

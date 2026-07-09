@@ -214,7 +214,8 @@ def create_app(http_client: httpx.AsyncClient | None = None) -> FastAPI:
     async def cache_static_assets(request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path == "/app.css" or path.startswith("/js/"):
+        if path == "/app.css" or path.startswith("/js/") or path.startswith("/vendor/"):
+            # /vendor/ files are SHA256-pinned, so a long cache is safe.
             response.headers["Cache-Control"] = "public, max-age=3600"
         return response
 
