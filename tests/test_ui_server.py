@@ -123,7 +123,8 @@ def test_session_crud_roundtrip(client: TestClient) -> None:
     loaded = client.get(f"/ui/sessions/{session_id}").json()
     assert loaded["label"] == "watering experiment"
 
-    assert client.delete(f"/ui/sessions/{session_id}").json() == {"deleted": True}
+    delete_resp = client.delete(f"/ui/sessions/{session_id}")
+    assert delete_resp.json() == {"deleted": True}
     assert client.get(f"/ui/sessions/{session_id}").status_code == 404
 
 
