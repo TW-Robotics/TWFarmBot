@@ -105,7 +105,7 @@ uv run pytest tests/ -q
 
 | Folder | Purpose |
 | --- | --- |
-| `apps/` | Runnable applications: `ui` (Streamlit), `api_server` (FastAPI), `worker` (background jobs) |
+| `apps/` | Runnable applications: `ui` (Material 3 web app), `api_server` (FastAPI), `worker` (background jobs) |
 | `core/` | Shared primitives: `Action`, `Point3D`, `GardenWorld`, config, logging, events |
 | `services/` | One service per concern, e.g. hardware gateway, watering, vision, planning, spatial, safety |
 | `projects/` | Isolated student / research projects |
@@ -141,7 +141,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design, a
 | Folder | Distribution | Purpose |
 | --- | --- | --- |
 | `core/` | `twfarmbot-core` | Shared domain, config, logging, events |
-| `apps/ui/` | `twfarmbot-ui` | Streamlit dashboard |
+| `apps/ui/` | `twfarmbot-ui` | Material 3 web dashboard (FastAPI + Material Web Components) |
 | `apps/api_server/` | `twfarmbot-api-server` | FastAPI HTTP API |
 | `apps/worker/` | `twfarmbot-worker` | Background jobs / experiments |
 

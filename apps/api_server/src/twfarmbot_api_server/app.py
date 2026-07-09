@@ -429,11 +429,11 @@ def connect_to_farmbot(required: bool = True) -> str:
     so ``GET /health`` can report it.
 
     Set ``FARMBOT_REQUIRED=0`` to allow boot without a live bot (useful
-    for UI-only or offline dev). When ``required=True`` (the default),
-    a failed connection raises ``SystemExit`` so uvicorn never starts
-    with a dead upstream.
+    for UI-only or offline dev). When ``required=True`` (the default) and
+    the bot is required, a failed connection raises ``SystemExit`` so
+    uvicorn never starts with a dead upstream.
     """
-    if not required and os.getenv("FARMBOT_REQUIRED", "1") == "0":
+    if os.getenv("FARMBOT_REQUIRED", "1") == "0":
         log.warning("FarmBot connection skipped (FARMBOT_REQUIRED=0)")
         app.state.farmbot_status = "skipped"
         return "skipped"

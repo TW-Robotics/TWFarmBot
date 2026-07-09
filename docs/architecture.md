@@ -267,9 +267,12 @@ or env-only via `os.getenv(...)`.
 
 ## 9. UI
 
-`apps/ui` is a single-page Streamlit app (`streamlit run apps/ui/src/twfarmbot_ui/app.py`).
-It contains **zero business logic** — every widget is a thin HTTP proxy
-to the api_server:
+`apps/ui` is a custom Material 3 single-page web app (static HTML/JS using
+[Material Web Components](https://github.com/material-components/material-web))
+served by a small FastAPI server (`twfarmbot_ui/server.py`). The server
+reverse-proxies `/api/*` to the api_server and `/resireg/*` to the vision
+server, so the browser stays same-origin. The UI contains **zero business
+logic** — every widget is a thin HTTP proxy to the api_server:
 
 **Reads (buttons/forms in the UI):**
 - "Check status" sidebar button → `GET /health`
