@@ -36,24 +36,23 @@ const MODES = [
 ];
 
 export async function render(container) {
-  const { root, body } = page("Camera");
-  const galleryArea = h("div");
-  const resultArea = h("div");
+  const takePhotoBtn = h("md-filled-button", {
+    onClick: async () => {
+      const r = await postAction("take_photo");
+      if (r.ok) { snack("Capture queued"); loadGallery(); }
+      else snack(errorMessage(r), { error: true });
+    },
+  }, icon("photo_camera"), "Take photo");
+  const refreshBtn = h("md-outlined-button", {
+    onClick: () => loadGallery(true),
+  }, icon("refresh"), "Refresh gallery");
+
+  const { root, body } = page("Camera", undefined, { actions: [takePhotoBtn, refreshBtn] });
+  const galleryArea = h("div", { class: "stack" });
+  const resultArea = h("div", { class: "stack" });
   let aiResult = null;
 
-  body.append(
-    toolbar(
-      h("md-filled-button", {
-        onClick: async () => {
-          const r = await postAction("take_photo");
-          if (r.ok) { snack("Capture queued"); loadGallery(); }
-          else snack(errorMessage(r), { error: true });
-        },
-      }, icon("photo_camera"), "Take photo"),
-      h("md-outlined-button", { onClick: () => loadGallery(true) }, icon("refresh"), "Refresh gallery")),
-    galleryArea,
-    resultArea,
-  );
+  body.append(galleryArea, resultArea);
   container.append(root);
 
   async function loadGallery(refresh = false) {
@@ -68,7 +67,8 @@ export async function render(container) {
   function draw() {
     const images = state.store.session?.camera_images || [];
     if (!images.length) {
-      galleryArea.replaceChildren(emptyState("Refresh the gallery to load FarmBot photos.", { iconName: "photo_library" }));
+      galleryArea.replaceChildren(
+        emptyState("Refresh the gallery to load FarmBot photos.", { iconName: "photo_library", compact: true }));
       return;
     }
     let selected = images[0];

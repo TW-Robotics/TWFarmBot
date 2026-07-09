@@ -18,7 +18,7 @@ export async function render(container) {
 
   const sensorGrid = h("div", { class: "metric-grid" });
   body.append(
-    section("Sensors", sensors.length ? sensorGrid : emptyState("No sensor pins configured.", { iconName: "sensors" })),
+    section("Sensors", sensors.length ? sensorGrid : emptyState("No sensor pins configured.", { iconName: "sensors", compact: true })),
     section("Actuators", split(
       card("Irrigation", (() => {
         const secondsField = h("md-outlined-text-field", {
@@ -38,7 +38,7 @@ export async function render(container) {
       })()),
       card("Peripheral control", (() => {
         const peripheralBody = h("div", { class: "stack" });
-        if (!outputs.length) return emptyState("No output pins configured.", { iconName: "electrical_services" });
+        if (!outputs.length) return emptyState("No output pins configured.", { iconName: "electrical_services", compact: true });
         const select = h("md-outlined-select", { label: "Output", class: "grow" },
           outputs.map((p, i) => h("md-select-option", { value: String(i), selected: i === 0 },
             h("div", { slot: "headline" }, `${p.label} · pin ${p.pin}`))));

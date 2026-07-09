@@ -36,14 +36,14 @@ export function md(text) {
 
 // ── Layout primitives ───────────────────────────────────────────────────
 
-/** Standard page shell: header + scrollable body with consistent spacing. */
-export function page(title, eyebrow = "TWFarmBot · UAS Technikum Wien", { actions, bodyClass = "" } = {}) {
+/** Standard page shell: header + body. Pass `actions` for title-row buttons. */
+export function page(title, eyebrow, { actions, bodyClass = "" } = {}) {
   const body = h("div", { class: `page-body${bodyClass ? ` ${bodyClass}` : ""}` });
   const header = h("header", { class: "page-header" },
-    h("p", { class: "eyebrow" }, eyebrow),
+    h("p", { class: "eyebrow" }, eyebrow ?? "TWFarmBot · UAS Technikum Wien"),
     h("div", { class: "page-title-row" },
       h("h1", { class: "page-title" }, title),
-      actions ? h("div", { class: "page-actions" }, actions) : null));
+      actions ? h("div", { class: "page-actions" }, ...(Array.isArray(actions) ? actions : [actions])) : null));
   return { root: h("div", { class: "page" }, header, body), body };
 }
 
@@ -56,10 +56,12 @@ export function section(title, ...children) {
 
 /** Elevated surface card; optional title rendered as card header. */
 export function card(title, ...children) {
-  const inner = title
-    ? [h("div", { class: "card-header" }, h("h3", { class: "card-title" }, title)), h("div", { class: "card-body" }, ...children)]
-    : children;
-  return h("div", { class: "card" }, ...inner);
+  if (!title) {
+    return h("div", { class: "card" }, h("div", { class: "card-body" }, ...children));
+  }
+  return h("div", { class: "card" },
+    h("div", { class: "card-header" }, h("h3", { class: "card-title" }, title)),
+    h("div", { class: "card-body" }, ...children));
 }
 
 /** Horizontal button / control row. */
@@ -88,8 +90,8 @@ export function stack(...children) {
   return h("div", { class: "stack" }, ...children);
 }
 
-export function emptyState(message, { iconName = "info" } = {}) {
-  return h("div", { class: "empty-state" }, icon(iconName), h("p", {}, message));
+export function emptyState(message, { iconName = "info", compact = false } = {}) {
+  return h("div", { class: compact ? "empty-panel" : "empty-state" }, icon(iconName), h("p", {}, message));
 }
 
 export function expander(label, ...children) {

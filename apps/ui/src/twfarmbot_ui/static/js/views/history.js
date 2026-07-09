@@ -8,7 +8,7 @@ export async function render(container) {
   const sessions = (r.ok && r.body?.sessions) || [];
 
   if (!sessions.length) {
-    body.append(emptyState("No saved sessions yet. Chat is saved automatically.", { iconName: "history" }));
+    body.append(emptyState("No saved sessions yet. Chat is saved automatically.", { iconName: "history", compact: true }));
     container.append(root);
     return;
   }

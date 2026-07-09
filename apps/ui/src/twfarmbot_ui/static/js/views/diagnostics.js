@@ -25,7 +25,7 @@ export async function render(container) {
     const pins = payload.pins || {};
 
     if (!Object.keys(info).length && !Object.keys(axes).length && !Object.keys(pins).length) {
-      contentBox.replaceChildren(emptyState("Click “Load /status” to fetch diagnostic state.", { iconName: "troubleshoot" }));
+      contentBox.replaceChildren(emptyState("Click “Load /status” to fetch diagnostic state.", { iconName: "troubleshoot", compact: true }));
       return;
     }
 
