@@ -828,3 +828,10 @@ img.frame {
   #content { margin-left: 0; }
   .chat-input-bar { left: 0; }
 }
+
+/* Manually collapsed navigation rail — mirrors the mobile layout at any width. */
+body.sidebar-collapsed { --sidebar-w: 0px; }
+body.sidebar-collapsed #sidebar { transform: translateX(-100%); }
+body.sidebar-collapsed #top-app-bar { left: 0; }
+body.sidebar-collapsed #content { margin-left: 0; }
+body.sidebar-collapsed .chat-input-bar { left: 0; }

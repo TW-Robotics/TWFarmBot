@@ -99,6 +99,7 @@ function bindSidebar() {
 
 async function boot() {
   buildNav();
+  bindSidebarToggle();
   const updatePositionAge = bindSidebar();
   await state.initSession();
   state.refreshHealth();
@@ -107,6 +108,31 @@ async function boot() {
   state.startPolling(updatePositionAge);
   showTab(tabFromUrl());
   window.addEventListener("popstate", () => showTab(tabFromUrl()));
+}
+
+const SIDEBAR_COLLAPSED_KEY = "twfb_sidebar_collapsed";
+
+function setSidebarCollapsed(collapsed) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  const icon = document.querySelector("#sidebar-toggle md-icon");
+  if (icon) icon.textContent = collapsed ? "left_panel_open" : "left_panel_close";
+  const btn = document.getElementById("sidebar-toggle");
+  if (btn) {
+    const label = collapsed ? "Show navigation rail" : "Hide navigation rail";
+    btn.setAttribute("aria-label", label);
+    btn.setAttribute("title", label);
+  }
+}
+
+function bindSidebarToggle() {
+  const btn = document.getElementById("sidebar-toggle");
+  if (!btn) return;
+  setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1");
+  btn.addEventListener("click", () => {
+    const next = !document.body.classList.contains("sidebar-collapsed");
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+    setSidebarCollapsed(next);
+  });
 }
 
 boot();
