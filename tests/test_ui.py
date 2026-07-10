@@ -1,7 +1,7 @@
-"""Tests for the UI's API client.
+"""Tests for the UI package's Python API client.
 
-The Streamlit app itself is hard to unit-test (renders DOM), but the
-``ApiClient`` it uses to talk to the API is testable in isolation.
+The web frontend itself is browser-side; the ``ApiClient`` kept for
+scripts/tests is testable in isolation.
 """
 
 from __future__ import annotations

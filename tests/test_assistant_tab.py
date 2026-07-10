@@ -1,6 +1,6 @@
-"""Tests for the Assistant tab in the Streamlit UI.
+"""Tests for the Assistant tab's API contract.
 
-Streamlit's renderers are hard to unit-test directly. We exercise the
+The frontend renderers are browser-side. We exercise the
 end-to-end flow by talking to the real ``POST /plan`` endpoint with
 ``planning_service.plan`` stubbed, then verifying the endpoint returns
 the shapes the UI expects.

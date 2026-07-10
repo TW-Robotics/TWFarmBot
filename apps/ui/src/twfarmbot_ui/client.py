@@ -1,7 +1,9 @@
-"""API client used by the Streamlit app.
+"""Python client for the twfarmbot api_server.
 
-Kept separate from ``app.py`` so tests can import it without dragging in
-Streamlit.
+The web frontend talks to the API through the server-side proxy in
+``server.py``; this client is kept for scripts and tests that need
+programmatic access with the same semantics (``wait=false`` action
+dispatch, SSE streaming).
 """
 
 from __future__ import annotations

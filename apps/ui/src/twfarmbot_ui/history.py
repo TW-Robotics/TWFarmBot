@@ -1,4 +1,4 @@
-"""Persistence for Streamlit UI session state.
+"""Persistence for UI session state.
 
 Chat history, plan previews, and executed plans are saved as JSON files so
 they survive page reloads. Storage is local and intended for a single-user
