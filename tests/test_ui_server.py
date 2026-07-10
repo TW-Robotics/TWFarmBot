@@ -192,7 +192,9 @@ def test_vendored_assets_satisfy_importmap_targets(client: TestClient) -> None:
     import re
 
     html = client.get("/").text
-    match = re.search(r'<script type="importmap">\s*({.*?})\s*</script>', html, re.DOTALL)
+    match = re.search(
+        r'<script type="importmap">\s*({.*?})\s*</script>', html, re.DOTALL
+    )
     assert match, "importmap block not found"
     importmap = json.loads(match.group(1))
     static = _static_dir()

@@ -102,9 +102,7 @@ def _needs_fetch(target: Path, asset: Asset) -> bool:
     if not target.exists():
         return True
     if _hash(target.read_bytes()) != asset.sha256:
-        log.warning(
-            "hash mismatch for %s — file is stale or corrupted", asset.relpath
-        )
+        log.warning("hash mismatch for %s — file is stale or corrupted", asset.relpath)
         return True
     return False
 
