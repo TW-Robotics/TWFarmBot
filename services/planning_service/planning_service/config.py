@@ -17,17 +17,19 @@ non-secret bits in YAML but the secret resolved from env.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
-
 try:
     from dotenv import load_dotenv
 
     # Load .env once at import time, but never override existing env vars
-    # so that explicitly exported variables still win. Skip during pytest to
-    # avoid triggering external services (e.g. Weave) from the test suite.
-    if not os.environ.get("PYTEST_CURRENT_TEST"):
+    # so that explicitly exported variables still win. Skip when running
+    # under pytest (including collection-time imports, where
+    # PYTEST_CURRENT_TEST is not yet set) to avoid triggering external
+    # services (e.g. Weave) or leaking developer .env values into tests.
+    if "pytest" not in sys.modules:
         load_dotenv(override=False)
 except ImportError:  # pragma: no cover - python-dotenv is optional
     pass
