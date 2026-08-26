@@ -18,6 +18,7 @@ from threading import Event, Thread
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -73,9 +74,32 @@ class ChatPayload(BaseModel):
         description="Optional model override. Uses the configured default if omitted.",
     )
 
-
 def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     app = FastAPI(title="TWFarmBot API", version="0.4.0")
+    # The native Assistant runs in the dashboard browser component.  Keep the
+    # browser bridge opt-in for deployments, while allowing local/LAN demos by
+    # default (the API has no cookie-authenticated browser session).
+    configured_origins = os.getenv("TWFB_CORS_ORIGINS", "")
+    cors_origins = [
+        origin.strip()
+        for origin in configured_origins.split(",")
+        if origin.strip()
+    ] or ["http://localhost:8501", "http://127.0.0.1:8501", "null"]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_origin_regex=(
+            r"^https?://(?:(?:localhost)|(?:127\.0\.0\.1)|"
+            r"(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3})|"
+            r"(?:192\.168\.\d{1,3}\.\d{1,3})|"
+            r"(?:172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})|"
+            r"(?:100\.(?:6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3})"
+            r")(?:\:\d+)?$"
+        ),
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.registry = registry or _default_registry()
     # FarmBot commands are blocking and must not overlap. Queue them through a
     # single worker so HTTP clients can receive an acknowledgement immediately.
@@ -473,7 +497,7 @@ def main() -> None:
         settings.env,
         app.state.registry.kinds(),
     )
-    connect_to_farmbot(required=True)
+    connect_to_farmbot(required=os.getenv("FARMBOT_REQUIRED", "1") != "0")
     import uvicorn
 
     uvicorn.run("twfarmbot_api_server.app:app", host="0.0.0.0", port=8000, reload=False)

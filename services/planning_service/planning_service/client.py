@@ -87,7 +87,8 @@ def build_chat_model(
         "model": model,
         "timeout": timeout_s,
     }
-    if api_key:
-        kwargs["api_key"] = api_key
+    # ChatOpenAI validates that a key exists even for local servers
+    # (Ollama/vLLM) that need none — substitute a harmless placeholder.
+    kwargs["api_key"] = api_key or "not-required"
     kwargs.update(overrides)
     return ChatOpenAI(**kwargs)
