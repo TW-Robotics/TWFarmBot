@@ -27,6 +27,7 @@ from twfarmbot_core.actions import summarize_action
 
 from twfarmbot_ui.client import ApiClient, ApiResult
 from twfarmbot_ui import history
+from twfarmbot_ui.assistant_component import render_assistant_component
 
 # ── config ────────────────────────────────────────────────────────────────────
 
@@ -89,150 +90,6 @@ def _action_summary(action: dict[str, Any]) -> str:
     return summarize_action(action)
 
 
-def _format_metrics_footer(metrics: dict[str, Any] | None) -> str:
-    """Return a small grey markdown string with backend timing/usage stats."""
-    if not metrics:
-        return ""
-    parts: list[str] = []
-    total = metrics.get("total_latency_s")
-    if total is not None:
-        parts.append(f"total {total:.2f}s")
-    ttft = metrics.get("ttft_s")
-    if ttft:
-        parts.append(f"ttft {ttft:.2f}s")
-    tps = metrics.get("tokens_per_s")
-    if tps:
-        parts.append(f"{tps:.1f} tok/s")
-    prompt = metrics.get("prompt_tokens")
-    completion = metrics.get("completion_tokens")
-    total_tokens = metrics.get("total_tokens")
-    if total_tokens:
-        parts.append(f"tokens {prompt or 0}+{completion or 0}={total_tokens}")
-    resi = metrics.get("resireg_latency_s")
-    if resi:
-        parts.append(f"resireg {resi:.2f}s")
-    if not parts:
-        return ""
-    return " · ".join(parts)
-
-
-def _render_assistant_metrics() -> None:
-    """Show the latest turn's backend timing/usage stats above the chat input."""
-    metrics = st.session_state.get("assistant_metrics") or {}
-    if not metrics:
-        return
-    footer = _format_metrics_footer(metrics)
-    if not footer:
-        return
-    st.markdown(
-        f'<div class="assistant-metrics">{footer}</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def _render_tool_call(
-    name: str, args: Any, result: Any, *, show_image: bool = True
-) -> None:
-    """Render a compact tool call; shows AI-analysis images inline if present."""
-    label = f"🔧 {name}"
-    if name == "analyze_image" and isinstance(args, dict) and args.get("prompt"):
-        label += f" · '{args['prompt']}'"
-    elif name == "segment_image" and isinstance(args, dict) and args.get("classes"):
-        label += f" · '{args['classes']}'"
-    elif name == "visualize_image_features" and isinstance(args, dict):
-        label += f" · clusters={args.get('n_clusters', 6)}"
-    elif (
-        name == "estimate_traversability"
-        and isinstance(args, dict)
-        and args.get("prompt")
-    ):
-        label += f" · '{args['prompt']}'"
-    elif name == "get_images" and isinstance(args, dict) and args.get("limit"):
-        label += f" · limit={args['limit']}"
-
-    with st.expander(label, expanded=False):
-        st.json({"args": args, "result": result})
-
-    if not show_image or not isinstance(result, dict):
-        return
-
-    if name == "analyze_image" and result.get("image_url"):
-        st.image(result["image_url"], use_container_width=True)
-    elif name == "estimate_traversability" and result.get("image_url"):
-        st.image(result["image_url"], use_container_width=True)
-    elif name in {"segment_image", "visualize_image_features"} and result.get(
-        "image_urls"
-    ):
-        cols = st.columns(min(len(result["image_urls"]), 3))
-        for idx, url in enumerate(result["image_urls"]):
-            cols[idx % len(cols)].image(url, use_container_width=True)
-        for label_text in result.get("labels", []):
-            st.caption(label_text)
-    elif result.get("image_url"):
-        # Fallback for any other tool that returns a single image (e.g. take_photo).
-        st.image(result["image_url"], use_container_width=True)
-
-
-def _render_proposed_actions_inline(
-    message: dict[str, Any], actions: list[dict[str, Any]], idx: int
-) -> None:
-    """Render proposed actions as compact inline chat-style approval."""
-    with st.container(key=f"proposal_{idx}"):
-        st.markdown("*I can do this:*")
-        for action in actions:
-            st.markdown(f"• {_action_summary(action)}")
-        approve_col, reject_col = st.columns([1, 1])
-        if approve_col.button(
-            "✓ Approve", key=f"approve_{idx}", use_container_width=True
-        ):
-            with st.spinner("Executing actions…"):
-                results = _execute_proposed_actions(actions, message, wait=True)
-            message["approved"] = True
-            message["content"] += "\n\n" + _format_execution_results(results)
-            _persist_session()
-            st.rerun()
-        if reject_col.button("✕ Reject", key=f"reject_{idx}", use_container_width=True):
-            message["rejected"] = True
-            message["content"] += "\n\n❌ Cancelled."
-            _persist_session()
-            st.rerun()
-
-
-_APPROVAL_WORDS = {
-    "yes",
-    "y",
-    "approve",
-    "approved",
-    "ok",
-    "okay",
-    "sure",
-    "go ahead",
-    "do it",
-    "confirm",
-    "confirmed",
-    "execute",
-    "run it",
-}
-_REJECTION_WORDS = {
-    "no",
-    "n",
-    "reject",
-    "rejected",
-    "cancel",
-    "cancelled",
-    "don't",
-    "dont",
-    "stop",
-    "abort",
-}
-
-
-def _is_approval(text: str) -> bool:
-    return text.strip("!.? ").lower() in _APPROVAL_WORDS
-
-
-def _is_rejection(text: str) -> bool:
-    return text.strip("!.? ").lower() in _REJECTION_WORDS
 
 
 _CONFIG_PATH = Path(os.getenv("TWFB_CONFIG", "configs/dev.yaml"))
@@ -346,6 +203,29 @@ def _time_ago(ts: float) -> str:
     return f"{int(delta / 3600)} h ago"
 
 
+def _render_sidebar_status(
+    client: ApiClient,
+    *,
+    interactive: bool,
+    fragment: bool = False,
+) -> None:
+    """Render sidebar telemetry without scheduling a page update."""
+    fb = st.session_state.get("farmbot_status", "?")
+    st.markdown(
+        f'<div class="sidebar-status">FarmBot · {fb}</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        f"X {st.session_state.get('pos_x', '—')} · "
+        f"Y {st.session_state.get('pos_y', '—')} · "
+        f"Z {st.session_state.get('pos_z', '—')} mm "
+        f"· updated {_time_ago(st.session_state.get('last_position_refresh', 0))}"
+    )
+    if interactive and st.button("↻ Refresh", use_container_width=True):
+        _refresh_telemetry(client)
+        st.rerun(scope="fragment" if fragment else "app")
+
+
 @st.fragment(run_every=1)
 def _sidebar_auto_refresh(client: ApiClient) -> None:
     """Refresh position and stats in the background without interrupting analysis."""
@@ -379,18 +259,7 @@ def _sidebar_auto_refresh(client: ApiClient) -> None:
         st.session_state["history"] = st.session_state["history"][-60:]
         st.session_state["last_stats_refresh"] = now
 
-    fb = st.session_state.get("farmbot_status", "?")
-    pill_css = "ok" if fb == "connected" else ("warn" if fb == "skipped" else "bad")
-    st.markdown(f'<span class="pill {pill_css}">● {fb}</span>', unsafe_allow_html=True)
-    st.caption(
-        f"X {st.session_state.get('pos_x', '—')} · "
-        f"Y {st.session_state.get('pos_y', '—')} · "
-        f"Z {st.session_state.get('pos_z', '—')} mm "
-        f"· updated {_time_ago(st.session_state.get('last_position_refresh', 0))}"
-    )
-    if st.button("↻ Refresh", use_container_width=True):
-        _refresh_telemetry(client)
-        st.rerun(scope="fragment")
+    _render_sidebar_status(client, interactive=True, fragment=True)
 
 
 @st.fragment(run_every=1)
@@ -530,6 +399,65 @@ st.set_page_config(
 st.markdown(
     """
 <style>
+  /* ── Astryx tokens ─────────────────────────────────────────────── */
+  :root {
+    --ax-bg: #0B0B0F;
+    --ax-card: #15151E;
+    --ax-card-2: #101018;
+    --ax-border: rgba(255, 255, 255, 0.08);
+    --ax-blue: #225BFF;
+    --ax-blue-soft: #3D87FF;
+    --ax-lime: #6B86FF;
+    --ax-text: #F2F3F7;
+    --ax-muted: #9BA0AC;
+    --ax-radius: 14px;
+    --font-sans: Inter, ui-sans-serif, system-ui, -apple-system,
+      BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --type-caption: 12px;
+    --type-body: 14px;
+    --type-subheading: 16px;
+    --type-heading: 20px;
+    --type-title: 28px;
+    --line-tight: 1.2;
+    --line-body: 1.5;
+  }
+
+  html, body, [data-testid="stAppViewContainer"],
+  button, input, textarea, select {
+    font-family: var(--font-sans) !important;
+  }
+  [data-testid="stMarkdownContainer"],
+  [data-testid="stMarkdownContainer"] *,
+  div[data-testid="stRadio"] label,
+  div[data-testid="stRadio"] label p,
+  .stButton button,
+  .stDownloadButton button,
+  [data-testid="stMetric"] *,
+  [data-testid="stCaptionContainer"],
+  .sidebar-brand,
+  .sidebar-kicker,
+  .sidebar-status {
+    font-family: var(--font-sans) !important;
+  }
+  [data-testid="stMarkdownContainer"] p,
+  [data-testid="stMarkdownContainer"] li,
+  div[data-testid="stRadio"] label p,
+  .stButton button,
+  .stDownloadButton button,
+  input, textarea, select {
+    font-size: var(--type-body) !important;
+    line-height: var(--line-body) !important;
+  }
+  [data-testid="stCaptionContainer"],
+  [data-testid="stMetricLabel"] {
+    font-size: var(--type-caption) !important;
+    line-height: 1.4 !important;
+  }
+  [data-testid="stMetricValue"] {
+    font-size: 24px !important;
+    line-height: var(--line-tight) !important;
+  }
+
   header[data-testid="stHeader"], [data-testid="stToolbar"],
   [data-testid="stDecoration"] { display:none !important; }
   section[data-testid="stSidebar"] {
@@ -541,8 +469,8 @@ st.markdown(
     width: 18rem !important;
     min-width: 18rem !important;
     z-index: 999 !important;
-    border-right: 1px solid rgba(128,128,128,0.15);
-    background: var(--secondary-background-color);
+    border-right: 1px solid var(--ax-border);
+    background: var(--ax-card-2) !important;
   }
   section[data-testid="stSidebar"] > div {
     display: block !important;
@@ -557,38 +485,61 @@ st.markdown(
   }
   .block-container {
     max-width: 100% !important;
-    padding: 0.5rem 1rem 5rem 1rem;
+    padding: 0.5rem 1.5rem 6rem 1.5rem;
   }
-  .eyebrow { margin-bottom: 0 !important; }
-  h1 { margin-top: 0.1rem !important; margin-bottom: 0.1rem !important; }
-  [data-testid="stChatInput"] {
-    position: fixed !important;
-    bottom: 0 !important;
-    left: 18rem !important;
-    width: calc(100% - 18rem) !important;
-    z-index: 100 !important;
-    background: var(--background-color) !important;
-    padding: 0.5rem 1rem 1rem 1rem !important;
-    border-top: 1px solid rgba(128,128,128,0.1) !important;
+  ::selection { background: rgba(34, 91, 255, 0.35); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
   }
-  h1 { font-size: 1.15rem; letter-spacing: -0.01em; margin-bottom: 0.35rem; }
-  .eyebrow { color: #3f8f64; font-size: .55rem; font-weight: 750;
-             letter-spacing: .12em; text-transform: uppercase; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  h1 {
+    font-size: var(--type-title) !important;
+    line-height: var(--line-tight) !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.025em !important;
+    margin-top: 0.1rem !important;
+    margin-bottom: 0.45rem !important;
+  }
+  h2 {
+    font-size: var(--type-heading) !important;
+    line-height: 1.25 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.015em !important;
+  }
+  h3 {
+    font-size: var(--type-subheading) !important;
+    line-height: 1.3 !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em !important;
+  }
+  .eyebrow {
+    color: var(--ax-lime);
+    font-size: var(--type-caption);
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    margin-bottom: 0 !important;
+  }
   .card {
-    background: var(--secondary-background-color);
-    border: 1px solid rgba(128,128,128,0.12);
-    border-radius: 10px; padding: .8rem 1rem; min-height: 5rem;
+    background: var(--ax-card);
+    border: 1px solid var(--ax-border);
+    border-radius: var(--ax-radius);
+    padding: .9rem 1.05rem;
+    min-height: 5rem;
   }
-  .card-label { font-size: .66rem; font-weight: 700; letter-spacing: .09em;
-                text-transform: uppercase; opacity: .5; }
-  .card-value { font-size: 1.3rem; font-weight: 650; margin-top: .4rem; }
+  .card-label { font-size: var(--type-caption); font-weight: 600;
+                letter-spacing: .08em; text-transform: uppercase; color: var(--ax-muted); }
+  .card-value { font-size: 24px; line-height: 1.2; font-weight: 700; margin-top: .4rem; }
   .sensor-value {
-    background: var(--secondary-background-color);
-    border: 1px solid rgba(128,128,128,0.10);
-    border-radius: 9px;
+    background: var(--ax-card);
+    border: 1px solid var(--ax-border);
+    border-radius: 10px;
     padding: .55rem .75rem;
-    font-size: 1.25rem;
-    font-weight: 650;
+    font-size: 24px;
+    font-weight: 700;
     min-height: 2.2rem;
     display: flex;
     align-items: center;
@@ -596,101 +547,67 @@ st.markdown(
   }
   .empty { opacity: .4; font-size: .8rem; }
   div[data-testid="stMetric"] {
-    background: var(--secondary-background-color);
-    border: 1px solid rgba(128,128,128,0.10);
-    border-radius: 9px; padding: .7rem .9rem;
+    background: var(--ax-card);
+    border: 1px solid var(--ax-border);
+    border-radius: var(--ax-radius);
+    padding: .7rem .9rem;
   }
   div[data-testid="stRadio"] label {
-    border-radius: 7px; padding: .52rem .6rem; margin: .04rem 0;
+    border-radius: 9px;
+    padding: .52rem .65rem;
+    margin: .04rem 0;
+    border: 1px solid transparent;
+    transition: background .15s ease, border-color .15s ease;
   }
-  div[data-testid="stRadio"] label:hover,
+  div[data-testid="stRadio"] label:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
   div[data-testid="stRadio"] label:has(input:checked) {
-    background: var(--secondary-background-color);
+    background: rgba(34, 91, 255, 0.14);
+    border-color: rgba(61, 135, 255, 0.35);
+    color: var(--ax-blue-soft) !important;
+    font-weight: 600;
   }
-  div[data-testid="stRadio"] label:has(input:checked) { color: #3f8f64; font-weight: 700; }
-  div[data-testid="stRadio"] [data-baseweb="radio"] > div:first-child { display:none; }
-  .sidebar-brand { font-size: 1.05rem; font-weight: 750; letter-spacing: -.02em; }
-  .sidebar-kicker { font-size: .63rem; color: #3f8f64; font-weight: 750;
-                    letter-spacing: .1em; text-transform: uppercase; }
-  .pill { display: inline-block; padding: .1rem .55rem; border-radius: 999px;
-          font-size: .72rem; font-weight: 650; }
-  .pill.ok { background: #d1fae5; color: #065f46; }
-  .pill.warn { background: #fef3c7; color: #92400e; }
-  .pill.bad { background: #fee2e2; color: #991b1b; }
-  .st-key-analysis_source img,
-  .st-key-analysis_processed img {
-    width: 100% !important;
-    max-height: 70vh !important;
-    object-fit: contain !important;
-    background: var(--secondary-background-color);
-    border-radius: 9px;
+  div[data-testid="stRadio"] [data-baseweb="radio"] > div:first-child {
+    display: none;
   }
-  [data-testid="stChatMessage"] img,
-  [data-testid="stImage"] img {
-    max-width: 100% !important;
-    max-height: 70vh !important;
-    border-radius: 9px;
+  .sidebar-brand {
+    font-size: var(--type-subheading);
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: -.015em;
   }
-  [data-testid="stChatMessage"] {
-    padding: 0.35rem 0 !important;
-    margin-bottom: 0.25rem !important;
-    background: transparent !important;
+  .sidebar-kicker {
+    font-size: var(--type-caption);
+    line-height: 1.4;
+    color: var(--ax-lime);
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
   }
-  [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
-    padding: 0 !important;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
+  .sidebar-status {
+    margin-top: .1rem;
+    color: var(--ax-muted);
+    font-size: var(--type-caption);
+    line-height: 1.4;
+    font-weight: 600;
   }
-  [data-testid="stChatMessage"] p,
-  [data-testid="stChatMessage"] li {
-    font-size: 0.92rem !important;
-    line-height: 1.35 !important;
-    margin-bottom: 0.15rem !important;
+  .pill {
+    display: inline-block;
+    padding: .12rem .6rem;
+    border-radius: 999px;
+    font-size: var(--type-caption);
+    line-height: 1.4;
+    font-weight: 600;
+    border: 1px solid transparent;
   }
-  [data-testid="stChatMessage"] .stCaption {
-    font-size: 0.72rem !important;
-  }
-  .assistant-metrics {
-    color: #888888;
-    font-size: 0.72rem;
-    text-align: center;
-    padding: 0.15rem 0 0.35rem 0;
-    opacity: 0.85;
-  }
-  [class*="st-key-proposal_"] {
-    background: var(--secondary-background-color);
-    border: 1px solid rgba(128,128,128,0.12);
-    border-radius: 10px;
-    padding: 0.5rem 0.75rem;
-    margin: 0.35rem 0 0.5rem 0;
-  }
-  [class*="st-key-user_msg_"] [data-testid="stChatMessage"] {
-    flex-direction: row-reverse !important;
-    justify-content: flex-start !important;
-  }
-  [class*="st-key-user_msg_"] [data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"] {
-    margin-left: 0.5rem !important;
-    margin-right: 0 !important;
-  }
-  [class*="st-key-user_msg_"] [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
-    align-items: flex-end !important;
-    margin-right: 0.75rem !important;
-  }
-  [class*="st-key-user_msg_"] [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] p {
-    text-align: right !important;
-  }
+
   @media (max-width: 760px) {
     section[data-testid="stSidebar"] { width: 14rem !important; min-width: 14rem !important; }
     .stMain {
       margin-left: 14rem !important;
       width: calc(100% - 14rem) !important;
       max-width: calc(100% - 14rem) !important;
-    }
-    .block-container { max-width: 100% !important; }
-    [data-testid="stChatInput"] {
-      left: 14rem !important;
-      width: calc(100% - 14rem) !important;
     }
   }
 </style>
@@ -739,8 +656,12 @@ with st.sidebar:
     )
 
     st.divider()
-    _sidebar_auto_refresh(client)
-
+    if tab == "Assistant":
+        # Streaming belongs entirely to the browser component.  A one-second
+        # Streamlit fragment update would remount its iframe mid-response.
+        _render_sidebar_status(client, interactive=False)
+    else:
+        _sidebar_auto_refresh(client)
     st.divider()
     if st.button("🛑 ESTOP", type="primary", use_container_width=True):
         r = client.request("POST", "/actions", json={"kind": "e_stop", "params": {}})
@@ -748,6 +669,50 @@ with st.sidebar:
             st.toast("ESTOP sent", icon="🛑")
         else:
             st.error(r.error_message())
+
+
+if tab == "Assistant":
+    # Keep the real dashboard sidebar; only the message column scrolls.
+    st.markdown(
+        """
+        <style>
+          html, body { overflow: hidden !important; }
+          [data-testid="stAppViewContainer"] {
+            height: 100vh !important;
+            overflow: hidden !important;
+          }
+          [data-testid="stAppViewContainer"] > .main,
+          [data-testid="stMainBlockContainer"],
+          .stMain {
+            height: 100vh !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+          }
+          [data-testid="stMainBlockContainer"] {
+            padding: 0 !important;
+          }
+          [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
+            height: 100vh !important;
+            min-height: 0 !important;
+            gap: 0 !important;
+          }
+          [data-testid="stMainBlockContainer"]
+          > [data-testid="stVerticalBlock"]
+          > [data-testid="stElementContainer"]:has(iframe[data-testid="stIFrame"]) {
+            height: 100vh !important;
+            min-height: 0 !important;
+          }
+          iframe[data-testid="stIFrame"] {
+            width: 100% !important;
+            height: 100vh !important;
+            min-height: 0 !important;
+            display: block !important;
+            border: 0 !important;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # ── tab content ───────────────────────────────────────────────────────────────
 
@@ -1714,405 +1679,17 @@ def _render_model_picker() -> str | None:
 
 
 def _render_assistant() -> None:
-    st.markdown(
-        '<div class="eyebrow">TWFarmBot · UAS Technikum Wien</div>',
-        unsafe_allow_html=True,
+    """Render the Assistant in the native chat surface."""
+    render_assistant_component(
+        api_url=api_url,
+        # The component owns chat persistence in localStorage.  Do not replay
+        # legacy Streamlit chat state into the new surface.
+        initial_messages=[],
+        initial_model=st.session_state.get("assistant_selected_model"),
+        height=760,
     )
-    title_col, clear_col = st.columns([5, 1])
-    with title_col:
-        st.markdown("# Assistant")
-    with clear_col:
-        if st.button("Clear chat", use_container_width=True):
-            st.session_state["assistant_messages"] = []
-            _persist_session()
-            st.rerun()
-    _render_session_controls()
-    selected_model = _render_model_picker()
-    st.session_state["assistant_selected_model"] = selected_model
-    _render_chat()
-    _persist_session()
 
 
-def _render_chat() -> None:
-    if "assistant_messages" not in st.session_state:
-        st.session_state["assistant_messages"] = []
-
-    for idx, msg in enumerate(st.session_state["assistant_messages"]):
-        if msg.get("role") == "tool":
-            with st.chat_message("assistant"):
-                _render_tool_call(
-                    msg.get("name", "tool"),
-                    msg.get("args"),
-                    msg.get("result"),
-                    show_image=True,
-                )
-            continue
-
-        if msg.get("role") == "user":
-            with st.container(key=f"user_msg_{idx}"):
-                with st.chat_message("user"):
-                    st.markdown(msg["content"])
-            continue
-
-        # Render the model's reasoning as its own collapsible assistant pill,
-        # similar to how tool calls are shown, so the conversation flow is clear.
-        if msg.get("thinking"):
-            with st.chat_message("assistant"):
-                with st.expander("🧠 Thinking", expanded=False):
-                    st.markdown(msg["thinking"])
-
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            images = msg.get("images", [])
-            if images:
-                cols = st.columns(min(len(images), 3))
-                for i, image in enumerate(images):
-                    cols[i % len(cols)].image(image.get("attachment_url"), width=220)
-
-            proposed_actions = msg.get("proposed_actions", [])
-            if proposed_actions and not msg.get("approved") and not msg.get("rejected"):
-                _render_proposed_actions_inline(msg, proposed_actions, idx)
-            elif msg.get("approved"):
-                st.caption("Approved")
-            elif msg.get("rejected"):
-                st.caption("Rejected")
-
-    _render_assistant_metrics()
-
-    if prompt := st.chat_input("Ask the FarmBot assistant…"):
-        messages = st.session_state["assistant_messages"]
-
-        # Natural-language approval/rejection: if the user replies "yes",
-        # "approve", "no", "cancel", etc. to a proposal, handle it immediately
-        # instead of sending it back to the model and getting a confused answer.
-        if messages and messages[-1].get("role") == "assistant":
-            last_assistant = messages[-1]
-            proposed = last_assistant.get("proposed_actions", [])
-            pending = (
-                proposed
-                and not last_assistant.get("approved")
-                and not last_assistant.get("rejected")
-            )
-            approval = _is_approval(prompt)
-            rejection = _is_rejection(prompt)
-            if approval or rejection:
-                if pending:
-                    st.session_state["assistant_messages"].append(
-                        {"role": "user", "content": prompt}
-                    )
-                    with st.container(key="user_msg_current"):
-                        with st.chat_message("user"):
-                            st.markdown(prompt)
-                    if approval:
-                        with st.spinner("Executing actions…"):
-                            results = _execute_proposed_actions(
-                                proposed, last_assistant, wait=True
-                            )
-                        last_assistant["approved"] = True
-                        last_assistant["content"] += "\n\n" + _format_execution_results(
-                            results
-                        )
-                    else:
-                        last_assistant["rejected"] = True
-                        last_assistant["content"] += "\n\n❌ Cancelled."
-                    _persist_session()
-                    st.rerun()
-                else:
-                    st.toast("No pending proposal to approve or reject.", icon="⚠️")
-                    _persist_session()
-                    st.rerun()
-
-        st.session_state["assistant_messages"].append(
-            {"role": "user", "content": prompt}
-        )
-        with st.container(key="user_msg_current"):
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-        thinking = st.empty()
-        thinking.caption("🤖 Assistant is thinking…")
-        with st.chat_message("assistant"):
-            stream_meta: dict[str, Any] = {
-                "tool_calls": [],
-                "proposed_actions": [],
-            }
-            stream_thinking: list[str] = []
-            stream_error = None
-            accumulated = ""
-            # Preserve the order of streamed text relative to tools/thinking.
-            # Each open segment is a placeholder that gets updated in place.
-            # When a tool or thinking block starts, the current text segment is
-            # closed so subsequent text appears *after* that block.
-            text_segments: list[list[Any] | None] = []
-
-            def _current_text_segment() -> list[Any]:
-                if not text_segments or text_segments[-1] is None:
-                    ph = st.empty()
-                    text_segments.append([ph, ""])
-                seg = text_segments[-1]
-                assert seg is not None
-                return seg
-
-            def _close_text_segment() -> None:
-                if text_segments and text_segments[-1] is not None:
-                    text_segments.append(None)
-
-            try:
-                for event in client.stream(
-                    "POST",
-                    "/chat/stream",
-                    json={
-                        "messages": st.session_state["assistant_messages"],
-                        "model": st.session_state.get("assistant_selected_model"),
-                    },
-                    timeout=PLAN_TIMEOUT,
-                ):
-                    etype = event.get("type")
-                    if etype == "delta":
-                        accumulated += event.get("content", "")
-                        seg = _current_text_segment()
-                        seg[1] = accumulated
-                        seg[0].markdown(accumulated)
-                    elif etype == "thinking":
-                        _close_text_segment()
-                        think_text = str(event.get("content", ""))
-                        with st.expander("🧠 Thinking", expanded=False):
-                            st.markdown(think_text)
-                        stream_thinking.append(think_text)
-                    elif etype == "tool_call":
-                        _close_text_segment()
-                        thinking.caption("🤖 Assistant is using tools…")
-                        name = event.get("name")
-                        args = event.get("args")
-                        result = event.get("result")
-                        st.session_state["assistant_messages"].append(
-                            {
-                                "role": "tool",
-                                "name": name,
-                                "args": args,
-                                "result": result,
-                            }
-                        )
-                        if (
-                            name == "take_photo"
-                            and isinstance(result, dict)
-                            and result.get("status") == "ok"
-                        ):
-                            image = _capture_photo_image()
-                            if image:
-                                result["image_url"] = image.get("attachment_url")
-                        _render_tool_call(name, args, result)
-                    elif etype == "meta":
-                        stream_meta["tool_calls"] = event.get("tool_calls", [])
-                        stream_meta["proposed_actions"] = event.get(
-                            "proposed_actions", []
-                        )
-                        stream_meta["metrics"] = event.get("metrics", {})
-                        if stream_meta["metrics"]:
-                            st.session_state["assistant_metrics"] = stream_meta[
-                                "metrics"
-                            ]
-                    elif etype == "error":
-                        stream_error = event.get("error", "stream error")
-            except Exception as exc:  # noqa: BLE001
-                stream_error = f"{type(exc).__name__}: {exc}"
-
-            # If the stream produced nothing useful, fall back to the
-            # non-streaming endpoint so the chat still works even when the
-            # SSE path is blocked or misbehaving.
-            if (
-                not accumulated
-                and not stream_meta["tool_calls"]
-                and not stream_meta["proposed_actions"]
-            ):
-                try:
-                    r = client.request(
-                        "POST",
-                        "/chat",
-                        json={
-                            "messages": st.session_state["assistant_messages"],
-                            "model": st.session_state.get("assistant_selected_model"),
-                        },
-                        timeout=PLAN_TIMEOUT,
-                    )
-                    if r.ok and isinstance(r.body, dict):
-                        accumulated = str(r.body.get("response", ""))
-                        stream_meta["tool_calls"] = r.body.get("tool_calls", []) or []
-                        stream_meta["metrics"] = r.body.get("metrics", {}) or {}
-                        if stream_meta["metrics"]:
-                            st.session_state["assistant_metrics"] = stream_meta[
-                                "metrics"
-                            ]
-                        for tc in stream_meta["tool_calls"]:
-                            st.session_state["assistant_messages"].append(
-                                {
-                                    "role": "tool",
-                                    "name": tc.get("name"),
-                                    "args": tc.get("args"),
-                                    "result": tc.get("result"),
-                                }
-                            )
-                        stream_meta["proposed_actions"] = [
-                            {
-                                "kind": tc["result"].get("kind", tc["name"]),
-                                "params": tc["result"].get(
-                                    "params", tc.get("args", {})
-                                ),
-                            }
-                            for tc in stream_meta["tool_calls"]
-                            if isinstance(tc.get("result"), dict)
-                            and tc["result"].get("status") == "proposed"
-                        ]
-                        stream_thinking = [str(r.body.get("thinking", ""))]
-                        stream_error = None
-                        if accumulated:
-                            seg = _current_text_segment()
-                            seg[1] = accumulated
-                            seg[0].markdown(accumulated)
-                    else:
-                        stream_error = f"Fallback failed: {r.error_message()}"
-                except Exception as exc:  # noqa: BLE001
-                    stream_error = f"Fallback failed: {type(exc).__name__}: {exc}"
-
-            thinking.empty()
-            if stream_error:
-                st.error(f"Assistant error: {stream_error}")
-
-            if (
-                accumulated
-                or stream_meta["tool_calls"]
-                or stream_meta["proposed_actions"]
-            ):
-                # Analysis images are shown inline with their tool calls above,
-                # so we only keep plain photo attachments on the assistant message.
-                photo_images = [
-                    {"attachment_url": img.get("attachment_url")}
-                    for img in stream_meta.get("images", [])
-                    if isinstance(img, dict) and img.get("attachment_url")
-                ]
-                st.session_state["assistant_messages"].append(
-                    {
-                        "role": "assistant",
-                        "content": accumulated,
-                        "thinking": "".join(stream_thinking),
-                        "tool_calls": stream_meta["tool_calls"],
-                        "proposed_actions": stream_meta["proposed_actions"],
-                        "images": photo_images,
-                        "metrics": stream_meta.get("metrics", {}),
-                    }
-                )
-        _persist_session()
-        st.rerun()
-
-
-def _fetch_latest_image() -> dict[str, Any] | None:
-    """Return the most recent FarmBot image via the existing /images endpoint."""
-    result = client.request(
-        "GET", "/images", params={"limit": "1", "refresh": "true"}, timeout=10.0
-    )
-    if result.ok and isinstance(result.body, dict):
-        images = result.body.get("images", [])
-        if images:
-            return images[0]
-    return None
-
-
-def _image_is_newer(image: dict[str, Any], previous: dict[str, Any]) -> bool:
-    """Return True if image is strictly newer/different than previous."""
-    if image.get("id") is not None and previous.get("id") is not None:
-        return image["id"] != previous["id"]
-    new_ts = image.get("created_at", "")
-    old_ts = previous.get("created_at", "")
-    if new_ts and old_ts:
-        return new_ts > old_ts
-    return True
-
-
-def _wait_for_new_image(
-    previous: dict[str, Any] | None,
-    max_attempts: int = 15,
-    delay: float = 2.0,
-) -> dict[str, Any] | None:
-    """Poll /images until an image newer than ``previous`` appears."""
-    for _ in range(max_attempts):
-        image = _fetch_latest_image()
-        if image and (previous is None or _image_is_newer(image, previous)):
-            return image
-        time.sleep(delay)
-    return None
-
-
-def _capture_photo_image() -> dict[str, Any] | None:
-    """Fetch the latest image after take_photo, polling for a fresh upload."""
-    baseline = _fetch_latest_image()
-    for _ in range(8):
-        image = _fetch_latest_image()
-        if image:
-            if baseline is None or _image_is_newer(image, baseline):
-                return image
-            # If baseline is already the newest, wait briefly in case the
-            # just-triggered photo is still uploading.
-        time.sleep(1.5)
-    return baseline
-
-
-def _execute_proposed_actions(
-    actions: list[dict[str, Any]],
-    message: dict[str, Any] | None = None,
-    *,
-    wait: bool = True,
-) -> list[dict[str, Any]]:
-    """Dispatch proposed actions and return per-action results.
-
-    By default this waits for each action to finish so the UI can give
-    immediate feedback. For fire-and-forget dispatch, pass ``wait=False``.
-    """
-    will_capture = message is not None and any(
-        action.get("kind") == "take_photo" for action in actions
-    )
-    previous_image = _fetch_latest_image() if will_capture else None
-
-    results: list[dict[str, Any]] = []
-    for action in actions:
-        r = client.request(
-            "POST",
-            "/actions",
-            json={"kind": action["kind"], "params": action.get("params", {})},
-            params={"wait": "true" if wait else "false"},
-        )
-        results.append(
-            {
-                "kind": action["kind"],
-                "ok": r.ok,
-                "status": "ok" if r.ok else "error",
-                "detail": r.body
-                if isinstance(r.body, str)
-                else r.body.get("detail")
-                if isinstance(r.body, dict)
-                else str(r.body),
-            }
-        )
-
-    if will_capture:
-        new_image = _wait_for_new_image(previous_image)
-        if new_image:
-            message.setdefault("images", []).append(new_image)
-
-    return results
-
-
-def _format_execution_results(results: list[dict[str, Any]]) -> str:
-    """Turn per-action results into a short, human-readable summary."""
-    if not results:
-        return "✅ Approved (no actions)."
-    lines: list[str] = []
-    for res in results:
-        summary = _action_summary({"kind": res["kind"], "params": {}})
-        if res.get("ok"):
-            lines.append(f"✅ {summary}")
-        else:
-            lines.append(f"❌ {summary} — {res.get('detail', 'unknown error')}")
-    return "\n".join(lines)
 
 
 # ── session persistence ───────────────────────────────────────────────────────
@@ -2209,77 +1786,6 @@ def _persist_session() -> None:
     history.save_session(snapshot)
 
 
-def _render_session_controls() -> None:
-    """Render session management widgets inside the Assistant tab."""
-    with st.expander("🗂️ Session", expanded=False):
-        current_label = st.text_input(
-            "Session label",
-            value=st.session_state.get("assistant_session_label") or "",
-            key="assistant_session_label_input",
-            placeholder="e.g. watering experiment",
-        )
-        st.session_state["assistant_session_label"] = current_label.strip() or None
-
-        new_col, save_col = st.columns([1, 1])
-        if new_col.button("New session", use_container_width=True):
-            _persist_session()
-            new_id = history.new_session_id()
-            st.session_state["assistant_session_id"] = new_id
-            st.session_state["assistant_session_label"] = None
-            st.session_state["assistant_messages"] = []
-            st.session_state["assistant_plan_request"] = ""
-            st.session_state["assistant_plan_response"] = None
-            st.session_state["assistant_plan_status"] = None
-            st.session_state["executed_plans"] = []
-            st.query_params.pop("session", None)
-            st.rerun()
-        if save_col.button("Save now", use_container_width=True):
-            _persist_session()
-            st.toast("Session saved", icon="💾")
-
-        sessions = history.list_sessions(limit=20)
-        if sessions:
-            st.divider()
-            st.markdown("**Previous sessions**")
-        for sess in sessions:
-            if sess["session_id"] == st.session_state.get("assistant_session_id"):
-                continue
-            label = sess["label"] or sess["session_id"]
-            preview = sess["preview"]
-            c1, c2, c3 = st.columns([3, 1, 1])
-            c1.caption(f"{label}" + (f" · {preview}" if preview else ""))
-            if c2.button(
-                "Load", key=f"load_sess_{sess['session_id']}", use_container_width=True
-            ):
-                snapshot = history.load_session(sess["session_id"])
-                if snapshot is None:
-                    st.error("Session not found")
-                    continue
-                st.session_state["assistant_session_id"] = snapshot["session_id"]
-                st.session_state["assistant_session_label"] = snapshot.get("label")
-                st.session_state["assistant_messages"] = snapshot.get(
-                    "assistant_messages", []
-                )
-                st.session_state["assistant_plan_request"] = snapshot.get(
-                    "assistant_plan_request", ""
-                )
-                st.session_state["assistant_plan_response"] = snapshot.get(
-                    "assistant_plan_response"
-                )
-                st.session_state["assistant_plan_status"] = snapshot.get(
-                    "assistant_plan_status"
-                )
-                st.session_state["assistant_selected_model"] = snapshot.get(
-                    "assistant_selected_model"
-                )
-                st.session_state["executed_plans"] = snapshot.get("executed_plans", [])
-                st.query_params["session"] = snapshot["session_id"]
-                st.rerun()
-            if c3.button(
-                "🗑", key=f"del_sess_{sess['session_id']}", use_container_width=True
-            ):
-                history.delete_session(sess["session_id"])
-                st.rerun()
 
 
 def _render_plan() -> None:
