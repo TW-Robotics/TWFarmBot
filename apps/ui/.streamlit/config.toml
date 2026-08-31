@@ -1,7 +1,0 @@
-# Astryx-inspired dark theme (https://astryx.atmeta.com)
-[theme]
-base = "dark"
-primaryColor = "#225BFF"
-backgroundColor = "#0B0B0F"
-secondaryBackgroundColor = "#15151E"
-textColor = "#F2F3F7"

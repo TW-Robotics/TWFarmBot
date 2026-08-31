@@ -12,6 +12,7 @@ just add a row to ``configs/dev.yaml`` (or set ``FARMBOT_PIN_bN=...``).
 from __future__ import annotations
 
 import logging
+import os
 import time
 from threading import Lock
 from typing import Any
@@ -28,6 +29,7 @@ class FarmBotBackend:
         self._images_cache: list[dict[str, Any]] = []
         self._images_cached_at = 0.0
         self._images_lock = Lock()
+        self._photo_baseline_ids: set[Any] = set()
 
     @property
     def pump_pin(self) -> int:
@@ -139,7 +141,34 @@ class FarmBotBackend:
 
     def take_photo(self) -> None:
         log.info("farmbot: take_photo")
+        try:
+            before = self.get_images(limit=50, refresh=True)
+            self._photo_baseline_ids = {
+                image.get("id") for image in before if image.get("id") is not None
+            }
+        except Exception:  # noqa: BLE001 — capture must still be attempted
+            self._photo_baseline_ids = set()
         self._bot().take_photo()
+
+    def wait_for_new_photo(self) -> bool:
+        """Wait until FarmBot has uploaded an image created by the last capture."""
+        timeout = float(os.getenv("TWFB_PHOTO_WAIT_S", "30"))
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                images = self.get_images(limit=50, refresh=True)
+                if any(
+                    image.get("id") not in self._photo_baseline_ids
+                    for image in images
+                    if image.get("id") is not None
+                ):
+                    log.info("farmbot: new photo uploaded")
+                    return True
+            except Exception:  # noqa: BLE001 — retry until timeout
+                log.debug("farmbot: photo upload not visible yet", exc_info=True)
+            time.sleep(2)
+        log.warning("farmbot: photo upload not visible after %.1fs", timeout)
+        return False
 
     def get_images(
         self, limit: int = 10, *, refresh: bool = False

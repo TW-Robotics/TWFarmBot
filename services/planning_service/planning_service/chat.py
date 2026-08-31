@@ -31,6 +31,7 @@ class ChatResult:
     response: str
     proposed_actions: list[dict[str, Any]] = field(default_factory=list)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    programs: list[dict[str, Any]] = field(default_factory=list)
     messages: list[dict[str, str]] = field(default_factory=list)
     thinking: str | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
@@ -56,7 +57,7 @@ def _make_loop(
     context_builder = ContextBuilder(
         tool_registry, world=world, propose_only=propose_only
     )
-    chat_model = base_model.bind_tools(tool_registry.langchain_tools())
+    chat_model = base_model
     selected_model = model_name or cfg.model
     return AgentLoop(
         model=chat_model,
@@ -87,7 +88,7 @@ def chat(
     propose_only: bool = False,
     model_name: str | None = None,
 ) -> ChatResult:
-    """Run one conversational turn with tool use.
+    """Run one conversational turn with programmatic tool use.
 
     ``messages`` should contain the conversation so far (user + assistant
     turns, no system message). The function prepends a system prompt,
@@ -112,6 +113,7 @@ def chat(
         response=result.response,
         proposed_actions=result.proposed_actions,
         tool_calls=result.tool_calls,
+        programs=result.programs,
         messages=out_messages,
         thinking=result.thinking,
         metrics=result.metrics.to_dict(),
@@ -134,7 +136,8 @@ def stream_chat(
 
     Yields events:
       - ``{"type": "tool_call", ...}`` after a tool is executed.
-      - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...]}``.
+      - ``{"type": "program", "code": "...", "result": ...}`` for hosted PTC programs.
+      - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...], "programs": [...]}``.
       - ``{"type": "thinking", "content": "..."}`` for reasoning traces.
       - ``{"type": "delta", "content": "..."}`` for the final answer text.
     """

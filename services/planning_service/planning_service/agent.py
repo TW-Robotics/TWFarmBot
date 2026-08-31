@@ -26,7 +26,7 @@ def build_base_model(
     """
     cfg = config or load_config()
     init_weave(cfg.weave_project)
-    provider = get_provider(cfg.provider)
+    provider = get_provider(cfg.provider, permissive=cfg.permissive_provider)
     selected_model = model_name or cfg.model
     base_model = model or provider.build_chat_model(selected_model, cfg)
     return cfg, base_model

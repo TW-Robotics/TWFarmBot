@@ -198,6 +198,9 @@ The api_server registers these action kinds via
 | `send_message` | `message`, optional `type`/`channels` | `farmbot_backend.send_message()` | — |
 | `e_stop` | — | `farmbot_backend.e_stop()` | — |
 | `take_photo` | — | `farmbot_backend.take_photo()` | — |
+| `inspect_zone` | `zone_id`, optional `step_mm`/`z`/`classes` | raster + photo + segmentation scorecard | named zone exists; photo count ≤ 24 |
+| `water_zone` | `zone_id`, `seconds`, optional `z` | move to zone centre, then `water` | zone exists; seconds ≤ max |
+| `goto_named` | `name`, optional `z` | resolve zone/plant/preset, then `move` | name resolves; target in bounds |
 
 `farmbot_backend` lives at
 `services/watering_service/watering_service/backends/farmbot.py` and is
@@ -267,7 +270,7 @@ or env-only via `os.getenv(...)`.
 
 ## 9. UI
 
-`apps/ui` is a single-page Streamlit app (`streamlit run apps/ui/src/twfarmbot_ui/app.py`).
+`apps/ui` is a native Astryx React app served by FastAPI (`uv run twfarmbot-ui`).
 It contains **zero business logic** — every widget is a thin HTTP proxy
 to the api_server:
 
@@ -286,8 +289,7 @@ to the api_server:
 Run the UI in another terminal while the api_server is up:
 
 ```bash
-uv run twfarmbot-api            # terminal 1 (auto-connects to FarmBot)
-uv run twfarmbot-ui             # terminal 2 → http://localhost:8501
+./scripts/start_all.sh          # resireg + api + ui + worker
 ```
 
 `TWFB_API_URL` overrides the default `http://127.0.0.1:8000`.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -16,6 +17,7 @@ from twfarmbot_core.domain import (
 )
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[3] / "configs" / "dev.yaml"
+_STOP_WORDS = frozenset({"the", "a", "an", "to", "zone", "bed", "plant", "go", "named"})
 
 
 def _point(data: Any) -> Point3D:
@@ -175,6 +177,114 @@ def format_world_context(world: GardenWorld | Mapping[str, Any] | None = None) -
     return "\n".join(lines)
 
 
+def _name_tokens(text: str) -> list[str]:
+    return [
+        token
+        for token in re.split(r"[^a-z0-9]+", text.casefold())
+        if token and token not in _STOP_WORDS
+    ]
+
+
+def _name_score(query_tokens: list[str], candidate: str) -> int:
+    name_tokens = _name_tokens(candidate) or [candidate.casefold()]
+    score = 0
+    for query in query_tokens:
+        for name in name_tokens:
+            if query == name:
+                score = max(score, 3)
+            elif query.startswith(name) or name.startswith(query):
+                score = max(score, 2)
+            elif query in name or name in query:
+                score = max(score, 1)
+    return score
+
+
+def resolve_named(
+    name: str, world: GardenWorld | Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Resolve a loose zone / plant / preset name to a gantry target."""
+    query = (name or "").strip()
+    if not query:
+        raise ValueError("name is empty")
+    query_tokens = _name_tokens(query) or [query.casefold()]
+    if world is None:
+        garden = load_world()
+    elif isinstance(world, GardenWorld):
+        garden = world
+    else:
+        garden = load_world()
+
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    for zone in garden.zones:
+        score = max(
+            _name_score(query_tokens, zone.id),
+            _name_score(query_tokens, zone.name),
+            _name_score(query_tokens, zone.kind),
+        )
+        if not score:
+            continue
+        ranked.append(
+            (
+                score,
+                {
+                    "kind": "zone",
+                    "id": zone.id,
+                    "name": zone.name,
+                    "x": float(round(zone.bounds.x + zone.bounds.width / 2)),
+                    "y": float(round(zone.bounds.y + zone.bounds.height / 2)),
+                    "z": 0.0,
+                    "width": float(zone.bounds.width),
+                    "height": float(zone.bounds.height),
+                },
+            )
+        )
+    for entity in garden.entities:
+        score = max(
+            _name_score(query_tokens, entity.id),
+            _name_score(query_tokens, entity.name),
+            _name_score(query_tokens, entity.kind),
+        )
+        if not score:
+            continue
+        ranked.append(
+            (
+                score,
+                {
+                    "kind": "entity",
+                    "id": entity.id,
+                    "name": entity.name,
+                    "x": float(entity.position.x),
+                    "y": float(entity.position.y),
+                    "z": float(entity.position.z),
+                },
+            )
+        )
+    for item in load_yaml_config().get("positions") or []:
+        label = str(item.get("label") or "")
+        if not label:
+            continue
+        score = _name_score(query_tokens, label)
+        if not score:
+            continue
+        ranked.append(
+            (
+                score,
+                {
+                    "kind": "position",
+                    "id": label.casefold(),
+                    "name": label,
+                    "x": float(item.get("x", 0)),
+                    "y": float(item.get("y", 0)),
+                    "z": float(item.get("z", 0)),
+                },
+            )
+        )
+    if not ranked:
+        raise ValueError(f"no zone, plant, or preset named {query!r}")
+    ranked.sort(key=lambda item: (-item[0], item[1]["name"]))
+    return ranked[0][1]
+
+
 def get_snapshot(robot_position: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Return the configured world plus optional live robot position.
 
@@ -197,4 +307,4 @@ def get_snapshot(robot_position: Mapping[str, Any] | None = None) -> dict[str, A
     return snapshot
 
 
-__all__ = ["format_world_context", "get_snapshot", "load_world"]
+__all__ = ["format_world_context", "get_snapshot", "load_world", "resolve_named"]

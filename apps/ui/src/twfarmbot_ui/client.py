@@ -1,8 +1,4 @@
-"""API client used by the Streamlit app.
-
-Kept separate from ``app.py`` so tests can import it without dragging in
-Streamlit.
-"""
+"""HTTP client used by UI tests against the FarmBot API."""
 
 from __future__ import annotations
 

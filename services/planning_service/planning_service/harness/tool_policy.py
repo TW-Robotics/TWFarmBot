@@ -44,6 +44,7 @@ class ToolDescriptor:
     policy: ToolPolicy
     execute: Callable[..., dict[str, Any]] | None = None
     is_introspection: bool = False
+    output_schema: dict[str, Any] | None = None
 
     @property
     def is_read_only(self) -> bool:

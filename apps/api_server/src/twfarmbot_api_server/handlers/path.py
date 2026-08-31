@@ -21,7 +21,10 @@ _POSITION_POLL_INTERVAL_S = 0.5
 
 
 def _execute_moves(
-    waypoints: list[dict[str, Any]], speed: float | None, photo: bool
+    waypoints: list[dict[str, Any]],
+    speed: float | None,
+    photo: bool,
+    wait_photos: bool = False,
 ) -> None:
     """Issue all waypoint moves (and optional photos) sequentially."""
     for wp in waypoints:
@@ -31,6 +34,10 @@ def _execute_moves(
         farmbot.backend.move(x, y, z, speed=float(speed) if speed is not None else None)
         if photo:
             farmbot.backend.take_photo()
+            if wait_photos:
+                waiter = getattr(farmbot.backend, "wait_for_new_photo", None)
+                if callable(waiter):
+                    waiter()
 
 
 def _current_position() -> dict[str, float] | None:
@@ -85,10 +92,11 @@ def handle_move_path(action: Action) -> Action:
     waypoints = action.params.get("waypoints", [])
     speed = action.params.get("speed")
     photo = bool(action.params.get("photo_at_waypoints", False))
+    wait_photos = bool(action.params.get("wait_for_photos", False))
     water_pin = action.params.get("water_pin")
 
     if water_pin is None:
-        _execute_moves(waypoints, speed, photo)
+        _execute_moves(waypoints, speed, photo, wait_photos)
         return action
 
     # Watering mode: keep the pin HIGH for the duration of the path and turn
@@ -98,7 +106,7 @@ def handle_move_path(action: Action) -> Action:
         farmbot.backend.write_pin(pin, 1, "digital")
         move_thread = Thread(
             target=_execute_moves,
-            args=(waypoints, speed, photo),
+            args=(waypoints, speed, photo, wait_photos),
             name="move_path_executor",
         )
         move_thread.start()

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 try:
@@ -47,10 +47,11 @@ class PlannerConfig:
     temperature: float
     extra_body: dict[str, Any] | None = None
     weave_project: str | None = None
+    permissive_provider: bool = False
 
 
-DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "anthropic/claude-3.5-sonnet"
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_MODEL = "gpt-5.6"
 DEFAULT_TIMEOUT_S = 30.0
 DEFAULT_TEMPERATURE = 0.0
 
@@ -73,7 +74,7 @@ def load_config(
     planning = _load_planning_block(yaml_path, yaml_data)
 
     provider = (
-        os.getenv("PLANNING_LLM_PROVIDER") or planning.get("provider") or "openrouter"
+        os.getenv("PLANNING_LLM_PROVIDER") or planning.get("provider") or "openai"
     ).lower()
     base_url = (
         os.getenv("PLANNING_LLM_BASE_URL")
@@ -116,6 +117,24 @@ def _load_planning_block(
     if yaml_data is not None:
         return dict(yaml_data.get("planning", {}) or {})
     return dict(load_yaml_config(yaml_path).get("planning", {}) or {})
+
+
+def apply_overrides(cfg: PlannerConfig, **overrides: Any) -> PlannerConfig:
+    """Return a copy of ``cfg`` with non-``None`` override fields applied."""
+    updates: dict[str, Any] = {}
+    for key, value in overrides.items():
+        if value is None:
+            continue
+        if key == "base_url":
+            updates[key] = str(value).rstrip("/")
+        elif key in {"timeout_s", "temperature"}:
+            updates[key] = float(value)
+        elif key == "provider":
+            updates[key] = str(value).lower()
+            updates["permissive_provider"] = True
+        else:
+            updates[key] = value
+    return replace(cfg, **updates) if updates else cfg
 
 
 def _resolve_api_key(planning: Mapping[str, Any]) -> str | None:
