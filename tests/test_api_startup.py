@@ -28,8 +28,8 @@ def test_health_reports_unknown_farmbot_before_boot(client: TestClient) -> None:
 
 
 def test_connect_to_farmbot_marks_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When get_farmbot succeeds, status flips to 'connected'."""
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", object)
+    """When connect succeeds, status flips to 'connected'."""
+    monkeypatch.setattr("farmbot_client.connect", lambda: object())
     test_app = create_app()
     app_module.app = test_app  # so connect_to_farmbot updates the right instance
     try:
@@ -48,7 +48,7 @@ def test_connect_to_farmbot_marks_failure(
     def boom() -> None:
         raise FarmBotConnectionError("nope") from RuntimeError("auth bad")
 
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", boom)
+    monkeypatch.setattr("farmbot_client.connect", boom)
     test_app = create_app()
     app_module.app = test_app
     try:
@@ -65,7 +65,7 @@ def test_connect_to_farmbot_required_exits_on_failure(
     def boom() -> None:
         raise FarmBotConnectionError("nope") from RuntimeError("auth bad")
 
-    monkeypatch.setattr("farmbot_gateway.get_farmbot", boom)
+    monkeypatch.setattr("farmbot_client.connect", boom)
     test_app = create_app()
     app_module.app = test_app
     try:

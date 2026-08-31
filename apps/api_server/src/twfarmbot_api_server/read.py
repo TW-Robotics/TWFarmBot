@@ -2,8 +2,7 @@
 
 Read handlers do NOT go through ``ActionRegistry`` because there's no
 ``Action`` envelope and no safety rule to apply — they're pure GETs.
-They still use the same ``FarmBotBackend`` so the UI never imports
-``farmbot-py`` directly.
+They still use the same ``FarmBotBackend`` so the UI never talks to the Pi.
 """
 
 from __future__ import annotations
@@ -37,7 +36,8 @@ def get_position() -> dict[str, Any]:
 @router.get("/status")
 def get_status(path: str | None = None) -> dict[str, Any]:
     try:
-        state = farmbot.backend._bot().read_status(path=path)
+        bot = farmbot.backend._bot()
+        state = bot.read_status(path=path) if hasattr(bot, "read_status") else bot.get_state()
     except Exception as err:  # noqa: BLE001
         raise HTTPException(
             status_code=502, detail=f"farmbot read failed: {err}"

@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "twfarmbot-core",
+    "farmbot-client",
+    "twfarmbot-gateway",
     "twfarmbot-safety-service",
     "pyyaml>=6.0",
 ] 

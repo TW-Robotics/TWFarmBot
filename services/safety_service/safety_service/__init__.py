@@ -2,7 +2,7 @@
 
 Per the README: *Any code path that ultimately moves the FarmBot (watering,
 weeding, tool changes, …) must pass through safety_service before it reaches
-farmbot_gateway.*
+the local FarmBot HTTP client.
 
 Validators are registered by action kind. Adding a new safety rule is now a
 single line: ``register("my_kind", my_validator)``.
@@ -29,7 +29,7 @@ class UnsafeActionError(ValueError):
 class SafetyLimits:
     max_water_seconds: float = 300.0
     max_axis_mm: dict[str, float] = field(
-        default_factory=lambda: {"x": 3000.0, "y": 1500.0, "z": 800.0}
+        default_factory=lambda: {"x": 650.0, "y": 1900.0, "z": 300.0}
     )
 
 
@@ -37,9 +37,9 @@ def load_limits() -> SafetyLimits:
     return SafetyLimits(
         max_water_seconds=float(os.getenv("FARMBOT_MAX_WATER_SECONDS", "300")),
         max_axis_mm={
-            "x": float(os.getenv("FARMBOT_MAX_AXIS_X", "3000")),
-            "y": float(os.getenv("FARMBOT_MAX_AXIS_Y", "1500")),
-            "z": float(os.getenv("FARMBOT_MAX_AXIS_Z", "800")),
+            "x": float(os.getenv("FARMBOT_MAX_AXIS_X", "650")),
+            "y": float(os.getenv("FARMBOT_MAX_AXIS_Y", "1900")),
+            "z": float(os.getenv("FARMBOT_MAX_AXIS_Z", "300")),
         },
     )
 

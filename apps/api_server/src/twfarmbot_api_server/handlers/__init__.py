@@ -16,6 +16,7 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     from .pin import handle_read_pin, handle_write_pin
     from .feedback import handle_e_stop
     from .find_home import handle_find_home
+    from .unlock import handle_unlock
     from .camera import handle_take_photo
     from .jobs import handle_goto_named, handle_inspect_zone, handle_water_zone
 
@@ -27,6 +28,7 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     registry.register("read_pin", handle_read_pin)
     registry.register("write_pin", handle_write_pin)
     registry.register("e_stop", handle_e_stop)
+    registry.register("unlock", handle_unlock)
     registry.register("find_home", handle_find_home)
     registry.register("take_photo", handle_take_photo)
     registry.register("inspect_zone", handle_inspect_zone)

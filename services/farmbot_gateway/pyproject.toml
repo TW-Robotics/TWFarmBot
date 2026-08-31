@@ -1,7 +1,7 @@
 [project]
 name = "twfarmbot-gateway"
 version = "0.1.0"
-description = "Gateway service: the only module allowed to talk to the FarmBot."
+description = "Gateway: the only module allowed to talk to the FarmBot."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

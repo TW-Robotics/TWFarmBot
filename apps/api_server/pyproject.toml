@@ -8,6 +8,8 @@ dependencies = [
     "twfarmbot-core",
     "twfarmbot-spatial-service",
     "twfarmbot-safety-service",
+    "farmbot-client",
+    "twfarmbot-gateway",
     "twfarmbot-watering-service",
     "twfarmbot-planning-service",
     "fastapi",

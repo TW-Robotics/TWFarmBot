@@ -23,7 +23,7 @@ fi
 
 # name | uv command | port (empty = none)
 SERVICES=(
-  "resireg|resireg-server|8080"
+  "os|twfarmbot-os|3001"
   "api|twfarmbot-api|8000"
   "ui|twfarmbot-ui|8501"
   "worker|twfarmbot-worker|"
@@ -32,12 +32,24 @@ SERVICES=(
 pidfile() { echo "$RUN_DIR/$1.pid"; }
 logfile() { echo "$LOG_DIR/$1.log"; }
 
+port_listening() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+  elif command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | grep -q ":${port} "
+  else
+    netstat -an 2>/dev/null | grep -E "[.:]${port} .*LISTEN" >/dev/null
+  fi
+}
+
 is_running() {
-  local name="$1" pidfile
-  pidfile="$(pidfile "$name")"
-  [[ -f "$pidfile" ]] || return 1
+  local name="$1"
+  local pf
+  pf="$(pidfile "$name")"
+  [[ -f "$pf" ]] || return 1
   local pid
-  pid="$(cat "$pidfile")"
+  pid="$(cat "$pf")"
   kill -0 "$pid" 2>/dev/null
 }
 
@@ -47,24 +59,25 @@ start_one() {
     echo "$name already running (pid $(cat "$(pidfile "$name")"))"
     return
   fi
-  echo "starting $name…"
+  echo "starting ${name}..."
   nohup "${UV[@]}" "$cmd" >>"$(logfile "$name")" 2>&1 &
   echo $! >"$(pidfile "$name")"
   if [[ -n "$port" ]]; then
     local i=0
     while (( i < 60 )); do
-      if ss -ltn 2>/dev/null | grep -q ":${port} "; then
+      if port_listening "$port"; then
         echo "$name listening on :$port (pid $(cat "$(pidfile "$name")"))"
         return
       fi
       if ! is_running "$name"; then
-        echo "$name exited; see $(logfile "$name")" >&2
+        echo "$name exited; last log lines:" >&2
+        tail -n 20 "$(logfile "$name")" >&2 || true
         return 1
       fi
       sleep 0.5
       i=$((i + 1))
     done
-    echo "$name started (pid $(cat "$(pidfile "$name")")) — still waiting on :$port"
+    echo "$name still starting (pid $(cat "$(pidfile "$name")")); see $(logfile "$name")"
   else
     echo "$name started (pid $(cat "$(pidfile "$name")"))"
   fi
@@ -79,7 +92,7 @@ stop_one() {
   fi
   local pid
   pid="$(cat "$(pidfile "$name")")"
-  echo "stopping $name (pid $pid)…"
+  echo "stopping ${name} (pid ${pid})..."
   kill "$pid" 2>/dev/null || true
   local i=0
   while kill -0 "$pid" 2>/dev/null && (( i < 20 )); do
@@ -99,14 +112,15 @@ cmd_start() {
     start_one "$name" "$bin" "$port"
   done
   echo
+  echo "OS      http://localhost:3001"
   echo "UI      http://localhost:8501"
   echo "API     http://localhost:8000/docs"
-  echo "ReSiReg http://localhost:8080"
 }
 
 cmd_stop() {
-  local row name bin port
-  for row in $(printf '%s\n' "${SERVICES[@]}" | tac); do
+  local i row name bin port
+  for (( i=${#SERVICES[@]}-1; i>=0; i-- )); do
+    row="${SERVICES[$i]}"
     IFS='|' read -r name bin port <<<"$row"
     stop_one "$name"
   done

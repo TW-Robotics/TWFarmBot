@@ -178,6 +178,7 @@ def tool_calls_to_actions(
             "mount_tool",
             "dismount_tool",
             "e_stop",
+            "unlock",
             "inspect_zone",
             "water_zone",
             "goto_named",

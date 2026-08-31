@@ -534,10 +534,12 @@ def connect_to_farmbot(required: bool = True) -> str:
         app.state.farmbot_status = "skipped"
         return "skipped"
 
-    log.info("connecting to FarmBot (startup probe)…")
+    log.info("connecting to local FarmBot HTTP API…")
     try:
         from farmbot_gateway import get_farmbot
+        from farmbot_client import connect
 
+        connect()
         get_farmbot()
     except FarmBotConnectionError as err:
         cause = type(err.__cause__).__name__ if err.__cause__ else "?"
@@ -546,8 +548,8 @@ def connect_to_farmbot(required: bool = True) -> str:
         log.error("FarmBot startup connect failed: %s", err)
         if required:
             raise SystemExit(
-                f"\nFATAL: could not connect to FarmBot at boot.\n  {status}\n"
-                f"Fix credentials/network, or set FARMBOT_REQUIRED=0 to boot anyway.\n"
+                f"\nFATAL: could not connect to local FarmBot at boot.\n  {status}\n"
+                f"Set FARMBOT_LOCAL_URL, or FARMBOT_REQUIRED=0 to boot anyway.\n"
             ) from err
         return status
 
