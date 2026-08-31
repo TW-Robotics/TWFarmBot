@@ -10,6 +10,7 @@ before adding code. Folder rules are duplicated from the top-level
 TWFarmBot/
 ├── apps/                       # deployable entry points (orchestration only)
 │   ├── api_server/             # FastAPI; POST /actions, GET /health
+│   ├── twfarmbot_os/           # Pi: Farmduino serial + camera HTTP (:3001)
 │   ├── ui/                     # dashboard
 │   └── worker/                 # scheduled / long-running jobs
 │
@@ -30,7 +31,8 @@ TWFarmBot/
 │   └── spatial_service/        # garden coordinates + persistent world model
 │
 ├── libs/                       # pure, reusable utilities
-│   └── farmbot_client/         # wraps farmbot-py; reusable client
+│   ├── farmbot_client/         # HTTP client for local TWFarmbotOS
+│   └── farmduino/              # G/E/F encode + R-code parse (no I/O)
 │
 ├── configs/                    # YAML / JSON; loaded via core/config
 ├── docs/                       # architecture + ADRs (this file)
@@ -44,9 +46,9 @@ TWFarmBot/
 These are non-negotiable. They are the reason this repo is split the way it is.
 
 1. **Only `services/farmbot_gateway/` talks to the FarmBot hardware.**
-   - Wraps the `farmbot-py` library via `libs/farmbot_client`.
+   - Wraps the local TWFarmbotOS HTTP API via `libs/farmbot_client`.
    - Other code calls `farmbot_gateway.get_farmbot()` or registers an action
-     handler — never imports `farmbot` directly.
+     handler — never imports the HTTP client directly.
    - See `services/farmbot_gateway/farmbot_gateway/__init__.py`.
 
 2. **Every real-world action goes through `safety_service` before it hits
@@ -110,7 +112,7 @@ ActionRegistry.dispatch(action)        core/twfarmbot_core/actions.py
         farmbot_gateway.get_farmbot() via FarmBotBackend
             │
             ▼
-        FarmBot over WiFi/MQTT (libs/farmbot_client)
+        Local TWFarmbotOS HTTP API (libs/farmbot_client)
 ```
 
 Key files:
@@ -124,7 +126,7 @@ Key files:
 - `services/watering_service/watering_service/__init__.py` — example service.
 - `services/watering_service/watering_service/backends/farmbot.py` — FarmBotBackend; the only backend.
 - `services/farmbot_gateway/farmbot_gateway/__init__.py` — `get_farmbot()`.
-- `libs/farmbot_client/farmbot_client/client.py` — wraps `farmbot-py`.
+- `libs/farmbot_client/farmbot_client/client.py` — HTTP client for the Pi API.
 
 ## 4. Core ↔ safety coupling
 
@@ -146,41 +148,33 @@ handlers (api_server)
     ↓
 watering_service (decision: open valve X for Y seconds)
     ↓
-watering_service.backends.farmbot   (the only backend; translates to farmbot-py)
+watering_service.backends.farmbot   (translates actions to local HTTP)
     ↓
-farmbot_gateway.get_farmbot()      (singleton, reconnecting link)
+farmbot_gateway.get_farmbot()      (singleton HTTP handle)
     ↓
-farmbot-py                         (MQTT + REST via libs/farmbot_client)
-    ↓
-FarmBot over WiFi
+httpx → TWFarmbotOS on the Raspberry Pi (default :3001)
 ```
 
 `watering_service.backends.farmbot.FarmBotBackend` is the single place
-that translates our vocabulary into `farmbot-py` calls. Adding a new
+that translates our vocabulary into local HTTP calls. Adding a new
 backend is not a current need — if it ever is, the import in
 `watering_service/__init__.py:_load_backend()` is the only place that
 needs to know.
 
-## 5. Hardware isolation
-
-## 6. WiFi connection
+## 6. Local HTTP connection
 
 Set these env vars (or use `.env` with `uv run --env-file=.env …`):
 
 | Var | Purpose | Default |
 |---|---|---|
-| `FARMBOT_EMAIL` | account email | required |
-| `FARMBOT_PASSWORD` | account password | required |
-| `FARMBOT_SERVER` | REST auth host | `https://my.farm.bot` |
-| `FARMBOT_HOST` | MQTT broker | `farmbot.farm.bot` |
-| `FARMBOT_TOKEN` | optional pre-fetched token JSON | — |
+| `FARMBOT_LOCAL_URL` | Pi Express API | `http://127.0.0.1:3001` |
 | `WATERING_BACKEND` | backend module name (default `farmbot`) | `farmbot` |
 | `FARMBOT_MAX_WATER_SECONDS` | safety cap | `300` |
 | `FARMBOT_PUMP_PIN` | pump pin override | `7` |
-| `FARMBOT_MAX_AXIS_{X,Y,Z}` | move action bounds in mm | `3000`/`1500`/`800` |
+| `FARMBOT_MAX_AXIS_{X,Y,Z}` | move action bounds in mm | `650`/`1900`/`300` |
 | `FARMBOT_REQUIRED` | if `0`, api_server boots without a live bot (UI-only mode) | `1` |
 
-Test the link: `uv run --env-file=.env python scripts/test_farmbot_connect.py`.
+Test the link: `FARMBOT_LOCAL_URL=http://<pi-ip>:3001 uv run python scripts/test_farmbot_connect.py`.
 
 ## 7. Action kinds shipped today
 
@@ -197,6 +191,7 @@ The api_server registers these action kinds via
 | `dismount_tool` | — | `farmbot_backend.dismount_tool()` | — |
 | `send_message` | `message`, optional `type`/`channels` | `farmbot_backend.send_message()` | — |
 | `e_stop` | — | `farmbot_backend.e_stop()` | — |
+| `unlock` | — | `farmbot_backend.unlock()` | — |
 | `take_photo` | — | `farmbot_backend.take_photo()` | — |
 | `inspect_zone` | `zone_id`, optional `step_mm`/`z`/`classes` | raster + photo + segmentation scorecard | named zone exists; photo count ≤ 24 |
 | `water_zone` | `zone_id`, `seconds`, optional `z` | move to zone centre, then `water` | zone exists; seconds ≤ max |
@@ -204,7 +199,7 @@ The api_server registers these action kinds via
 
 `farmbot_backend` lives at
 `services/watering_service/watering_service/backends/farmbot.py` and is
-the **only** place that translates our vocabulary into `farmbot-py` calls.
+the **only** place that translates our vocabulary into local HTTP calls.
 
 ### Read-only GET routes
 
@@ -212,7 +207,7 @@ The api_server also exposes GETs that read FarmBot state directly, used
 by the UI for live status (defined in `apps/api_server/.../read.py`).
 These skip `ActionRegistry` because there's no `Action` envelope and no
 safety rule, but they still call into `FarmBotBackend` so the UI never
-imports `farmbot-py` directly:
+imports the Pi client directly:
 
 | Route | Returns |
 |---|---|

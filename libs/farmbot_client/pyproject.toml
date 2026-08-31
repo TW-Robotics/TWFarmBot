@@ -1,10 +1,10 @@
 [project]
 name = "farmbot-client"
 version = "0.1.0"
-description = "WiFi client for FarmBot, wraps the official farmbot-py library."
+description = "HTTP client for the local TWFarmbotOS REST API."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["farmbot"]
+dependencies = ["httpx>=0.27"]
 
 [build-system]
 requires = ["hatchling"]

@@ -83,6 +83,11 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         allow_without_user=True,
         description="Emergency stop — halt the robot immediately.",
     ),
+    "unlock": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=True,
+        description="Clear emergency stop so the gantry can move again.",
+    ),
     "inspect_zone": ToolPolicy(
         ToolCategory.ACT,
         requires_approval=True,

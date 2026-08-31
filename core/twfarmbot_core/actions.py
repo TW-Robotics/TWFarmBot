@@ -83,6 +83,10 @@ def _summarize_e_stop(params: dict[str, Any]) -> str:
     return "🛑 **e_stop**"
 
 
+def _summarize_unlock(params: dict[str, Any]) -> str:
+    return "🔓 **unlock**"
+
+
 def _summarize_inspect_zone(params: dict[str, Any]) -> str:
     return f"🔍 **inspect_zone** {params.get('zone_id', '—')}"
 
@@ -109,6 +113,7 @@ ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "mount_tool": _summarize_mount_tool,
     "dismount_tool": _summarize_dismount_tool,
     "e_stop": _summarize_e_stop,
+    "unlock": _summarize_unlock,
     "inspect_zone": _summarize_inspect_zone,
     "water_zone": _summarize_water_zone,
     "goto_named": _summarize_goto_named,

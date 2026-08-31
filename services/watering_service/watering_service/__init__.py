@@ -2,7 +2,7 @@
 
 Flow: build Action → safety_service.validate → backend.water.
 The backend is ``services/watering_service/watering_service/backends/farmbot.py``
-— the only place that translates our vocabulary into ``farmbot-py`` calls.
+— the only place that translates our vocabulary into local HTTP calls.
 
 Config is loaded from ``configs/dev.yaml`` (path overridable via
 ``TWFB_CONFIG``). Env vars override file values so ops can override

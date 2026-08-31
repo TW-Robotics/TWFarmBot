@@ -1,4 +1,3 @@
 # farmbot_client
 
-Reusable, framework-agnostic client used by `services/farmbot_gateway`.
-No business logic, no I/O beyond the FarmBot protocol.
+HTTP client for TWFarmbotOS (`FARMBOT_LOCAL_URL`, default `http://127.0.0.1:3001`).

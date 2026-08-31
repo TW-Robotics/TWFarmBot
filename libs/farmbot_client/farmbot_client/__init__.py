@@ -1,3 +1,3 @@
-from .client import FarmBotConnectionError, FarmBotCredentials, connect
+from .client import FarmBotConnectionError, LocalFarmbot, connect, get_client
 
-__all__ = ["FarmBotConnectionError", "FarmBotCredentials", "connect"]
+__all__ = ["FarmBotConnectionError", "LocalFarmbot", "connect", "get_client"]
