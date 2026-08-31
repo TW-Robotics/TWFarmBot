@@ -9,6 +9,7 @@ from __future__ import annotations
 from .agent_loop import AgentLoop, AgentTurnResult
 from .approval_gate import ApprovalGate, ProposedResult, ToolResult
 from .context_builder import ContextBuilder
+from .farm_script import FarmScriptError, FarmScriptRuntime, extract_farm_scripts
 from .reasoning_controller import ReasoningController
 from .tool_policy import ToolCategory, ToolDescriptor, ToolPolicy
 from .tool_registry import ToolRegistry
@@ -18,6 +19,9 @@ __all__ = [
     "AgentTurnResult",
     "ApprovalGate",
     "ContextBuilder",
+    "FarmScriptError",
+    "FarmScriptRuntime",
+    "extract_farm_scripts",
     "ProposedResult",
     "ReasoningController",
     "ToolCategory",

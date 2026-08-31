@@ -1,22 +1,19 @@
 # twfarmbot-ui
 
-Dashboard, sensor display, and manual triggers.
-
-This app is a thin orchestration layer on top of `twfarmbot-core`. It should
-not contain domain logic; it only renders state and forwards user actions
-to the API server.
-
-## Camera AI analysis
-
-The Camera tab sends a selected FarmBot image to the local ReSiReg-Mini
-vision server. It supports open-language similarity, zero-shot segmentation,
-PCA feature visualization, and traversability estimation. The returned
-analysis images are displayed next to the source image. The model adapter
-lives in `libs/ml_utils` and is not connected to watering, motion, sensors,
-or other robot actions.
-
-The local server URL can be changed without code changes:
+Native Astryx dashboard. The browser talks to `twfarmbot-api`; this package
+serves the React app and a few host-local endpoints (garden YAML writes,
+ReSiReg vision, session listing).
 
 ```bash
-TWFB_RESIREG_URL=http://127.0.0.1:8080 uv run twfarmbot-ui
+cd apps/ui && npm install && npm run build   # once, or after frontend changes
+uv run twfarmbot-ui                          # http://localhost:8501
 ```
+
+Frontend HMR during development (same port):
+
+```bash
+cd apps/ui && npm run dev   # http://localhost:8501
+```
+
+`TWFB_API_URL` defaults to `http://127.0.0.1:8000` in the browser settings page.
+`TWFB_RESIREG_URL` is used by the Camera analysis proxy on the UI server.

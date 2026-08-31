@@ -1,6 +1,6 @@
 """Tests for the UI's API client.
 
-The Streamlit app itself is hard to unit-test (renders DOM), but the
+The dashboard itself is hard to unit-test (renders DOM), but the
 ``ApiClient`` it uses to talk to the API is testable in isolation.
 """
 

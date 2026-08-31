@@ -1,10 +1,8 @@
-"""LangChain tool definitions for the planner.
+"""Argument schemas for FarmBot tools.
 
-Each action kind in the :class:`ActionRegistry` becomes a ``@tool`` with
-a Pydantic-typed schema. The model is bound to these tools via
-``model.bind_tools(tools)`` and produces a structured tool call instead
-of free-form JSON. The parser still accepts the JSON path for models
-that don't support tool calling.
+Each action kind in the :class:`ActionRegistry` has a Pydantic schema.
+The agent loop exposes these as Python functions the model calls from a
+restricted farm script. JSON plans remain a fallback for ``plan()``.
 """
 
 from __future__ import annotations
@@ -95,6 +93,30 @@ class MovePathArgs(BaseModel):
     )
 
 
+class InspectZoneArgs(BaseModel):
+    zone_id: str = Field(..., description="Zone id or loose name, e.g. 'tomato'.")
+    step_mm: float = Field(default=200.0, description="Raster spacing in millimetres.")
+    z: float = Field(default=0.0, description="Gantry Z for the sweep, in millimetres.")
+    classes: str = Field(
+        default="plant, weed, soil",
+        description="Comma-separated segmentation classes for the scorecard.",
+    )
+
+
+class WaterZoneArgs(BaseModel):
+    zone_id: str = Field(..., description="Zone id or loose name to water.")
+    seconds: float = Field(..., description="How long to keep the pump on (1..300).")
+    z: float = Field(default=0.0, description="Gantry Z at the zone centre, in millimetres.")
+
+
+class GotoNamedArgs(BaseModel):
+    name: str = Field(..., description="Zone, plant, or preset name, e.g. 'tomatoes' or 'Home'.")
+    z: float | None = Field(
+        default=None,
+        description="Optional Z override in millimetres. Uses the resolved target Z when omitted.",
+    )
+
+
 # ── Tool builder ────────────────────────────────────────────────────────
 
 
@@ -156,6 +178,9 @@ def tool_calls_to_actions(
             "mount_tool",
             "dismount_tool",
             "e_stop",
+            "inspect_zone",
+            "water_zone",
+            "goto_named",
         }:
             out.append((name, args))
     return out

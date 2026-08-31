@@ -1,9 +1,4 @@
-"""Persistence for Streamlit UI session state.
-
-Chat history, plan previews, and executed plans are saved as JSON files so
-they survive page reloads. Storage is local and intended for a single-user
-research UI; concurrent writes to the same session file are last-write-wins.
-"""
+"""Persistence for UI session snapshots stored as local JSON files."""
 
 from __future__ import annotations
 
@@ -92,10 +87,14 @@ def list_sessions(limit: int = 50) -> list[dict[str, Any]]:
             if msg.get("role") == "user":
                 preview = str(msg.get("content", ""))[:80]
                 break
+        inspect = snapshot.get("inspect") or {}
+        if inspect and not preview:
+            preview = str(inspect.get("summary_text") or inspect.get("error") or "inspect")[:80]
         sessions.append(
             {
                 "session_id": session_id,
                 "label": snapshot.get("label") or None,
+                "kind": snapshot.get("kind") or ("inspect" if inspect else None),
                 "created_at": snapshot.get("created_at", ""),
                 "updated_at": snapshot.get("updated_at", ""),
                 "preview": preview,
