@@ -13,20 +13,32 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from spatial_service import format_world_context
 from twfarmbot_core.config import load_yaml_config
 
-from .tool_policy import ToolCategory
+from .farm_script import format_tool_catalog
 from .tool_registry import ToolRegistry
 
 _CHAT_HEADER = """You are TWFarmBot Assistant, a helpful, concise farm-robot operator.
 
 You can chat naturally with the user, answer questions about the robot and
-garden, and perform actions by calling tools. Always respond in the same
-language the user writes in.
+garden, and use the available tools.
+
+Use Programmatic Tool Calling for bounded read-only workflows
+(list_zones, get_position, get_garden, get_images, get_health, get_pins,
+segment_image, analyze_image, plan_path, scan_zone). Run independent reads
+concurrently, reduce the results to a small JSON object, then answer. Do not
+expose generated programs or internal reasoning to the user.
+
+For physical work, call one direct action so the safety/approval gate can
+register it: inspect_zone, water_zone, goto_named, move, water, move_path.
+Never merely describe an action that the user asked you to perform. Always
+respond in the same language the user writes in.
 
 """
 
 _CHAT_FOOTER = """
 Guidelines:
-- Before moving to a named zone, call `list_zones` to get its centre.
+- To inspect a named bed, call `inspect_zone`. To water it, call `water_zone`.
+  To go to a named bed, plant, or preset, call `goto_named`.
+- Before a custom move to a named zone, call `list_zones` to get its centre.
 - Keep answers short and actionable. Confirm what you did and any relevant
   sensor/position readings.
 - If a request is unsafe or impossible, refuse and explain why.
@@ -39,48 +51,49 @@ Guidelines:
   returned images yourself. Use the numeric metrics and class lists the tools
   provide, then state what analysis was run and that the images are shown to
   the user.
-- Some actions require user approval (see tool list). When a tool returns a
-  proposed-action marker, the interface shows Approve/Reject buttons. For
-  multi-step tasks, call ALL required action tools in a single turn so the
-  full plan is shown at once; do not propose one step at a time.
-- When a question depends on the live garden state, do not rely on a single
-  tool result. Gather and cross-check evidence across multiple tools and
-  reason about the combined picture. For example:
+- Some actions require user approval (see function list). When a call returns
+  a proposed-action marker, the interface shows Approve/Reject buttons. For
+  multi-step tasks, keep the complete proposal together so the full plan is
+  shown at once.
+- After every physical action, call the relevant live read tool (especially
+  `get_position` after movement) and compare the observed result with the
+  requested target before answering. If it is not satisfied, continue the
+  bounded tool loop with a corrective action when safe; never claim success
+  from an action acknowledgement alone.
+- When a question depends on the live garden state, gather and cross-check
+  evidence in one script. For example:
   - If an image is dark or segmentation shows nothing, call `take_photo` for
     a fresh frame and/or `get_position` to see where the camera is.
   - Combine `get_position`, `list_zones`, and `get_garden` to know which zone
     the camera is pointing at and whether the view matches expectations.
   - Use `segment_image` when you need numeric presence/absence of classes.
-  - If evidence is still unclear after a few tool calls, say so and propose a
+  - If evidence is still unclear after a few calls, say so and propose a
     concrete next step (e.g. move to a zone with better lighting).
-- Use the reasoning/thinking space to plan your tool calls before giving the
+- Use the reasoning/thinking space to plan the script before giving the
   final answer; the user will see the reasoning as a collapsible pill.
 """
 
 _PROPOSE_ONLY_APPENDIX = """
 IMPORTANT: You are in proposal mode. When the user asks you to perform one
 or more actions (move, water, take_photo, etc.), you MUST call the
-corresponding action tool(s) to register the proposal(s). If the request
-involves multiple steps, call ALL required action tools in the correct order
-within the same turn. Each tool will return a proposed-action marker; collect
-them, briefly state the full plan, note that it requires approval, and stop.
-Do NOT describe the action in text without calling the tool first. Do NOT ask
-the user a yes/no approval question and do NOT say the action is done — the
-interface shows Approve/Reject buttons for the whole plan.
+  corresponding action tools to register the proposal(s). If the request
+  involves multiple steps, register ALL of them in the correct order.
+For example, “move it to the middle” requires an actual `move` function call
+with coordinates, followed by a final explanation. Your next model operation
+must be the function call; a text-only plan is invalid.
+Each call will return a proposed-action marker; collect them, briefly state
+the full plan, note that it requires approval, and stop.
+Do NOT describe the action in text without calling the function first. Do NOT
+ask the user a yes/no approval question and do NOT say the action is done —
+the interface shows Approve/Reject buttons for the whole plan.
 """
 
 _PLANNER_HEADER = """You are a task planner for an autonomous farm robot.
 
-You translate natural-language requests into a strict, ordered list of
-machine actions. The robot has a fixed action vocabulary; you MUST only emit
-kinds that appear in the vocabulary below. Do not invent kinds.
-
-Output format (REQUIRED):
-- Return a single JSON object with two keys: `actions` and `rationale`.
-- `actions` is a JSON array, in execution order.
-- Each action is {"kind": <string>, "params": <object>}.
-- Keep `rationale` to one short sentence.
-- Do not wrap the JSON in markdown. Do not add commentary outside the JSON.
+Translate natural-language requests into an ordered plan using the available
+tools. Use Programmatic Tool Calling for bounded read-only data gathering and
+reduction. Physical actions must remain direct, safety-validated proposals.
+Do not emit a JSON action plan or generated program as the user-facing answer.
 
 """
 
@@ -189,50 +202,8 @@ class ContextBuilder:
         ]
 
     def _render_tool_section(self, for_planner: bool = False) -> str:
-        lines: list[str] = []
-        descriptors = self._registry.descriptors()
-
-        read_tools = [d for d in descriptors if d.policy.category == ToolCategory.READ]
-        analyze_tools = [
-            d for d in descriptors if d.policy.category == ToolCategory.ANALYZE
-        ]
-        act_tools = [d for d in descriptors if d.policy.category == ToolCategory.ACT]
-
-        if for_planner:
-            if act_tools:
-                lines.append("Available action kinds:")
-                for d in act_tools:
-                    lines.append(f"- `{d.name}` — {d.policy.description}")
-            if read_tools:
-                lines.append("\nRead-only introspection tools:")
-                for d in read_tools:
-                    lines.append(f"- `{d.name}` — {d.policy.description}")
-            return "\n".join(lines)
-
-        if read_tools:
-            lines.append("Read-only tools (use these to answer questions):")
-            for d in read_tools:
-                approval = (
-                    " **Requires user approval.**" if d.policy.requires_approval else ""
-                )
-                lines.append(f"- `{d.name}` — {d.policy.description}{approval}")
-
-        if analyze_tools:
-            lines.append("\nAnalysis tools:")
-            for d in analyze_tools:
-                lines.append(f"- `{d.name}` — {d.policy.description}")
-
-        if act_tools:
-            lines.append("\nExecution tools (use these to change the robot state):")
-            for d in act_tools:
-                approval = (
-                    " **Requires user approval.**"
-                    if d.policy.requires_approval
-                    else " Executes immediately."
-                )
-                lines.append(f"- `{d.name}` — {d.policy.description}{approval}")
-
-        return "\n".join(lines)
+        del for_planner
+        return format_tool_catalog(self._registry.descriptors())
 
 
 def _format_pin_context() -> str:

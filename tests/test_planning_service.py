@@ -6,29 +6,16 @@ Uses a small tool-aware fake model so no network is required.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Sequence
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import AIMessage
-from langchain_core.tools import BaseTool
 from safety_service import UnsafeActionError
 
 from planning_service import plan
 
 
 class _ToolAwareFake(FakeListChatModel):
-    """``FakeListChatModel`` that supports ``bind_tools`` (returns self)."""
-
-    def bind_tools(  # type: ignore[override]
-        self,
-        tools: Sequence[BaseTool],
-        **kwargs: Any,
-    ) -> "_ToolAwareFake":
-        # Returning self means the JSON-fallback path is exercised
-        # (no tool_calls in responses). That keeps these tests focused
-        # on the JSON path; tool-call path is covered by the live tests.
-        return self
+    """Offline fake model. JSON fallback is still accepted by ``plan()``."""
 
 
 @pytest.fixture
@@ -125,28 +112,19 @@ def test_plan_preserves_rationale_for_empty_plan() -> None:
     assert "ambiguous" in result.rationale
 
 
-def test_plan_accepts_tool_calls_when_model_provides_them() -> None:
-    """When the AIMessage has tool_calls, the planner should use them."""
-    from planning_service import build_tools
+def test_plan_accepts_python_scripts() -> None:
+    """A fenced Python script is the primary way to emit actions."""
     from twfarmbot_core.actions import ActionRegistry
 
     reg = ActionRegistry()
     reg.register("move", lambda a: a)
     reg.register("water", lambda a: a)
 
-    class ToolCallFake(_ToolAwareFake):
-        def invoke(self, *_args: Any, **_kwargs: Any) -> AIMessage:
-            return AIMessage(
-                content="",
-                tool_calls=[
-                    {"name": "water", "id": "1", "args": {"seconds": 10}},
-                    {"name": "move", "id": "2", "args": {"x": 0, "y": 0, "z": 0}},
-                ],
-            )
-
-    # build_tools() is just here to assert it runs without error for the real registry.
-    assert len(build_tools(reg)) >= 2
-
-    result = plan("water b1 then home", model=ToolCallFake(responses=[]), registry=reg)
+    fake = _ToolAwareFake(
+        responses=[
+            "```python\nwater(seconds=10)\nmove(x=0, y=0, z=0)\n```"
+        ]
+    )
+    result = plan("water b1 then home", model=fake, registry=reg)
     assert [a.kind for a in result.actions] == ["water", "move"]
-    assert result.actions[0].params == {"seconds": 10}
+    assert result.actions[0].params["seconds"] == 10

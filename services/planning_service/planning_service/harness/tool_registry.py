@@ -9,13 +9,17 @@ from pydantic import BaseModel
 from twfarmbot_core.actions import ActionRegistry
 
 from .. import introspection
+from ..tool_outputs import TOOL_OUTPUT_SCHEMAS
 from ..tools import (
     FindHomeArgs,
+    GotoNamedArgs,
+    InspectZoneArgs,
     MountToolArgs,
     MoveArgs,
     MovePathArgs,
     ReadPinArgs,
     WaterArgs,
+    WaterZoneArgs,
     WritePinArgs,
 )
 from .tool_policy import ToolCategory, ToolDescriptor, ToolPolicy
@@ -79,6 +83,27 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         allow_without_user=True,
         description="Emergency stop — halt the robot immediately.",
     ),
+    "inspect_zone": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=True,
+        safety_rules=("inspect_zone",),
+        description=(
+            "Sweep a named bed, photograph each waypoint, and return a "
+            "segmentation scorecard. One approved action."
+        ),
+    ),
+    "water_zone": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=True,
+        safety_rules=("water_zone",),
+        description="Move to a named bed centre and run the pump for N seconds.",
+    ),
+    "goto_named": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=True,
+        safety_rules=("goto_named",),
+        description="Move to a named zone, plant, or preset position.",
+    ),
 }
 
 _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
@@ -89,6 +114,9 @@ _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "read_pin": ReadPinArgs,
     "write_pin": WritePinArgs,
     "mount_tool": MountToolArgs,
+    "inspect_zone": InspectZoneArgs,
+    "water_zone": WaterZoneArgs,
+    "goto_named": GotoNamedArgs,
 }
 
 _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {
@@ -202,6 +230,7 @@ class ToolRegistry:
                     policy=policy,
                     execute=lambda args, t=lc_tool: t.invoke(args),
                     is_introspection=True,
+                    output_schema=TOOL_OUTPUT_SCHEMAS.get(name),
                 )
             )
         return out

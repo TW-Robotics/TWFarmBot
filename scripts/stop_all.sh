@@ -1,5 +1,2 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-systemctl --user stop twfarmbot-ui twfarmbot-api twfarmbot-resireg
-echo "TWFarmBot services stopped."
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/start_all.sh" stop
