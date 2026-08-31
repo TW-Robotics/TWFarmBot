@@ -1,10 +1,4 @@
-"""Tests for the Assistant tab in the Streamlit UI.
-
-Streamlit's renderers are hard to unit-test directly. We exercise the
-end-to-end flow by talking to the real ``POST /plan`` endpoint with
-``planning_service.plan`` stubbed, then verifying the endpoint returns
-the shapes the UI expects.
-"""
+"""Tests for assistant API shapes consumed by the UI."""
 
 from __future__ import annotations
 

@@ -17,6 +17,7 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     from .feedback import handle_e_stop
     from .find_home import handle_find_home
     from .camera import handle_take_photo
+    from .jobs import handle_goto_named, handle_inspect_zone, handle_water_zone
 
     registry.register("water", handle_water)
     registry.register("move", handle_move)
@@ -28,3 +29,6 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     registry.register("e_stop", handle_e_stop)
     registry.register("find_home", handle_find_home)
     registry.register("take_photo", handle_take_photo)
+    registry.register("inspect_zone", handle_inspect_zone)
+    registry.register("water_zone", handle_water_zone)
+    registry.register("goto_named", handle_goto_named)

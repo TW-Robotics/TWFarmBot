@@ -11,6 +11,7 @@ single line: ``register("my_kind", my_validator)``.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Callable
@@ -114,9 +115,78 @@ def _check_move_path(action: Action, limits: SafetyLimits) -> None:
             ) from err
 
 
+def _check_xyz(x: float, y: float, z: float, limits: SafetyLimits) -> None:
+    _check_move(Action(kind="move", params={"x": x, "y": y, "z": z}), limits)
+
+
+def _resolve_or_reject(name: str) -> dict:
+    from spatial_service import resolve_named
+
+    try:
+        return resolve_named(name)
+    except ValueError as err:
+        raise UnsafeActionError(str(err)) from err
+
+
+def _check_goto_named(action: Action, limits: SafetyLimits) -> None:
+    name = action.params.get("name")
+    if not name:
+        raise UnsafeActionError("goto_named action needs a name")
+    target = _resolve_or_reject(str(name))
+    z = action.params.get("z", target["z"])
+    try:
+        z_value = float(z)
+    except (TypeError, ValueError) as err:
+        raise UnsafeActionError(f"goto_named z must be numeric, got {z!r}") from err
+    _check_xyz(float(target["x"]), float(target["y"]), z_value, limits)
+
+
+def _check_water_zone(action: Action, limits: SafetyLimits) -> None:
+    zone_id = action.params.get("zone_id")
+    if not zone_id:
+        raise UnsafeActionError("water_zone action needs zone_id")
+    target = _resolve_or_reject(str(zone_id))
+    if target.get("kind") != "zone":
+        raise UnsafeActionError(f"{zone_id!r} is not a watering zone")
+    z = action.params.get("z", target.get("z", 0))
+    try:
+        z_value = float(z)
+    except (TypeError, ValueError) as err:
+        raise UnsafeActionError(f"water_zone z must be numeric, got {z!r}") from err
+    _check_xyz(float(target["x"]), float(target["y"]), z_value, limits)
+    _check_water(Action(kind="water", params={"seconds": action.params.get("seconds", 0)}), limits)
+
+
+def _check_inspect_zone(action: Action, limits: SafetyLimits) -> None:
+    zone_id = action.params.get("zone_id")
+    if not zone_id:
+        raise UnsafeActionError("inspect_zone action needs zone_id")
+    target = _resolve_or_reject(str(zone_id))
+    if target.get("kind") != "zone":
+        raise UnsafeActionError(f"{zone_id!r} is not a garden zone")
+    try:
+        step = float(action.params.get("step_mm", 200))
+        z_value = float(action.params.get("z", 0))
+    except (TypeError, ValueError) as err:
+        raise UnsafeActionError(f"inspect_zone step_mm/z must be numeric: {err}") from err
+    if step < 50 or step > 800:
+        raise UnsafeActionError(f"inspect_zone step_mm must be 50..800, got {step}")
+    width = float(target.get("width") or 0)
+    height = float(target.get("height") or 0)
+    photos = max(1, math.ceil(width / step)) * max(1, math.ceil(height / step))
+    if photos > 24:
+        raise UnsafeActionError(
+            f"inspect_zone would take about {photos} photos; increase step_mm"
+        )
+    _check_xyz(float(target["x"]), float(target["y"]), z_value, limits)
+
+
 register("move", _check_move)
 register("move_path", _check_move_path)
 register("water", _check_water)
+register("goto_named", _check_goto_named)
+register("water_zone", _check_water_zone)
+register("inspect_zone", _check_inspect_zone)
 
 
 def validate(action: Action, *, limits: SafetyLimits | None = None) -> Action:

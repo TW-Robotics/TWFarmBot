@@ -6,8 +6,9 @@ log_level: INFO
 # Secrets (api_key) are NEVER stored here — set PLANNING_LLM_API_KEY in
 # the environment, or reference a different env var via api_key_env.
 planning:
-  base_url: https://openrouter.ai/api/v1   # OpenAI-compatible endpoint
-  model: ibm-granite/granite-4.1-8b           # tool-calling model
+  provider: openai
+  base_url: https://api.openai.com/v1   # Responses API + native PTC
+  model: gpt-5.6
   api_key_env: PLANNING_LLM_API_KEY  # name of the env var that holds the secret
   timeout_s: 120                       # raise this for slower models
   temperature: 0.0
@@ -18,6 +19,15 @@ planning:
   # Optional W&B Weave project for tracing. Set WEAVE_PROJECT or this field
   # to enable model/tool-call/token tracing.
   weave_project: ""
+
+# Background worker. Interval 0 disables the scheduled inspect.
+# Override with TWFB_INSPECT_INTERVAL_S / TWFB_INSPECT_ON_START=1.
+worker:
+  inspect_interval_s: 21600
+  inspect_step_mm: 250
+  inspect_z: 0
+  inspect_classes: "plant, weed, soil"
+  inspect_timeout_s: 1800
 
 # FarmBot WiFi credentials are read from environment variables
 # (FARMBOT_HOST, FARMBOT_EMAIL, FARMBOT_PASSWORD, optional FARMBOT_TOKEN)

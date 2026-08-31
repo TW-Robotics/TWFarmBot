@@ -22,11 +22,15 @@ def client() -> TestClient:
 
 def test_list_provider_names() -> None:
     names = list_provider_names()
-    assert "openrouter" in names
-    assert "local" in names
+    assert names == ["openai"]
 
 
 def test_get_provider_returns_instance() -> None:
+    assert get_provider("openai").name == "openai"
+
+
+def test_legacy_providers_can_be_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PLANNING_LLM_ENABLE_LEGACY", "1")
     assert isinstance(get_provider("openrouter"), OpenRouterProvider)
     assert isinstance(get_provider("local"), OpenAICompatibleProvider)
 
@@ -63,10 +67,8 @@ def test_providers_endpoints(client) -> None:  # noqa: ANN001
     r = client.get("/providers")
     assert r.status_code == 200
     body = r.json()
-    assert "openrouter" in body["providers"]
+    assert body["providers"] == ["openai"]
 
     r = client.get("/models?provider=local")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["provider"] == "local"
-    assert isinstance(body["models"], list)
+    assert r.status_code == 400
+    assert "disabled" in r.json()["detail"]

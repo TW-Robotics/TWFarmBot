@@ -1,4 +1,2 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-journalctl --user -u twfarmbot-resireg -u twfarmbot-api -u twfarmbot-ui -f
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/start_all.sh" logs

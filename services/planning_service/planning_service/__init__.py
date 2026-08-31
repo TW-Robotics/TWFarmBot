@@ -4,10 +4,10 @@ Public surface:
     plan(request, *, world=None, registry=None, model=None) -> PlanResult
     chat(...), stream_chat(...)
 
-The planner and chat interfaces are now driven by the same harness:
-``ToolRegistry`` + ``ApprovalGate`` + ``AgentLoop``. The harness keeps
-safety/approval policy in one place and lets the model reason across
-multiple tool-call turns.
+The planner and chat interfaces are driven by the same harness:
+``ToolRegistry`` + ``ApprovalGate`` + ``AgentLoop``. The model writes
+Python that calls registered tools; the harness runs it in a restricted
+interpreter and keeps safety/approval policy in one place.
 """
 
 from __future__ import annotations
@@ -73,10 +73,9 @@ def plan(
 ) -> PlanResult:
     """Translate a natural-language ``request`` into a validated PlanResult.
 
-    The harness lets the model call introspection tools and collect action
-    proposals across multiple turns. Physical actions are never executed
-    inside ``plan()``; they are validated and returned for the caller to
-    execute or preview.
+    The harness lets the model write Python that calls introspection and
+    action functions. Physical actions are never executed inside ``plan()``;
+    they are validated and returned for the caller to execute or preview.
     """
     cfg, base_model = build_base_model(
         model=model, config=config, model_name=model_name
@@ -86,7 +85,7 @@ def plan(
     tool_registry = ToolRegistry(registry, system_state)
     approval_gate = ApprovalGate(registry, planning_mode=True)
     context_builder = ContextBuilder(tool_registry, world=world)
-    planner_model = base_model.bind_tools(tool_registry.langchain_tools())
+    planner_model = base_model
     selected_model = model_name or cfg.model
 
     loop = AgentLoop(

@@ -29,51 +29,33 @@ The repository is a **monorepo** split into apps, services, shared core librarie
 This is a [uv](https://docs.astral.sh/uv/) workspace. After cloning:
 
 ```bash
-# Install all packages and create the virtual environment
 uv sync
-
-# Start the API server
-uv run twfarmbot-api
-
-# In another terminal, start the dashboard
-uv run twfarmbot-ui
-
-# Or start the local ReSiReg-Mini vision server
-uv run resireg-server
+./scripts/start_all.sh
 ```
 
-Open the UI at `http://localhost:8501`, the API docs at `http://localhost:8000/docs`, and the ReSiReg server at `http://localhost:8080`.
+That one script starts ReSiReg, the API, the UI, and the worker (uses `.env` when present). Then open:
 
-## Running as services (auto-start + auto-restart)
+- UI: `http://localhost:8501`
+- API docs: `http://localhost:8000/docs`
+- ReSiReg: `http://localhost:8080`
 
-Install the systemd user services once:
+```bash
+./scripts/start_all.sh status
+./scripts/start_all.sh logs
+./scripts/start_all.sh stop
+./scripts/start_all.sh restart
+```
+
+`stop_all.sh`, `restart_all.sh`, and `logs.sh` call the same script.
+
+## Running as systemd services (auto-start + auto-restart)
+
+On the robot, install the systemd user units once:
 
 ```bash
 ./scripts/install_services.sh
-# Then, so services start at boot before anyone logs in:
 sudo loginctl enable-linger farmbot
-```
-
-Start, stop, or restart everything:
-
-```bash
-./scripts/start_all.sh
-./scripts/stop_all.sh
-./scripts/restart_all.sh
-```
-
-View live logs:
-
-```bash
-./scripts/logs.sh
-# or for a single service:
-journalctl --user -u twfarmbot-api -f
-```
-
-Each service restarts automatically on failure. To disable auto-start on boot:
-
-```bash
-systemctl --user disable twfarmbot-resireg twfarmbot-api twfarmbot-ui
+systemctl --user start twfarmbot-resireg twfarmbot-api twfarmbot-ui twfarmbot-worker
 ```
 
 ## Continuous Integration
@@ -105,7 +87,7 @@ uv run pytest tests/ -q
 
 | Folder | Purpose |
 | --- | --- |
-| `apps/` | Runnable applications: `ui` (Streamlit), `api_server` (FastAPI), `worker` (background jobs) |
+| `apps/` | Runnable applications: `ui` (Astryx), `api_server` (FastAPI), `worker` (background jobs) |
 | `core/` | Shared primitives: `Action`, `Point3D`, `GardenWorld`, config, logging, events |
 | `services/` | One service per concern, e.g. hardware gateway, watering, vision, planning, spatial, safety |
 | `projects/` | Isolated student / research projects |
@@ -141,7 +123,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design, a
 | Folder | Distribution | Purpose |
 | --- | --- | --- |
 | `core/` | `twfarmbot-core` | Shared domain, config, logging, events |
-| `apps/ui/` | `twfarmbot-ui` | Streamlit dashboard |
+| `apps/ui/` | `twfarmbot-ui` | Astryx dashboard |
 | `apps/api_server/` | `twfarmbot-api-server` | FastAPI HTTP API |
 | `apps/worker/` | `twfarmbot-worker` | Background jobs / experiments |
 

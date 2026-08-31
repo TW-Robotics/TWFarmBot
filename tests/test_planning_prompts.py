@@ -26,7 +26,7 @@ def test_system_prompt_mentions_action_kinds() -> None:
 def test_chat_prompt_lists_execution_tools() -> None:
     reg = _make_registry()
     prompt = ContextBuilder(ToolRegistry(reg)).chat_system_prompt()
-    assert "Execution tools" in prompt
+    assert "Available functions" in prompt
     assert "move" in prompt
 
 

@@ -7,14 +7,10 @@ with small fake models.
 
 from __future__ import annotations
 
-from typing import Any, Sequence
-
-import json
+from typing import Any
 
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
-from langchain_core.messages.tool import ToolCallChunk
-from langchain_core.tools import BaseTool
 
 from planning_service.harness import (
     AgentLoop,
@@ -27,21 +23,13 @@ from planning_service.harness import (
 from twfarmbot_core.actions import ActionRegistry
 
 
-class _ToolAwareFake(FakeListChatModel):
-    """Fake model that supports ``bind_tools`` and can emit tool_calls."""
+class _ScriptFake(FakeListChatModel):
+    """Fake model that returns a sequence of AIMessage or string responses."""
 
     _custom_responses: list[Any] | None = None
     _custom_index: int = 0
 
-    def bind_tools(  # type: ignore[override]
-        self,
-        tools: Sequence[BaseTool],
-        **kwargs: Any,
-    ) -> "_ToolAwareFake":
-        return self
-
     def set_responses(self, responses: list[Any]) -> None:
-        """Provide a sequence of AIMessage or string responses."""
         self._custom_responses = responses
         self._custom_index = 0
 
@@ -57,22 +45,13 @@ class _ToolAwareFake(FakeListChatModel):
 
     def stream(self, *_args: Any, **_kwargs: Any):
         msg = self.invoke(*_args, **_kwargs)
-        if getattr(msg, "tool_calls", None):
-            yield AIMessageChunk(
-                content=msg.content or "",
-                tool_call_chunks=[
-                    ToolCallChunk(
-                        id=tc.get("id", ""),
-                        name=tc.get("name", ""),
-                        args=json.dumps(tc.get("args", {})),
-                        index=i,
-                    )
-                    for i, tc in enumerate(msg.tool_calls)
-                ],
-            )
-        else:
-            for word in str(msg.content or "").split():
-                yield AIMessageChunk(content=word + " ")
+        content = str(msg.content or "")
+        if not content:
+            yield AIMessageChunk(content="")
+            return
+        mid = max(1, len(content) // 2)
+        yield AIMessageChunk(content=content[:mid])
+        yield AIMessageChunk(content=content[mid:])
 
 
 def _make_registry() -> ActionRegistry:
@@ -179,8 +158,7 @@ def test_context_builder_lists_tools_in_prompt() -> None:
     tool_registry = ToolRegistry(reg)
     builder = ContextBuilder(tool_registry)
     prompt = builder.chat_system_prompt()
-    assert "Read-only tools" in prompt
-    assert "Execution tools" in prompt
+    assert "Available functions" in prompt
     assert "take_photo" in prompt
     assert "move" in prompt
 
@@ -189,16 +167,15 @@ def test_context_builder_lists_tools_in_prompt() -> None:
 
 
 def _make_loop(
-    model: _ToolAwareFake,
+    model: _ScriptFake,
     reg: ActionRegistry,
     propose_only: bool = True,
 ) -> AgentLoop:
     tool_registry = ToolRegistry(reg)
     approval_gate = ApprovalGate(reg)
     builder = ContextBuilder(tool_registry)
-    bound = model.bind_tools(tool_registry.langchain_tools())
     return AgentLoop(
-        model=bound,
+        model=model,
         tool_registry=tool_registry,
         approval_gate=approval_gate,
         context_builder=builder,
@@ -209,14 +186,10 @@ def _make_loop(
 
 def test_agent_loop_runs_multiple_introspection_turns() -> None:
     reg = _make_registry()
-    # First turn calls get_position; second turn answers.
-    fake = _ToolAwareFake(responses=["unused"])
+    fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
-            AIMessage(
-                content="",
-                tool_calls=[{"name": "get_position", "id": "1", "args": {}}],
-            ),
+            "```python\ntake_photo()\n```",
             "done",
         ]
     )
@@ -224,20 +197,15 @@ def test_agent_loop_runs_multiple_introspection_turns() -> None:
     loop = _make_loop(fake, reg)
     result = loop.run([{"role": "user", "content": "where am I"}])
     assert result.response == "done"
-    assert any(tc["name"] == "get_position" for tc in result.tool_calls)
+    assert any(tc["name"] == "take_photo" for tc in result.tool_calls)
 
 
 def test_agent_loop_proposes_move_without_executing() -> None:
     reg = _make_registry()
-    fake = _ToolAwareFake(responses=["unused"])
+    fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {"name": "move", "id": "1", "args": {"x": 100, "y": 200, "z": 0}}
-                ],
-            ),
+            "```python\nmove(x=100, y=200, z=0)\n```",
             "proposed",
         ]
     )
@@ -250,13 +218,10 @@ def test_agent_loop_proposes_move_without_executing() -> None:
 
 def test_agent_loop_streams_tool_call_and_delta_events() -> None:
     reg = _make_registry()
-    fake = _ToolAwareFake(responses=["unused"])
+    fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
-            AIMessage(
-                content="",
-                tool_calls=[{"name": "take_photo", "id": "1", "args": {}}],
-            ),
+            "```python\ntake_photo()\n```",
             "photo taken",
         ]
     )
@@ -266,3 +231,22 @@ def test_agent_loop_streams_tool_call_and_delta_events() -> None:
     assert "tool_call" in types
     assert "meta" in types
     assert "delta" in types
+
+
+def test_agent_loop_runs_looped_actions_in_one_script() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            "```python\n"
+            "for x in [0, 100, 200]:\n"
+            "    move(x=x, y=0, z=0)\n"
+            "```",
+            "queued three moves",
+        ]
+    )
+    loop = _make_loop(fake, reg, propose_only=True)
+    result = loop.run([{"role": "user", "content": "visit three points"}])
+    moves = [tc for tc in result.tool_calls if tc["name"] == "move"]
+    assert len(moves) == 3
+    assert len(result.proposed_actions) == 3

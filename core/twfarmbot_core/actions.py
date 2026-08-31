@@ -83,6 +83,21 @@ def _summarize_e_stop(params: dict[str, Any]) -> str:
     return "🛑 **e_stop**"
 
 
+def _summarize_inspect_zone(params: dict[str, Any]) -> str:
+    return f"🔍 **inspect_zone** {params.get('zone_id', '—')}"
+
+
+def _summarize_water_zone(params: dict[str, Any]) -> str:
+    return (
+        f"🌊 **water_zone** {params.get('zone_id', '—')} "
+        f"for {_num(params.get('seconds'))} s"
+    )
+
+
+def _summarize_goto_named(params: dict[str, Any]) -> str:
+    return f"🛠️ **goto_named** {params.get('name', '—')}"
+
+
 ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "move": _summarize_move,
     "move_path": _summarize_move_path,
@@ -94,6 +109,9 @@ ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "mount_tool": _summarize_mount_tool,
     "dismount_tool": _summarize_dismount_tool,
     "e_stop": _summarize_e_stop,
+    "inspect_zone": _summarize_inspect_zone,
+    "water_zone": _summarize_water_zone,
+    "goto_named": _summarize_goto_named,
 }
 
 

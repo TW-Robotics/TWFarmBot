@@ -75,10 +75,6 @@ ignore_missing_imports = true
 no_warn_return_any = true
 warn_unused_ignores = true
 
-[[tool.mypy.overrides]]
-module = "twfarmbot_ui.app"
-disable_error_code = ["union-attr", "index", "arg-type", "call-overload", "var-annotated"]
-
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 

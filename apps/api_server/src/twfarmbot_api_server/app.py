@@ -15,6 +15,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Thread
+from dataclasses import replace
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -25,7 +26,7 @@ from pydantic import BaseModel, Field
 from farmbot_client import FarmBotConnectionError
 from safety_service import UnsafeActionError, validate
 from twfarmbot_api_server.handlers import register_default_handlers
-from planning_service.config import load_config
+from planning_service.config import PlannerConfig, apply_overrides, load_config
 from planning_service.providers import get_provider, list_provider_names
 from twfarmbot_core.actions import (
     ActionRegistry,
@@ -45,6 +46,15 @@ class ActionPayload(BaseModel):
         return Action(kind=self.kind, params=self.params)
 
 
+class LlmOverrides(BaseModel):
+    provider: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    timeout_s: float | None = None
+    temperature: float | None = None
+
+
 class PlanPayload(BaseModel):
     request: str = Field(..., min_length=1, description="Natural-language task.")
     debug: bool = Field(
@@ -57,6 +67,10 @@ class PlanPayload(BaseModel):
     model: str | None = Field(
         default=None,
         description="Optional model override. Uses the configured default if omitted.",
+    )
+    llm: LlmOverrides | None = Field(
+        default=None,
+        description="Optional per-request LLM credentials/settings from the UI.",
     )
 
 
@@ -73,6 +87,27 @@ class ChatPayload(BaseModel):
         default=None,
         description="Optional model override. Uses the configured default if omitted.",
     )
+    llm: LlmOverrides | None = Field(
+        default=None,
+        description="Optional per-request LLM credentials/settings from the UI.",
+    )
+
+
+class ModelsPayload(BaseModel):
+    llm: LlmOverrides | None = None
+
+
+def _resolve_llm_config(
+    llm: LlmOverrides | None,
+    model_name: str | None = None,
+) -> PlannerConfig:
+    cfg = load_config()
+    if llm is not None:
+        cfg = apply_overrides(cfg, **llm.model_dump(exclude_none=True))
+    if model_name:
+        cfg = replace(cfg, model=model_name)
+    return cfg
+
 
 def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     app = FastAPI(title="TWFarmBot API", version="0.4.0")
@@ -151,7 +186,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     def list_models(provider: str | None = None) -> dict[str, Any]:
         cfg = load_config()
         try:
-            prov = get_provider(provider or cfg.provider)
+            prov = get_provider(provider or cfg.provider, permissive=cfg.permissive_provider)
             models = prov.list_models(cfg)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
@@ -159,6 +194,35 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "provider": provider or cfg.provider,
             "models": models,
             "current": cfg.model,
+            "api_key_configured": bool(cfg.api_key),
+        }
+
+    @app.post("/models/list")
+    def list_models_with_overrides(payload: ModelsPayload) -> dict[str, Any]:
+        cfg = _resolve_llm_config(payload.llm)
+        try:
+            prov = get_provider(cfg.provider, permissive=cfg.permissive_provider)
+            models = prov.list_models(cfg)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {
+            "provider": cfg.provider,
+            "models": models,
+            "current": cfg.model,
+            "api_key_configured": bool(cfg.api_key),
+        }
+
+    @app.get("/settings/llm")
+    def get_llm_settings() -> dict[str, Any]:
+        cfg = load_config()
+        return {
+            "provider": cfg.provider,
+            "base_url": cfg.base_url,
+            "model": cfg.model,
+            "timeout_s": cfg.timeout_s,
+            "temperature": cfg.temperature,
+            "api_key_configured": bool(cfg.api_key),
+            "providers": list_provider_names(),
         }
 
     @app.post("/actions")
@@ -226,11 +290,14 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             system_state = HttpSystemStateProvider(api_base)
             world = _world_snapshot()
 
+            llm_cfg = _resolve_llm_config(payload.llm, payload.model)
+
             result = planner_plan(
                 payload.request,
                 registry=app.state.registry,
                 world=world,
                 system_state=system_state,
+                config=llm_cfg,
                 model_name=payload.model,
             )
         except PlanError as err:
@@ -326,6 +393,8 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             system_state = HttpSystemStateProvider(api_base)
             world = _world_snapshot()
 
+            llm_cfg = _resolve_llm_config(payload.llm, payload.model)
+
             result: ChatResult = planner_chat(
                 payload.messages,
                 registry=app.state.registry,
@@ -333,6 +402,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 system_state=system_state,
                 allow_actions=payload.allow_actions,
                 propose_only=True,
+                config=llm_cfg,
                 model_name=payload.model,
             )
         except Exception as err:  # noqa: BLE001
@@ -372,6 +442,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
 
         def event_generator():
             try:
+                llm_cfg = _resolve_llm_config(payload.llm, payload.model)
                 for event in planner_stream_chat(
                     payload.messages,
                     registry=app.state.registry,
@@ -379,6 +450,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                     system_state=system_state,
                     allow_actions=payload.allow_actions,
                     propose_only=True,
+                    config=llm_cfg,
                     model_name=payload.model,
                 ):
                     yield f"data: {json.dumps(event)}\n\n"

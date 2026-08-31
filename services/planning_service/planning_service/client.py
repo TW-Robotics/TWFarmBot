@@ -1,4 +1,4 @@
-"""LangChain chat-model factory for the planner.
+"""Legacy LangChain Chat Completions factory for disabled providers.
 
 We use ``langchain_openai.ChatOpenAI`` for both OpenRouter and any
 self-hosted OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama with
