@@ -116,11 +116,15 @@ class InspectZoneArgs(BaseModel):
 class WaterZoneArgs(BaseModel):
     zone_id: str = Field(..., description="Zone id or loose name to water.")
     seconds: float = Field(..., description="How long to keep the pump on (1..300).")
-    z: float = Field(default=0.0, description="Gantry Z at the zone centre, in millimetres.")
+    z: float = Field(
+        default=0.0, description="Gantry Z at the zone centre, in millimetres."
+    )
 
 
 class GotoNamedArgs(BaseModel):
-    name: str = Field(..., description="Zone, plant, or preset name, e.g. 'tomatoes' or 'Home'.")
+    name: str = Field(
+        ..., description="Zone, plant, or preset name, e.g. 'tomatoes' or 'Home'."
+    )
     z: float | None = Field(
         default=None,
         description="Optional Z override in millimetres. Uses the resolved target Z when omitted.",

@@ -92,7 +92,7 @@ def test_missing_node_fails_without_video0_fallback(
     assert opened == []
 
 
-def test_refuses_dev_videoN(
+def test_refuses_raw_video_node(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(

@@ -154,7 +154,10 @@ def _check_water_zone(action: Action, limits: SafetyLimits) -> None:
     except (TypeError, ValueError) as err:
         raise UnsafeActionError(f"water_zone z must be numeric, got {z!r}") from err
     _check_xyz(float(target["x"]), float(target["y"]), z_value, limits)
-    _check_water(Action(kind="water", params={"seconds": action.params.get("seconds", 0)}), limits)
+    _check_water(
+        Action(kind="water", params={"seconds": action.params.get("seconds", 0)}),
+        limits,
+    )
 
 
 _CAPTURE_BANDS = frozenset({"rgb", "nir", "rededge", "thermal", "swir"})
@@ -186,7 +189,9 @@ def _check_inspect_zone(action: Action, limits: SafetyLimits) -> None:
         step = float(action.params.get("step_mm", 200))
         z_value = float(action.params.get("z", 0))
     except (TypeError, ValueError) as err:
-        raise UnsafeActionError(f"inspect_zone step_mm/z must be numeric: {err}") from err
+        raise UnsafeActionError(
+            f"inspect_zone step_mm/z must be numeric: {err}"
+        ) from err
     if step < 50 or step > 800:
         raise UnsafeActionError(f"inspect_zone step_mm must be 50..800, got {step}")
     width = float(target.get("width") or 0)

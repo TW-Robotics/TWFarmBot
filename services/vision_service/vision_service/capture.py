@@ -94,9 +94,7 @@ def _refuse_raw_video_node(path: Path) -> None:
 
 
 def _artifact_dir(cfg: dict[str, Any]) -> Path:
-    raw = cfg.get("artifact_dir") or os.getenv(
-        "TWFB_CAPTURE_DIR", "data/captures"
-    )
+    raw = cfg.get("artifact_dir") or os.getenv("TWFB_CAPTURE_DIR", "data/captures")
     directory = Path(str(raw))
     directory.mkdir(parents=True, exist_ok=True)
     return directory
@@ -123,6 +121,7 @@ def _grab_still(device: Path, dest: Path, *, dwell_s: float) -> None:
 
 
 def _grab_uvc(device: Path, dest: Path, *, dwell_s: float) -> None:
+    # pylint: disable=import-outside-toplevel,no-member
     import cv2  # noqa: PLC0415  # lazy: tests never open a V4L2 node
 
     cap = cv2.VideoCapture(str(device), cv2.CAP_V4L2)
