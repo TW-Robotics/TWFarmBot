@@ -93,6 +93,16 @@ class MovePathArgs(BaseModel):
     )
 
 
+class CaptureArgs(BaseModel):
+    band: str = Field(
+        ...,
+        description=(
+            "Payload USB camera band. Required: 'rgb', 'nir', or 'rededge'. "
+            "'thermal' and 'swir' are not available."
+        ),
+    )
+
+
 class InspectZoneArgs(BaseModel):
     zone_id: str = Field(..., description="Zone id or loose name, e.g. 'tomato'.")
     step_mm: float = Field(default=200.0, description="Raster spacing in millimetres.")
@@ -175,6 +185,7 @@ def tool_calls_to_actions(
             "read_pin",
             "write_pin",
             "take_photo",
+            "capture",
             "mount_tool",
             "dismount_tool",
             "e_stop",

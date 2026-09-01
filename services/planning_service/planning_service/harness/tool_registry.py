@@ -11,6 +11,7 @@ from twfarmbot_core.actions import ActionRegistry
 from .. import introspection
 from ..tool_outputs import TOOL_OUTPUT_SCHEMAS
 from ..tools import (
+    CaptureArgs,
     FindHomeArgs,
     GotoNamedArgs,
     InspectZoneArgs,
@@ -71,6 +72,15 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
             "Move to the target zone first if the photo should be of a specific bed."
         ),
     ),
+    "capture": ToolPolicy(
+        ToolCategory.READ,
+        requires_approval=False,
+        safety_rules=("capture",),
+        description=(
+            "Grab one still from a payload USB camera. band is required "
+            "(rgb, nir, or rededge). Does not move the gantry."
+        ),
+    ),
     "move_path": ToolPolicy(
         ToolCategory.ACT,
         requires_approval=True,
@@ -119,6 +129,7 @@ _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "read_pin": ReadPinArgs,
     "write_pin": WritePinArgs,
     "mount_tool": MountToolArgs,
+    "capture": CaptureArgs,
     "inspect_zone": InspectZoneArgs,
     "water_zone": WaterZoneArgs,
     "goto_named": GotoNamedArgs,

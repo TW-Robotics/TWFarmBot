@@ -157,6 +157,24 @@ def _check_water_zone(action: Action, limits: SafetyLimits) -> None:
     _check_water(Action(kind="water", params={"seconds": action.params.get("seconds", 0)}), limits)
 
 
+_CAPTURE_BANDS = frozenset({"rgb", "nir", "rededge", "thermal", "swir"})
+_UNPINNED_CAPTURE_BANDS = frozenset({"thermal", "swir"})
+
+
+def _check_capture(action: Action, limits: SafetyLimits) -> None:
+    del limits
+    band = action.params.get("band")
+    if not band:
+        raise UnsafeActionError("capture action needs band")
+    key = str(band).strip().lower()
+    if key not in _CAPTURE_BANDS:
+        raise UnsafeActionError(
+            f"capture band must be one of {sorted(_CAPTURE_BANDS)}, got {band!r}"
+        )
+    if key in _UNPINNED_CAPTURE_BANDS:
+        raise UnsafeActionError(f"{key} capture is unavailable: bus not pinned")
+
+
 def _check_inspect_zone(action: Action, limits: SafetyLimits) -> None:
     zone_id = action.params.get("zone_id")
     if not zone_id:
@@ -187,6 +205,7 @@ register("water", _check_water)
 register("goto_named", _check_goto_named)
 register("water_zone", _check_water_zone)
 register("inspect_zone", _check_inspect_zone)
+register("capture", _check_capture)
 
 
 def validate(action: Action, *, limits: SafetyLimits | None = None) -> Action:
