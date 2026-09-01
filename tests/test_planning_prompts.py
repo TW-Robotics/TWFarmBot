@@ -21,13 +21,18 @@ def test_system_prompt_mentions_action_kinds() -> None:
     assert "move" in prompt
     assert "find_home" in prompt
     assert "water" in prompt
+    assert "JSON function/tool calling" in prompt
+    assert "Programmatic Tool Calling" not in prompt
+    assert "programmatic" not in prompt.lower()
 
 
 def test_chat_prompt_lists_execution_tools() -> None:
     reg = _make_registry()
     prompt = ContextBuilder(ToolRegistry(reg)).chat_system_prompt()
-    assert "Available functions" in prompt
+    assert "Available tools" in prompt
     assert "move" in prompt
+    assert "JSON function/tool calling" in prompt
+    assert "Programmatic Tool Calling" not in prompt
 
 
 def test_user_prompt_includes_world_context() -> None:

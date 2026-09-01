@@ -7,6 +7,7 @@ with small fake models.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -20,6 +21,7 @@ from planning_service.harness import (
     ToolCategory,
     ToolRegistry,
 )
+from planning_service.introspection import InMemorySystemStateProvider
 from twfarmbot_core.actions import ActionRegistry
 
 
@@ -46,12 +48,50 @@ class _ScriptFake(FakeListChatModel):
     def stream(self, *_args: Any, **_kwargs: Any):
         msg = self.invoke(*_args, **_kwargs)
         content = str(msg.content or "")
+        tool_calls = list(getattr(msg, "tool_calls", None) or [])
+        if tool_calls:
+            chunks = []
+            for index, call in enumerate(tool_calls):
+                name = call["name"] if isinstance(call, dict) else call.name
+                args = call["args"] if isinstance(call, dict) else call.args
+                call_id = (
+                    call.get("id")
+                    if isinstance(call, dict)
+                    else getattr(call, "id", None)
+                ) or str(index)
+                chunks.append(
+                    {
+                        "name": name,
+                        "args": json.dumps(args or {}),
+                        "id": str(call_id),
+                        "index": index,
+                        "type": "tool_call_chunk",
+                    }
+                )
+            yield AIMessageChunk(content=content, tool_call_chunks=chunks)  # type: ignore[arg-type]
+            return
         if not content:
             yield AIMessageChunk(content="")
             return
         mid = max(1, len(content) // 2)
         yield AIMessageChunk(content=content[:mid])
         yield AIMessageChunk(content=content[mid:])
+
+
+def _tool_call(
+    name: str, args: dict[str, Any] | None = None, call_id: str = "call_1"
+) -> AIMessage:
+    return AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": name,
+                "args": args or {},
+                "id": call_id,
+                "type": "tool_call",
+            }
+        ],
+    )
 
 
 def _make_registry() -> ActionRegistry:
@@ -158,7 +198,7 @@ def test_context_builder_lists_tools_in_prompt() -> None:
     tool_registry = ToolRegistry(reg)
     builder = ContextBuilder(tool_registry)
     prompt = builder.chat_system_prompt()
-    assert "Available functions" in prompt
+    assert "Available tools" in prompt
     assert "take_photo" in prompt
     assert "move" in prompt
 
@@ -170,8 +210,9 @@ def _make_loop(
     model: _ScriptFake,
     reg: ActionRegistry,
     propose_only: bool = True,
+    system_state: InMemorySystemStateProvider | None = None,
 ) -> AgentLoop:
-    tool_registry = ToolRegistry(reg)
+    tool_registry = ToolRegistry(reg, system_state)
     approval_gate = ApprovalGate(reg)
     builder = ContextBuilder(tool_registry)
     return AgentLoop(
@@ -184,20 +225,39 @@ def _make_loop(
     )
 
 
-def test_agent_loop_runs_multiple_introspection_turns() -> None:
+def test_agent_loop_runs_json_read_and_physical_tool_calls() -> None:
     reg = _make_registry()
+    state = InMemorySystemStateProvider(position={"x": 11, "y": 22, "z": 33})
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
-            "```python\ntake_photo()\n```",
+            _tool_call("get_position", {}, "read_1"),
+            _tool_call("move", {"x": 100, "y": 200, "z": 0}, "act_1"),
             "done",
         ]
     )
 
-    loop = _make_loop(fake, reg)
-    result = loop.run([{"role": "user", "content": "where am I"}])
+    loop = _make_loop(fake, reg, system_state=state)
+    result = loop.run([{"role": "user", "content": "where am I, then move"}])
     assert result.response == "done"
-    assert any(tc["name"] == "take_photo" for tc in result.tool_calls)
+    names = [tc["name"] for tc in result.tool_calls]
+    assert names == ["get_position", "move"]
+    assert result.tool_calls[0]["result"]["x"] == 11
+    assert result.tool_calls[1]["result"]["status"] == "proposed"
+    assert result.proposed_actions == [
+        {"kind": "move", "params": {"x": 100, "y": 200, "z": 0}}
+    ]
+
+
+def test_agent_loop_does_not_run_python_fences() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(["```python\nmove(x=1, y=2, z=0)\n```"])
+    loop = _make_loop(fake, reg)
+    result = loop.run([{"role": "user", "content": "move"}])
+    assert result.tool_calls == []
+    assert result.proposed_actions == []
+    assert "move(x=1" in result.response
 
 
 def test_agent_loop_proposes_move_without_executing() -> None:
@@ -205,7 +265,7 @@ def test_agent_loop_proposes_move_without_executing() -> None:
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
-            "```python\nmove(x=100, y=200, z=0)\n```",
+            _tool_call("move", {"x": 100, "y": 200, "z": 0}),
             "proposed",
         ]
     )
@@ -221,7 +281,7 @@ def test_agent_loop_streams_tool_call_and_delta_events() -> None:
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
-            "```python\ntake_photo()\n```",
+            _tool_call("take_photo"),
             "photo taken",
         ]
     )
@@ -231,14 +291,29 @@ def test_agent_loop_streams_tool_call_and_delta_events() -> None:
     assert "tool_call" in types
     assert "meta" in types
     assert "delta" in types
+    tool_events = [e for e in events if e["type"] == "tool_call"]
+    assert tool_events[0]["name"] == "take_photo"
+    meta = next(e for e in events if e["type"] == "meta")
+    assert meta["programs"] == []
 
 
-def test_agent_loop_runs_looped_actions_in_one_script() -> None:
+def test_agent_loop_runs_parallel_json_tool_calls() -> None:
     reg = _make_registry()
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
-            "```python\nfor x in [0, 100, 200]:\n    move(x=x, y=0, z=0)\n```",
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "move",
+                        "args": {"x": x, "y": 0, "z": 0},
+                        "id": f"m{x}",
+                        "type": "tool_call",
+                    }
+                    for x in (0, 100, 200)
+                ],
+            ),
             "queued three moves",
         ]
     )
