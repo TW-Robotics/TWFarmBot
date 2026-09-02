@@ -44,7 +44,7 @@ def _runtime() -> tuple[FarmScriptRuntime, list[tuple[str, dict]]]:
             name="move",
             args_schema=_MoveArgs,
             policy=ToolPolicy(
-                ToolCategory.ACT, requires_approval=True, description="Move"
+                ToolCategory.ACT, requires_approval=False, description="Move"
             ),
         ),
         ToolDescriptor(

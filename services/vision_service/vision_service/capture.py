@@ -96,15 +96,41 @@ def list_captures(limit: int = 10) -> list[dict[str, Any]]:
 
 
 def capture_path(artifact_id: str, band: str) -> Path | None:
-    """Resolve a capture JPEG if it exists."""
+    """Resolve a capture still (JPEG) or derived artifact (PNG) if it exists."""
     key = str(band or "").strip().lower()
-    if key not in USB_CAPTURE_BANDS:
-        return None
     aid = str(artifact_id or "").strip()
-    if not aid:
+    if not aid or not key:
         return None
-    path = _artifact_dir(_cameras_config()) / f"{aid}-{key}.jpg"
-    return path if path.is_file() else None
+    directory = _artifact_dir(_cameras_config())
+    for suffix in (".jpg", ".png"):
+        if key not in USB_CAPTURE_BANDS and suffix == ".jpg":
+            continue
+        path = directory / f"{aid}-{key}{suffix}"
+        if path.is_file():
+            return path
+    return None
+
+
+def write_capture_file(
+    artifact_id: str,
+    band: str,
+    data: bytes,
+    *,
+    suffix: str = ".png",
+) -> Path:
+    """Write a derived capture artifact (e.g. NDRE preview PNG)."""
+    key = str(band or "").strip().lower()
+    aid = str(artifact_id or "").strip()
+    if not aid or not key:
+        raise CaptureError("write_capture_file needs artifact_id and band")
+    if not suffix.startswith("."):
+        suffix = f".{suffix}"
+    dest = _artifact_dir(_cameras_config()) / f"{aid}-{key}{suffix}"
+    try:
+        dest.write_bytes(data)
+    except OSError as err:
+        raise CaptureError(f"failed to write {dest}: {err}") from err
+    return dest
 
 
 def _cameras_config() -> dict[str, Any]:

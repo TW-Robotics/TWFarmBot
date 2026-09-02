@@ -107,6 +107,16 @@ class CaptureArgs(BaseModel):
     )
 
 
+class CaptureNdreArgs(BaseModel):
+    return_to_start: bool = Field(
+        default=True,
+        description=(
+            "After capturing red-edge at the calibrated offset, move back to the "
+            "starting gantry pose (default true)."
+        ),
+    )
+
+
 class InspectZoneArgs(BaseModel):
     zone_id: str = Field(..., description="Zone id or loose name, e.g. 'tomato'.")
     step_mm: float = Field(default=200.0, description="Raster spacing in millimetres.")
@@ -194,6 +204,7 @@ def tool_calls_to_actions(
             "write_pin",
             "take_photo",
             "capture",
+            "capture_ndre",
             "mount_tool",
             "dismount_tool",
             "e_stop",

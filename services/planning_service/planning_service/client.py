@@ -63,6 +63,26 @@ def _patch_langchain_openai_reasoning() -> None:
 _patch_langchain_openai_reasoning()
 
 
+def _tool_calling_reasoning_override(model: str, overrides: dict[str, Any]) -> None:
+    """GPT-5 chat-completions models reject tools unless reasoning is off."""
+    name = model.lower()
+    if not name.startswith("gpt-5") or "chat" in name:
+        return
+    if overrides.get("reasoning_effort") is not None:
+        return
+    reasoning = overrides.get("reasoning")
+    if isinstance(reasoning, dict) and reasoning.get("effort") is not None:
+        return
+    extra_body = overrides.get("extra_body")
+    if isinstance(extra_body, dict):
+        if extra_body.get("reasoning_effort") is not None:
+            return
+        nested = extra_body.get("reasoning")
+        if isinstance(nested, dict) and nested.get("effort") is not None:
+            return
+    overrides["reasoning_effort"] = "none"
+
+
 def build_chat_model(
     *,
     base_url: str,
@@ -90,4 +110,5 @@ def build_chat_model(
     # (Ollama/vLLM) that need none — substitute a harmless placeholder.
     kwargs["api_key"] = api_key or "not-required"
     kwargs.update(overrides)
+    _tool_calling_reasoning_override(model, kwargs)
     return ChatOpenAI(**kwargs)

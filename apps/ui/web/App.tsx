@@ -18,14 +18,12 @@ import {
   Cog6ToothIcon,
   CubeTransparentIcon,
   HomeIcon,
-  MapIcon,
   PlayIcon,
   QueueListIcon,
   WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
 import { api, postAction } from "./api";
 import { OverviewPage } from "./pages/OverviewPage";
-import { GardenPage } from "./pages/GardenPage";
 import { MotionPage } from "./pages/MotionPage";
 import { CameraPage } from "./pages/CameraPage";
 import { IoPage } from "./pages/IoPage";
@@ -36,7 +34,6 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 export type Tab =
   | "overview"
-  | "garden"
   | "motion"
   | "camera"
   | "io"
@@ -47,7 +44,6 @@ export type Tab =
 
 const TABS: { id: Tab; label: string; icon: typeof HomeIcon }[] = [
   { id: "overview", label: "Overview", icon: HomeIcon },
-  { id: "garden", label: "Garden", icon: MapIcon },
   { id: "motion", label: "Motion", icon: PlayIcon },
   { id: "camera", label: "Camera", icon: CameraIcon },
   { id: "io", label: "I/O", icon: WrenchScrewdriverIcon },
@@ -60,6 +56,7 @@ const TABS: { id: Tab; label: string; icon: typeof HomeIcon }[] = [
 function tabFromUrl(): Tab {
   const raw = (new URLSearchParams(window.location.search).get("tab") || "").toLowerCase();
   if (raw === "sensors" || raw === "operations") return "io";
+  if (raw === "garden") return "overview";
   return TABS.some((t) => t.id === raw) ? (raw as Tab) : "overview";
 }
 
@@ -109,8 +106,6 @@ export function App() {
     switch (tab) {
       case "overview":
         return <OverviewPage pose={pose} farmbot={farmbot} />;
-      case "garden":
-        return <GardenPage />;
       case "motion":
         return <MotionPage pose={pose} onMoved={() => refreshTelemetry(true)} />;
       case "camera":

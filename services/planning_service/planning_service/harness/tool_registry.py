@@ -11,15 +11,13 @@ from twfarmbot_core.actions import ActionRegistry
 from .. import introspection
 from ..tools import (
     CaptureArgs,
+    CaptureNdreArgs,
     FindHomeArgs,
-    GotoNamedArgs,
-    InspectZoneArgs,
     MountToolArgs,
     MoveArgs,
     MovePathArgs,
     ReadPinArgs,
     WaterArgs,
-    WaterZoneArgs,
     WritePinArgs,
 )
 from .tool_policy import ToolCategory, ToolDescriptor, ToolPolicy
@@ -28,34 +26,34 @@ from .tool_policy import ToolCategory, ToolDescriptor, ToolPolicy
 _ACTION_POLICIES: dict[str, ToolPolicy] = {
     "move": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=True,
+        requires_approval=False,
         safety_rules=("move",),
         description="Move the gantry to absolute X/Y/Z mm.",
     ),
     "water": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=True,
+        requires_approval=False,
         safety_rules=("water",),
         description="Turn the pump on for N seconds.",
     ),
     "find_home": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=True,
+        requires_approval=False,
         description="Run the end-stop homing sequence.",
     ),
     "write_pin": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=True,
+        requires_approval=False,
         description="Write a value (0/1) to a GPIO pin.",
     ),
     "mount_tool": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=True,
+        requires_approval=False,
         description="Mount a named tool on the gantry.",
     ),
     "dismount_tool": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=True,
+        requires_approval=False,
         description="Dismount the currently mounted tool.",
     ),
     "read_pin": ToolPolicy(
@@ -67,8 +65,7 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         ToolCategory.READ,
         requires_approval=False,
         description=(
-            "Trigger the camera to take a photo at the current gantry position. "
-            "Move to the target zone first if the photo should be of a specific bed."
+            "Trigger the camera to take a photo at the current gantry position."
         ),
     ),
     "capture": ToolPolicy(
@@ -80,9 +77,25 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
             "(rgb, nir, or rededge). Does not move the gantry."
         ),
     ),
+    "capture_ndre": ToolPolicy(
+        ToolCategory.ANALYZE,
+        requires_approval=False,
+        safety_rules=("capture_ndre",),
+        description=(
+            "Capture NIR at the current pose, move by the calibrated band "
+            "offset, capture red-edge, apply saved image_align, and return "
+            "NDRE metrics plus an interpretation "
+            "(label, action_hint, advice). "
+            "You MUST use interpretation.action_hint and advice to decide "
+            "what to do next (ok / monitor / consider_water / recheck / "
+            "reposition) — do not only list the numbers. "
+            "Move to the target pose first if needed. You cannot see the "
+            "NDRE image; reason from ndre.* and interpretation.*"
+        ),
+    ),
     "move_path": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=True,
+        requires_approval=False,
         safety_rules=("move_path",),
         description="Move the gantry through a sequence of waypoints, optionally taking photos.",
     ),
@@ -94,31 +107,22 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
     ),
     "unlock": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=True,
+        requires_approval=False,
         description="Clear emergency stop so the gantry can move again.",
     ),
-    "inspect_zone": ToolPolicy(
-        ToolCategory.ACT,
-        requires_approval=True,
-        safety_rules=("inspect_zone",),
-        description=(
-            "Sweep a named bed, photograph each waypoint, and return a "
-            "segmentation scorecard. One approved action."
-        ),
-    ),
-    "water_zone": ToolPolicy(
-        ToolCategory.ACT,
-        requires_approval=True,
-        safety_rules=("water_zone",),
-        description="Move to a named bed centre and run the pump for N seconds.",
-    ),
-    "goto_named": ToolPolicy(
-        ToolCategory.ACT,
-        requires_approval=True,
-        safety_rules=("goto_named",),
-        description="Move to a named zone, plant, or preset position.",
-    ),
 }
+
+# Zone/garden map tooling is parked until beds are reconfigured.
+_HIDDEN_AGENT_TOOLS = frozenset(
+    {
+        "inspect_zone",
+        "water_zone",
+        "goto_named",
+        "list_zones",
+        "get_garden",
+        "scan_zone",
+    }
+)
 
 _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "move": MoveArgs,
@@ -129,9 +133,7 @@ _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "write_pin": WritePinArgs,
     "mount_tool": MountToolArgs,
     "capture": CaptureArgs,
-    "inspect_zone": InspectZoneArgs,
-    "water_zone": WaterZoneArgs,
-    "goto_named": GotoNamedArgs,
+    "capture_ndre": CaptureNdreArgs,
 }
 
 _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {
@@ -206,6 +208,8 @@ class ToolRegistry:
     def _build_action_descriptors(self) -> list[ToolDescriptor]:
         out: list[ToolDescriptor] = []
         for kind in self._registry.kinds():
+            if kind in _HIDDEN_AGENT_TOOLS:
+                continue
             policy = _ACTION_POLICIES.get(kind)
             if policy is None:
                 # Unknown action kind: still expose it read-only with a safe default.
@@ -231,6 +235,8 @@ class ToolRegistry:
             return out
         for lc_tool in introspection.build_introspection_tools(self._system_state):
             name = lc_tool.name
+            if name in _HIDDEN_AGENT_TOOLS:
+                continue
             schema = _schema_from_tool(lc_tool)
             category = _INTROSPECTION_CATEGORIES.get(name, ToolCategory.READ)
             policy = ToolPolicy(

@@ -1,0 +1,23 @@
+version: 1
+method: aruco_bed_marker
+reference_band: nir
+marker_size_mm: 100
+shared:
+  gsd_mm_per_px: 0.35
+  image_center_px:
+    x: 640.0
+    y: 360.0
+bands:
+  nir:
+    gantry_offset_mm: {x: 0, y: 0, z: 0}
+    centroid_px: {x: 640.0, y: 360.0}
+    image_size_px: {width: 1280, height: 720}
+  rededge:
+    gantry_offset_mm: {x: -100, y: 0, z: 0}
+    centroid_px: {x: 638.0, y: 361.0}
+    image_size_px: {width: 1280, height: 720}
+computed:
+  band_separation_mm: {x: -100, y: 0, z: 0}
+  interpretation: >-
+    After NIR at the current gantry pose, move by this delta so red-edge
+    views the same bed point.

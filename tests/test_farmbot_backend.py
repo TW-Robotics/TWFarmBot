@@ -178,7 +178,10 @@ def test_handler_take_photo_calls_backend(monkeypatch):
 def test_safety_rejects_move_outside_bounds():
     from safety_service import SafetyLimits, UnsafeActionError, validate
 
-    limits = SafetyLimits(max_axis_mm={"x": 1000, "y": 1000, "z": 1000})
+    limits = SafetyLimits(
+        enforce_workspace=True,
+        max_axis_mm={"x": 1000, "y": 1000, "z": 1000},
+    )
     with pytest.raises(UnsafeActionError, match="exceeds"):
         validate(Action(kind="move", params={"x": 9999, "y": 0, "z": 0}), limits=limits)
 
@@ -186,8 +189,24 @@ def test_safety_rejects_move_outside_bounds():
 def test_safety_accepts_move_within_bounds():
     from safety_service import SafetyLimits, validate
 
-    limits = SafetyLimits(max_axis_mm={"x": 1000, "y": 1000, "z": 1000})
+    limits = SafetyLimits(
+        enforce_workspace=True,
+        max_axis_mm={"x": 1000, "y": 1000, "z": 1000},
+    )
     out = validate(
         Action(kind="move", params={"x": 500, "y": 500, "z": 500}), limits=limits
+    )
+    assert out.kind == "move"
+
+
+def test_safety_skips_workspace_when_not_enforced():
+    from safety_service import SafetyLimits, validate
+
+    limits = SafetyLimits(
+        enforce_workspace=False,
+        max_axis_mm={"x": 100, "y": 100, "z": 100},
+    )
+    out = validate(
+        Action(kind="move", params={"x": 9999, "y": 0, "z": 0}), limits=limits
     )
     assert out.kind == "move"
