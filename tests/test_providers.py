@@ -2,40 +2,46 @@
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 from planning_service.config import PlannerConfig
 from twfarmbot_api_server.app import create_app
 from planning_service.providers import (
     OpenAICompatibleProvider,
+    OpenAIProvider,
     OpenRouterProvider,
     get_provider,
     list_provider_names,
 )
 
 
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(create_app())
-
-
 def test_list_provider_names() -> None:
     names = list_provider_names()
-    assert names == ["openai"]
+    assert names == ["local", "openai", "openrouter"]
 
 
 def test_get_provider_returns_instance() -> None:
     assert get_provider("openai").name == "openai"
-
-
-def test_legacy_providers_can_be_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PLANNING_LLM_ENABLE_LEGACY", "1")
     assert isinstance(get_provider("openrouter"), OpenRouterProvider)
     assert isinstance(get_provider("local"), OpenAICompatibleProvider)
 
 
-def test_providers_build_model() -> None:
+def test_providers_build_chat_completions_models() -> None:
+    openai_cfg = PlannerConfig(
+        provider="openai",
+        base_url="https://api.openai.com/v1",
+        model="gpt-5.6",
+        api_key="dummy-key",
+        timeout_s=30.0,
+        temperature=0.0,
+    )
+    openai = OpenAIProvider()
+    openai_model = openai.build_chat_model("gpt-5.6", openai_cfg)
+    assert openai_model is not None
+    assert openai_model.model_name == "gpt-5.6"  # type: ignore[attr-defined]
+    assert hasattr(openai_model, "bind_tools")
+    assert not hasattr(openai_model, "configure_tools")
+
     cfg = PlannerConfig(
         provider="openrouter",
         base_url="https://openrouter.ai/api/v1",
@@ -63,12 +69,13 @@ def test_providers_build_model() -> None:
     assert local_model.model_name == "qwen2.5"  # type: ignore[attr-defined]
 
 
-def test_providers_endpoints(client) -> None:  # noqa: ANN001
+def test_providers_endpoints() -> None:
+    client = TestClient(create_app())
     r = client.get("/providers")
     assert r.status_code == 200
     body = r.json()
-    assert body["providers"] == ["openai"]
+    assert body["providers"] == ["local", "openai", "openrouter"]
 
     r = client.get("/models?provider=local")
-    assert r.status_code == 400
-    assert "disabled" in r.json()["detail"]
+    assert r.status_code == 200
+    assert r.json()["provider"] == "local"

@@ -88,11 +88,11 @@ def chat(
     propose_only: bool = False,
     model_name: str | None = None,
 ) -> ChatResult:
-    """Run one conversational turn with programmatic tool use.
+    """Run one conversational turn with JSON function/tool calling.
 
     ``messages`` should contain the conversation so far (user + assistant
     turns, no system message). The function prepends a system prompt,
-    runs the model, executes any tool calls, and returns the final
+    runs the model, executes any JSON tool calls, and returns the final
     assistant text plus a log of tool calls made.
     """
     loop = _make_loop(
@@ -135,9 +135,8 @@ def stream_chat(
     """Streaming conversational assistant.
 
     Yields events:
-      - ``{"type": "tool_call", ...}`` after a tool is executed.
-      - ``{"type": "program", "code": "...", "result": ...}`` for hosted PTC programs.
-      - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...], "programs": [...]}``.
+      - ``{"type": "tool_call", ...}`` after a JSON tool call is executed.
+      - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...]}``.
       - ``{"type": "thinking", "content": "..."}`` for reasoning traces.
       - ``{"type": "delta", "content": "..."}`` for the final answer text.
     """

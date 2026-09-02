@@ -1,6 +1,6 @@
-"""Legacy LangChain Chat Completions factory for disabled providers.
+"""LangChain Chat Completions factory for JSON function/tool calling.
 
-We use ``langchain_openai.ChatOpenAI`` for both OpenRouter and any
+We use ``langchain_openai.ChatOpenAI`` for OpenAI, OpenRouter, and any
 self-hosted OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama with
 ``OLLAMA_OPENAI_COMPAT=true``, TGI, etc.). The transport is identical
 between them — the only knobs are ``base_url`` and ``model``.
@@ -73,10 +73,9 @@ def build_chat_model(
 ) -> BaseChatModel:
     """Return a LangChain chat model pointed at an OpenAI-compatible API.
 
-    The returned model is configured to return JSON. We do not pass
-    ``response_format={"type": "json_object"}`` when the backend may not
-    support it (some self-hosted servers ignore it); instead, the parser
-    in :mod:`parser` is robust to free-form output.
+    The planner binds JSON tools at runtime. We do not pass
+    ``response_format={"type": "json_object"}``; free-form JSON remains a
+    fallback in :mod:`parser` when a model emits a plan instead of tools.
     """
     # Local import keeps planning_service importable without langchain
     # installed (e.g. for type-checking or partial unit tests).

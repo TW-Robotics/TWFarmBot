@@ -1,8 +1,8 @@
 """Argument schemas for FarmBot tools.
 
 Each action kind in the :class:`ActionRegistry` has a Pydantic schema.
-The agent loop exposes these as Python functions the model calls from a
-restricted farm script. JSON plans remain a fallback for ``plan()``.
+The agent loop exposes these as JSON function/tool calls. A free-form
+JSON action plan remains a fallback for ``plan()``.
 """
 
 from __future__ import annotations

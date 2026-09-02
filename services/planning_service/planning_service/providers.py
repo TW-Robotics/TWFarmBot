@@ -1,19 +1,19 @@
 """LLM provider abstraction.
 
-The planning service defaults to the OpenAI Responses API. Legacy providers
-remain available behind ``PLANNING_LLM_ENABLE_LEGACY``.
+Every provider speaks OpenAI-compatible ``/chat/completions`` JSON
+function/tool calling. Physical ACT tools still go through the approval
+gate; read tools are ordinary JSON tools.
 """
 
 from __future__ import annotations
 
 import os
-from abc import ABC, abstractmethod
+from abc import ABC
 
 import requests
 from langchain_core.language_models import BaseChatModel
 
 from .client import build_chat_model
-from .responses_client import OpenAIResponsesModel
 from .config import PlannerConfig
 
 
@@ -22,10 +22,16 @@ class LLMProvider(ABC):
 
     name: str
 
-    @abstractmethod
     def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
         """Return a configured LangChain chat model for ``model``."""
-        ...
+        return build_chat_model(
+            base_url=config.base_url,
+            model=model,
+            api_key=config.api_key,
+            timeout_s=config.timeout_s,
+            temperature=config.temperature,
+            extra_body=config.extra_body,
+        )
 
     def list_models(self, _config: PlannerConfig) -> list[str]:
         """Return a list of model ids available from this provider."""
@@ -59,16 +65,6 @@ class OpenRouterProvider(LLMProvider):
 
     name = "openrouter"
 
-    def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
-        return build_chat_model(
-            base_url=config.base_url,
-            model=model,
-            api_key=config.api_key,
-            timeout_s=config.timeout_s,
-            temperature=config.temperature,
-            extra_body=config.extra_body,
-        )
-
     def list_models(self, config: PlannerConfig) -> list[str]:
         try:
             r = requests.get(
@@ -97,16 +93,6 @@ class OpenAICompatibleProvider(LLMProvider):
 
     name = "local"
 
-    def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
-        return build_chat_model(
-            base_url=config.base_url,
-            model=model,
-            api_key=config.api_key,
-            timeout_s=config.timeout_s,
-            temperature=config.temperature,
-            extra_body=config.extra_body,
-        )
-
     def list_models(self, config: PlannerConfig) -> list[str]:
         try:
             r = requests.get(
@@ -128,19 +114,9 @@ class OpenAICompatibleProvider(LLMProvider):
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI Responses API provider with native Programmatic Tool Calling."""
+    """OpenAI chat-completions provider with JSON function/tool calling."""
 
     name = "openai"
-
-    def build_chat_model(  # type: ignore[override]
-        self, model: str, config: PlannerConfig
-    ) -> OpenAIResponsesModel:
-        return OpenAIResponsesModel(
-            base_url=config.base_url,
-            model=model,
-            api_key=config.api_key,
-            timeout_s=config.timeout_s,
-        )
 
     def list_models(self, _config: PlannerConfig) -> list[str]:
         return ["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
@@ -154,20 +130,12 @@ _PROVIDER_REGISTRY: dict[str, type[LLMProvider]] = {
 
 
 DEFAULT_PROVIDER = OpenAIProvider.name
-_LEGACY_PROVIDER_FLAG = "PLANNING_LLM_ENABLE_LEGACY"
 
 
 def get_provider(name: str | None = None, *, permissive: bool = False) -> LLMProvider:
     """Return a provider instance by name."""
+    del permissive
     key = (name or os.getenv("PLANNING_LLM_PROVIDER") or DEFAULT_PROVIDER).lower()
-    if (
-        not permissive
-        and key in {OpenRouterProvider.name, OpenAICompatibleProvider.name}
-        and os.getenv(_LEGACY_PROVIDER_FLAG, "0").lower() not in {"1", "true", "yes"}
-    ):
-        raise ValueError(
-            f"LLM provider {key!r} is disabled; set {_LEGACY_PROVIDER_FLAG}=1 to enable it"
-        )
     if key not in _PROVIDER_REGISTRY:
         raise ValueError(f"unknown LLM provider: {key!r}")
     return _PROVIDER_REGISTRY[key]()
@@ -175,7 +143,4 @@ def get_provider(name: str | None = None, *, permissive: bool = False) -> LLMPro
 
 def list_provider_names() -> list[str]:
     """Return the ids of all registered providers."""
-    names = set(_PROVIDER_REGISTRY)
-    if os.getenv(_LEGACY_PROVIDER_FLAG, "0").lower() not in {"1", "true", "yes"}:
-        names -= {OpenRouterProvider.name, OpenAICompatibleProvider.name}
-    return sorted(names)
+    return sorted(_PROVIDER_REGISTRY)

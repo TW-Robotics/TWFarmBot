@@ -6,16 +6,36 @@ Uses a small tool-aware fake model so no network is required.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
+from langchain_core.messages import AIMessage
 from safety_service import UnsafeActionError
 
 from planning_service import plan
+from planning_service.introspection import InMemorySystemStateProvider
+from twfarmbot_core.actions import ActionRegistry
 
 
 class _ToolAwareFake(FakeListChatModel):
     """Offline fake model. JSON fallback is still accepted by ``plan()``."""
+
+
+class _ToolCallFake(_ToolAwareFake):
+    """Fake model that returns canned AIMessages, including JSON tool calls."""
+
+    def __init__(self, messages: list[AIMessage | str]) -> None:
+        super().__init__(responses=["unused"])
+        self._messages = messages
+        self._index = 0
+
+    def invoke(self, *_args: Any, **_kwargs: Any) -> AIMessage:
+        item = self._messages[min(self._index, len(self._messages) - 1)]
+        self._index += 1
+        if isinstance(item, AIMessage):
+            return item
+        return AIMessage(content=str(item))
 
 
 @pytest.fixture
@@ -112,17 +132,50 @@ def test_plan_preserves_rationale_for_empty_plan() -> None:
     assert "ambiguous" in result.rationale
 
 
-def test_plan_accepts_python_scripts() -> None:
-    """A fenced Python script is the primary way to emit actions."""
-    from twfarmbot_core.actions import ActionRegistry
-
+def test_plan_extracts_actions_from_json_tool_calls() -> None:
+    """Physical JSON tool calls become the plan; read tools are executed too."""
     reg = ActionRegistry()
     reg.register("move", lambda a: a)
     reg.register("water", lambda a: a)
+    state = InMemorySystemStateProvider(position={"x": 5, "y": 6, "z": 7})
 
-    fake = _ToolAwareFake(
-        responses=["```python\nwater(seconds=10)\nmove(x=0, y=0, z=0)\n```"]
+    fake = _ToolCallFake(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "get_position",
+                        "args": {},
+                        "id": "read_1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "water",
+                        "args": {"seconds": 10},
+                        "id": "act_1",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "move",
+                        "args": {"x": 0, "y": 0, "z": 0},
+                        "id": "act_2",
+                        "type": "tool_call",
+                    },
+                ],
+            ),
+        ]
     )
-    result = plan("water b1 then home", model=fake, registry=reg)
+    result = plan(
+        "water then home",
+        model=fake,
+        registry=reg,
+        system_state=state,
+    )
     assert [a.kind for a in result.actions] == ["water", "move"]
     assert result.actions[0].params["seconds"] == 10

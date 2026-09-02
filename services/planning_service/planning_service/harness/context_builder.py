@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from spatial_service import format_world_context
 from twfarmbot_core.config import load_yaml_config
 
+from ..tool_results import compact_input_text
 from .farm_script import format_tool_catalog
 from .tool_registry import ToolRegistry
 
@@ -21,13 +22,13 @@ _CHAT_HEADER = """You are TWFarmBot Assistant, a helpful, concise farm-robot ope
 You can chat naturally with the user, answer questions about the robot and
 garden, and use the available tools.
 
-Use Programmatic Tool Calling for bounded read-only workflows
+Call tools through JSON function/tool calling. Read tools
 (list_zones, get_position, get_garden, get_images, get_health, get_pins,
-segment_image, analyze_image, plan_path, scan_zone). Run independent reads
-concurrently, reduce the results to a small JSON object, then answer. Do not
-expose generated programs or internal reasoning to the user.
+segment_image, analyze_image, plan_path, scan_zone) are ordinary JSON tools.
+Call independent reads together when useful, then answer from the results.
+Do not write Python scripts or farm_script fences.
 
-For physical work, call one direct action so the safety/approval gate can
+For physical work, call one action so the safety/approval gate can
 register it: inspect_zone, water_zone, goto_named, move, water, move_path.
 Never merely describe an action that the user asked you to perform. Always
 respond in the same language the user writes in.
@@ -61,7 +62,7 @@ Guidelines:
   bounded tool loop with a corrective action when safe; never claim success
   from an action acknowledgement alone.
 - When a question depends on the live garden state, gather and cross-check
-  evidence in one script. For example:
+  evidence with tool calls. For example:
   - If an image is dark or segmentation shows nothing, call `take_photo` for
     a fresh frame and/or `get_position` to see where the camera is.
   - Combine `get_position`, `list_zones`, and `get_garden` to know which zone
@@ -69,7 +70,7 @@ Guidelines:
   - Use `segment_image` when you need numeric presence/absence of classes.
   - If evidence is still unclear after a few calls, say so and propose a
     concrete next step (e.g. move to a zone with better lighting).
-- Use the reasoning/thinking space to plan the script before giving the
+- Use the reasoning/thinking space to plan tool calls before giving the
   final answer; the user will see the reasoning as a collapsible pill.
 """
 
@@ -90,10 +91,11 @@ the interface shows Approve/Reject buttons for the whole plan.
 
 _PLANNER_HEADER = """You are a task planner for an autonomous farm robot.
 
-Translate natural-language requests into an ordered plan using the available
-tools. Use Programmatic Tool Calling for bounded read-only data gathering and
-reduction. Physical actions must remain direct, safety-validated proposals.
-Do not emit a JSON action plan or generated program as the user-facing answer.
+Translate natural-language requests into an ordered plan using JSON
+function/tool calling. Call read tools to gather live state. Physical
+actions must remain safety-validated proposals. Do not write Python
+scripts, and do not emit a JSON action plan as the user-facing answer
+when you can call tools instead.
 
 """
 
@@ -166,7 +168,7 @@ class ContextBuilder:
             role = msg.get("role", "")
             content = str(msg.get("content", "") or "")
             if role == "user":
-                out.append(HumanMessage(content=content))
+                out.append(HumanMessage(content=compact_input_text(content)))
             elif role == "assistant":
                 kwargs: dict[str, Any] = {}
                 if include_reasoning:
@@ -175,7 +177,7 @@ class ContextBuilder:
                         kwargs["additional_kwargs"] = {
                             "reasoning_content": str(thinking)
                         }
-                out.append(AIMessage(content=content, **kwargs))
+                out.append(AIMessage(content=compact_input_text(content), **kwargs))
             elif role == "tool":
                 # Preserve tool results across multi-turn conversation.
                 out.append(

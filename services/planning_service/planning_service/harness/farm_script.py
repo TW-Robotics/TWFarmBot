@@ -1,7 +1,7 @@
-"""Programmatic tool calling: the model writes Python, we run it.
+"""Optional restricted Python interpreter for registered FarmBot tools.
 
-The script may only call registered FarmBot tools plus a small builtins
-whitelist. Hardware is never touched except through the same
+This is not the planner path. The assistant and ``plan()`` use JSON
+function/tool calling. Hardware is never touched except through the same
 ``ApprovalGate`` / ``ActionRegistry`` path used by JSON tool calls.
 """
 
@@ -181,20 +181,14 @@ def extract_farm_scripts(
 
 
 def format_tool_catalog(descriptors: Iterable[ToolDescriptor]) -> str:
-    """Render tools as Python signatures for the system prompt."""
+    """Render tools as signatures for the system prompt."""
     lines = [
-        "You operate the FarmBot by writing Python that calls the functions below.",
-        "When you need the robot, sensors, or analysis, respond with one fenced block:",
+        "Call the tools below with JSON function/tool calling.",
+        "Do not write Python scripts or fenced farm_script blocks.",
+        "The runtime executes each call and returns a JSON result.",
+        "Physical ACT tools go through approval and safety before motors move.",
         "",
-        "```python",
-        "zones = list_zones()",
-        "```",
-        "",
-        "After the runtime returns results you may write another block, or answer the",
-        "user in plain language with no code. Do not import modules, touch files, or",
-        "open network connections. Only the functions listed here exist.",
-        "",
-        "Available functions:",
+        "Available tools:",
     ]
     for descriptor in descriptors:
         lines.append(f"- `{_signature(descriptor)}`")

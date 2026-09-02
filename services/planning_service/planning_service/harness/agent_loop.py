@@ -1,31 +1,26 @@
 """Generic multi-turn agent loop for both chat and planner modes.
 
-The model writes Python that calls registered tools. This loop:
-- extracts fenced farm scripts from the model output,
-- runs them in a restricted interpreter,
-- routes every tool call through the approval gate,
+The model emits JSON tool/function calls. This loop:
+- binds registered tools on the chat-completions client,
+- executes each call through the approval gate,
 - extracts reasoning/thinking,
 - emits events (in streaming mode) or returns a result object.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generator, Iterator, Sequence
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 
+from ..tool_results import append_result_images, compact_tool_result
 from .approval_gate import ApprovalGate
 from .context_builder import ContextBuilder
-from .farm_script import (
-    FarmScriptRuntime,
-    ScriptResult,
-    extract_farm_scripts,
-    format_script_feedback,
-)
 from .metrics import Metrics
 from .reasoning_controller import ReasoningController
 from .tool_policy import ToolCategory, ToolDescriptor
@@ -59,6 +54,58 @@ def _normalize_tool_args(value: Any) -> Any:
     return value
 
 
+def _tool_calls_from_message(response: Any) -> list[dict[str, Any]]:
+    """Read LangChain JSON function/tool calls off an AI message."""
+    raw = getattr(response, "tool_calls", None) or []
+    if not raw:
+        raw = [
+            {
+                "name": chunk.get("name")
+                if isinstance(chunk, dict)
+                else getattr(chunk, "name", None),
+                "args": chunk.get("args")
+                if isinstance(chunk, dict)
+                else getattr(chunk, "args", None),
+                "id": chunk.get("id")
+                if isinstance(chunk, dict)
+                else getattr(chunk, "id", None),
+            }
+            for chunk in (getattr(response, "tool_call_chunks", None) or [])
+        ]
+    out: list[dict[str, Any]] = []
+    for index, call in enumerate(raw):
+        if isinstance(call, dict):
+            name = call.get("name")
+            args = call.get("args") or {}
+            call_id = call.get("id") or f"call_{index}"
+        else:
+            name = getattr(call, "name", None)
+            args = getattr(call, "args", None) or {}
+            call_id = getattr(call, "id", None) or f"call_{index}"
+        if not name:
+            continue
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args else {}
+            except json.JSONDecodeError:
+                args = {}
+        if not isinstance(args, dict):
+            args = {}
+        out.append({"name": str(name), "args": dict(args), "id": str(call_id)})
+    return out
+
+
+def _bind_model_tools(model: Runnable, tools: list[Any]) -> Runnable:
+    """Attach JSON tool schemas when the backend supports bind_tools."""
+    bind = getattr(model, "bind_tools", None)
+    if bind is None or not tools:
+        return model
+    try:
+        return bind(tools)
+    except (NotImplementedError, TypeError, ValueError):
+        return model
+
+
 @dataclass(frozen=True)
 class AgentTurnResult:
     """Result of one agent turn."""
@@ -72,7 +119,7 @@ class AgentTurnResult:
 
 
 class AgentLoop:
-    """Multi-turn programmatic tool-calling loop."""
+    """Multi-turn JSON function/tool-calling loop."""
 
     def __init__(
         self,
@@ -87,7 +134,6 @@ class AgentLoop:
         allow_actions: bool = True,
         include_reasoning: bool = False,
     ) -> None:
-        self._model = model
         self._registry = tool_registry
         self._approval_gate = approval_gate
         self._context_builder = context_builder
@@ -101,12 +147,7 @@ class AgentLoop:
             for d in tool_registry.descriptors()
             if d.policy.category == ToolCategory.ACT
         }
-        configure_tools = getattr(model, "configure_tools", None)
-        if configure_tools is not None:
-            configure_tools(
-                tool_registry.descriptors(),
-                lambda name, args: self._invoke_tool(name, args),
-            )
+        self._model = _bind_model_tools(model, tool_registry.langchain_tools())
 
     def run(self, messages: list[dict[str, Any]]) -> AgentTurnResult:
         """Run the loop synchronously and return the final result."""
@@ -115,11 +156,8 @@ class AgentLoop:
         lc_messages = self._context_builder.chat_messages(
             messages, include_reasoning=self._include_reasoning
         )
-        runtime = self._runtime()
         tool_log: list[dict[str, Any]] = []
         proposed: list[dict[str, Any]] = []
-        programs: list[dict[str, Any]] = []
-        trace: list[dict[str, Any]] = []
         last_response: Any = None
         final_text = ""
         final_thinking: str | None = None
@@ -129,30 +167,20 @@ class AgentLoop:
                 self._model, lc_messages, self._model_name, metrics=metrics
             )
             last_response = response
-            self._absorb_native_response(
-                response,
-                tool_log=tool_log,
-                proposed=proposed,
-                programs=programs,
-                trace=trace,
-                metrics=metrics,
-            )
-            text = str(response.content or "")
-            scripts = extract_farm_scripts(text, self._registry.by_name())
-            if not scripts:
-                final_text = text
+            calls = _tool_calls_from_message(response)
+            if not calls:
+                final_text = str(response.content or "")
                 final_thinking = self._reasoning.extract(response)
                 break
 
             lc_messages.append(response)
-            for source in scripts:
-                script_result = runtime.run(source)
-                self._absorb_script(
-                    script_result, tool_log=tool_log, proposed=proposed, metrics=metrics
-                )
-                lc_messages.append(
-                    HumanMessage(content=format_script_feedback(script_result))
-                )
+            self._apply_json_tool_calls(
+                calls,
+                lc_messages,
+                tool_log=tool_log,
+                proposed=proposed,
+                metrics=metrics,
+            )
         else:
             final_text = str(getattr(last_response, "content", "") or "")
             final_thinking = self._reasoning.extract(last_response)
@@ -162,13 +190,13 @@ class AgentLoop:
                 )
 
         final_text = self._reasoning.strip_from_text(final_text)
+        final_text = append_result_images(final_text, tool_log)
         metrics.total_latency_s = time.perf_counter() - total_start
         return AgentTurnResult(
             response=final_text,
             thinking=final_thinking,
             tool_calls=tool_log,
             proposed_actions=proposed,
-            programs=programs,
             metrics=metrics,
         )
 
@@ -179,46 +207,37 @@ class AgentLoop:
         lc_messages = self._context_builder.chat_messages(
             messages, include_reasoning=self._include_reasoning
         )
-        runtime = self._runtime()
         tool_log: list[dict[str, Any]] = []
         proposed: list[dict[str, Any]] = []
-        programs: list[dict[str, Any]] = []
-        trace: list[dict[str, Any]] = []
 
         for _ in range(_MAX_TOOL_TURNS):
             final_msg = yield from self._stream_turn(lc_messages, metrics=metrics)
-            self._absorb_native_response(
-                final_msg,
-                tool_log=tool_log,
-                proposed=proposed,
-                programs=programs,
-                trace=trace,
-                metrics=metrics,
-            )
-            text = str(final_msg.content or "")
-            scripts = extract_farm_scripts(text, self._registry.by_name())
-            if not scripts:
+            calls = _tool_calls_from_message(final_msg)
+            if not calls:
+                text = str(final_msg.content or "")
+                imaged = append_result_images(text, tool_log)
+                extra = imaged[len(text) :] if imaged.startswith(text) else ""
+                if extra:
+                    yield {"type": "delta", "content": extra}
                 break
 
             lc_messages.append(final_msg)
-            for source in scripts:
-                script_result = runtime.run(source)
-                events = self._absorb_script(
-                    script_result, tool_log=tool_log, proposed=proposed, metrics=metrics
-                )
-                for event in events:
-                    yield event
-                lc_messages.append(
-                    HumanMessage(content=format_script_feedback(script_result))
-                )
+            events = self._apply_json_tool_calls(
+                calls,
+                lc_messages,
+                tool_log=tool_log,
+                proposed=proposed,
+                metrics=metrics,
+            )
+            for event in events:
+                yield event
 
         metrics.total_latency_s = time.perf_counter() - total_start
         yield {
             "type": "meta",
             "tool_calls": tool_log,
             "proposed_actions": proposed,
-            "programs": programs,
-            "trace": trace,
+            "programs": [],
             "metrics": metrics.to_dict(),
         }
 
@@ -232,14 +251,13 @@ class AgentLoop:
         buffer = ""
         streamed_reasoning: list[str] = []
         streamed_reasoning_emitted = False
-        content_parts: list[str] = []
-        additional_kwargs: dict[str, Any] = {}
+        assembled: Any = None
 
         for chunk in timed_stream(
             self._model, lc_messages, self._model_name, metrics=metrics
         ):
+            assembled = chunk if assembled is None else assembled + chunk
             kwargs = getattr(chunk, "additional_kwargs", {}) or {}
-            additional_kwargs.update(kwargs)
             stream_event = kwargs.get("stream_event")
             if isinstance(stream_event, dict) and stream_event.get("type"):
                 yield stream_event
@@ -255,7 +273,6 @@ class AgentLoop:
 
             content = getattr(chunk, "content", None)
             if content:
-                content_parts.append(str(content))
                 buffer += str(content)
                 for event in self._reasoning.split_text(buffer):
                     if event["type"] == "delta":
@@ -268,39 +285,21 @@ class AgentLoop:
         if buffer:
             yield {"type": "delta", "content": buffer}
 
+        if assembled is None:
+            return AIMessage(content="")
+        if isinstance(assembled, AIMessage):
+            return assembled
         return AIMessage(
-            content="".join(content_parts), additional_kwargs=additional_kwargs
+            content=str(getattr(assembled, "content", "") or ""),
+            tool_calls=list(getattr(assembled, "tool_calls", None) or []),
+            additional_kwargs=dict(getattr(assembled, "additional_kwargs", None) or {}),
         )
-
-    def _absorb_native_response(
-        self,
-        response: Any,
-        *,
-        tool_log: list[dict[str, Any]],
-        proposed: list[dict[str, Any]],
-        programs: list[dict[str, Any]],
-        trace: list[dict[str, Any]],
-        metrics: Metrics,
-    ) -> None:
-        """Copy metadata produced by native Responses/PTC adapters."""
-        metadata = getattr(response, "additional_kwargs", {}) or {}
-        for call in metadata.get("tool_calls", []):
-            tool_log.append(call)
-            result = call.get("result", {})
-            if isinstance(result, dict):
-                latency = result.get("_resireg_latency_s")
-                if latency:
-                    metrics.add_resireg_latency(float(latency))
-        proposed.extend(metadata.get("proposed_actions", []))
-        programs.extend(metadata.get("programs", []))
-        trace.extend(metadata.get("trace", []))
 
     def plan_request(self, request: str) -> AgentTurnResult:
         """Planner-mode loop: gather introspection, collect action proposals."""
         total_start = time.perf_counter()
         metrics = Metrics()
         lc_messages = self._context_builder.planner_messages(request)
-        runtime = self._runtime()
         tool_log: list[dict[str, Any]] = []
         last_response: Any = None
         final_text = ""
@@ -311,35 +310,25 @@ class AgentLoop:
                 self._model, lc_messages, self._model_name, metrics=metrics
             )
             last_response = response
-            text = str(response.content or "")
-            scripts = extract_farm_scripts(text, self._registry.by_name())
-            if not scripts:
-                final_text = text
+            calls = _tool_calls_from_message(response)
+            if not calls:
+                final_text = str(response.content or "")
                 final_thinking = self._reasoning.extract(response)
                 break
 
             proposed_holder: list[dict[str, Any]] = []
-            feedbacks: list[str] = []
-            for source in scripts:
-                script_result = runtime.run(source)
-                self._absorb_script(
-                    script_result,
-                    tool_log=tool_log,
-                    proposed=proposed_holder,
-                    metrics=metrics,
-                )
-                feedbacks.append(format_script_feedback(script_result))
-
-            action_calls = [
-                c for c in tool_log if c.get("name") in self._action_tool_names
-            ]
-            if action_calls:
-                final_text = text
+            lc_messages.append(response)
+            self._apply_json_tool_calls(
+                calls,
+                lc_messages,
+                tool_log=tool_log,
+                proposed=proposed_holder,
+                metrics=metrics,
+            )
+            if any(c.get("name") in self._action_tool_names for c in calls):
+                final_text = str(response.content or "")
                 final_thinking = self._reasoning.extract(response)
                 break
-
-            lc_messages.append(response)
-            lc_messages.append(HumanMessage(content="\n\n".join(feedbacks)))
         else:
             final_text = str(getattr(last_response, "content", "") or "")
             final_thinking = self._reasoning.extract(last_response)
@@ -358,26 +347,22 @@ class AgentLoop:
             metrics=metrics,
         )
 
-    def _runtime(self) -> FarmScriptRuntime:
-        return FarmScriptRuntime(
-            self._registry.descriptors(),
-            lambda name, args: self._invoke_tool(name, args),
-        )
-
-    def _absorb_script(
+    def _apply_json_tool_calls(
         self,
-        script_result: ScriptResult,
+        calls: Sequence[dict[str, Any]],
+        lc_messages: list[Any],
         *,
         tool_log: list[dict[str, Any]],
         proposed: list[dict[str, Any]],
         metrics: Metrics | None,
     ) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
-        for call in script_result.calls:
+        for call in calls:
             name = call.get("name")
             args = call.get("args", {})
-            result = call.get("result")
-            tool_log.append({"name": name, "args": args, "result": result})
+            result = self._invoke_tool(name, args, metrics=metrics)
+            recorded = {"name": name, "args": args, "result": result}
+            tool_log.append(recorded)
             if isinstance(result, dict) and result.get("status") == "proposed":
                 proposed.append(
                     {
@@ -385,26 +370,13 @@ class AgentLoop:
                         "params": result.get("params", args),
                     }
                 )
-            events.append(
-                {
-                    "type": "tool_call",
-                    "name": name,
-                    "args": args,
-                    "result": result,
-                }
-            )
-            if metrics is not None and isinstance(result, dict):
-                resi_latency = result.get("_resireg_latency_s")
-                if resi_latency:
-                    metrics.add_resireg_latency(float(resi_latency))
-        if not script_result.ok:
-            events.append(
-                {
-                    "type": "tool_call",
-                    "name": "farm_script",
-                    "args": {},
-                    "result": {"error": script_result.error},
-                }
+            events.append({"type": "tool_call", **recorded})
+            lc_messages.append(
+                ToolMessage(
+                    content=json.dumps(compact_tool_result(result), default=str),
+                    tool_call_id=str(call.get("id") or name or "tool"),
+                    name=str(name or ""),
+                )
             )
         return events
 

@@ -5,9 +5,9 @@ Public surface:
     chat(...), stream_chat(...)
 
 The planner and chat interfaces are driven by the same harness:
-``ToolRegistry`` + ``ApprovalGate`` + ``AgentLoop``. The model writes
-Python that calls registered tools; the harness runs it in a restricted
-interpreter and keeps safety/approval policy in one place.
+``ToolRegistry`` + ``ApprovalGate`` + ``AgentLoop``. The model emits JSON
+function/tool calls; the harness executes them and keeps safety/approval
+policy in one place.
 """
 
 from __future__ import annotations
@@ -73,8 +73,8 @@ def plan(
 ) -> PlanResult:
     """Translate a natural-language ``request`` into a validated PlanResult.
 
-    The harness lets the model write Python that calls introspection and
-    action functions. Physical actions are never executed inside ``plan()``;
+    The harness lets the model emit JSON tool calls for introspection and
+    actions. Physical actions are never executed inside ``plan()``;
     they are validated and returned for the caller to execute or preview.
     """
     cfg, base_model = build_base_model(

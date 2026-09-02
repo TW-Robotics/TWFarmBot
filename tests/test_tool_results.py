@@ -1,8 +1,8 @@
-from planning_service.responses_client import _append_result_images
+from planning_service.tool_results import append_result_images
 
 
 def test_append_result_images_prefers_segmentation_artifacts() -> None:
-    text = _append_result_images(
+    text = append_result_images(
         "Done.",
         [
             {
@@ -33,7 +33,7 @@ def test_append_result_images_prefers_segmentation_artifacts() -> None:
 
 
 def test_append_result_images_shows_only_latest_plain_photo() -> None:
-    text = _append_result_images(
+    text = append_result_images(
         "Photo taken.",
         [
             {
