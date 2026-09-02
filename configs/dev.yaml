@@ -29,6 +29,17 @@ worker:
   inspect_classes: "plant, weed, soil"
   inspect_timeout_s: 1800
 
+# Payload USB cameras for capture(band). Open the udev symlink, never /dev/videoN.
+# Fill serials in configs/udev/99-twfarmbot-cameras.rules via udevadm.
+# thermal / swir are not listed: those buses are not pinned (fail closed).
+cameras:
+  dwell_s: 0.25
+  artifact_dir: data/captures
+  devices:
+    rgb: /dev/camera-rgb
+    nir: /dev/camera-nir
+    rededge: /dev/camera-rededge
+
 # Local TWFarmbotOS URL (Raspberry Pi Express API).
 # Override with FARMBOT_LOCAL_URL.
 

@@ -89,7 +89,9 @@ def list_sessions(limit: int = 50) -> list[dict[str, Any]]:
                 break
         inspect = snapshot.get("inspect") or {}
         if inspect and not preview:
-            preview = str(inspect.get("summary_text") or inspect.get("error") or "inspect")[:80]
+            preview = str(
+                inspect.get("summary_text") or inspect.get("error") or "inspect"
+            )[:80]
         sessions.append(
             {
                 "session_id": session_id,

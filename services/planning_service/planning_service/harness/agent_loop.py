@@ -150,7 +150,9 @@ class AgentLoop:
                 self._absorb_script(
                     script_result, tool_log=tool_log, proposed=proposed, metrics=metrics
                 )
-                lc_messages.append(HumanMessage(content=format_script_feedback(script_result)))
+                lc_messages.append(
+                    HumanMessage(content=format_script_feedback(script_result))
+                )
         else:
             final_text = str(getattr(last_response, "content", "") or "")
             final_thinking = self._reasoning.extract(last_response)
@@ -206,7 +208,9 @@ class AgentLoop:
                 )
                 for event in events:
                     yield event
-                lc_messages.append(HumanMessage(content=format_script_feedback(script_result)))
+                lc_messages.append(
+                    HumanMessage(content=format_script_feedback(script_result))
+                )
 
         metrics.total_latency_s = time.perf_counter() - total_start
         yield {

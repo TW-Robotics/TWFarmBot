@@ -116,9 +116,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     # default (the API has no cookie-authenticated browser session).
     configured_origins = os.getenv("TWFB_CORS_ORIGINS", "")
     cors_origins = [
-        origin.strip()
-        for origin in configured_origins.split(",")
-        if origin.strip()
+        origin.strip() for origin in configured_origins.split(",") if origin.strip()
     ] or ["http://localhost:8501", "http://127.0.0.1:8501", "null"]
     app.add_middleware(
         CORSMiddleware,
@@ -186,7 +184,9 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     def list_models(provider: str | None = None) -> dict[str, Any]:
         cfg = load_config()
         try:
-            prov = get_provider(provider or cfg.provider, permissive=cfg.permissive_provider)
+            prov = get_provider(
+                provider or cfg.provider, permissive=cfg.permissive_provider
+            )
             models = prov.list_models(cfg)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err

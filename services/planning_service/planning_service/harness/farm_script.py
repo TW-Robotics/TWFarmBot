@@ -20,9 +20,7 @@ from pydantic import ValidationError
 from .tool_policy import ToolDescriptor
 
 
-_FENCE_RE = re.compile(
-    r"```(?:python|py)[ \t]*\n?(.*?)```", re.DOTALL | re.IGNORECASE
-)
+_FENCE_RE = re.compile(r"```(?:python|py)[ \t]*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
 
 _MAX_SCRIPT_CHARS = 20_000
 _MAX_STEPS = 10_000

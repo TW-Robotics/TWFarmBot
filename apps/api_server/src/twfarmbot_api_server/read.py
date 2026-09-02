@@ -37,7 +37,11 @@ def get_position() -> dict[str, Any]:
 def get_status(path: str | None = None) -> dict[str, Any]:
     try:
         bot = farmbot.backend._bot()
-        state = bot.read_status(path=path) if hasattr(bot, "read_status") else bot.get_state()
+        state = (
+            bot.read_status(path=path)
+            if hasattr(bot, "read_status")
+            else bot.get_state()
+        )
     except Exception as err:  # noqa: BLE001
         raise HTTPException(
             status_code=502, detail=f"farmbot read failed: {err}"

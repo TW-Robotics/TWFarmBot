@@ -18,7 +18,9 @@ def handle_goto_named(action: Action) -> Action:
 
     target = resolve_named(str(action.params["name"]))
     z = action.params.get("z", target["z"])
-    handle_move(Action(kind="move", params={"x": target["x"], "y": target["y"], "z": z}))
+    handle_move(
+        Action(kind="move", params={"x": target["x"], "y": target["y"], "z": z})
+    )
     return Action(kind="goto_named", params={**action.params, "resolved": target})
 
 
@@ -29,13 +31,19 @@ def handle_water_zone(action: Action) -> Action:
     if target.get("kind") != "zone":
         raise ValueError(f"{action.params.get('zone_id')!r} is not a watering zone")
     z = action.params.get("z", target.get("z", 0.0))
-    handle_move(Action(kind="move", params={"x": target["x"], "y": target["y"], "z": z}))
+    handle_move(
+        Action(kind="move", params={"x": target["x"], "y": target["y"], "z": z})
+    )
     handle_water(Action(kind="water", params={"seconds": action.params["seconds"]}))
     return Action(kind="water_zone", params={**action.params, "resolved": target})
 
 
 def handle_inspect_zone(action: Action) -> Action:
-    from planning_service.inspect import score_image_urls, summarize_frames, summary_text
+    from planning_service.inspect import (
+        score_image_urls,
+        summarize_frames,
+        summary_text,
+    )
     from planning_service.path_planning import scan_zone
     from spatial_service import resolve_named
 
@@ -84,7 +92,9 @@ def _read_named_sensors() -> dict[str, Any]:
         try:
             number = int(pin["pin"])
             mode = str(pin.get("mode") or "analog")
-            out[str(pin.get("label") or number)] = farmbot.backend.read_pin(number, mode)
+            out[str(pin.get("label") or number)] = farmbot.backend.read_pin(
+                number, mode
+            )
         except Exception:  # noqa: BLE001
             continue
     return out

@@ -46,7 +46,10 @@ class FarmduinoController:
         except TransportError:
             return False
         for report in reports:
-            if report.number == 21 and int(report.params.get("P", -1)) == PARAM_CONFIG_OK:
+            if (
+                report.number == 21
+                and int(report.params.get("P", -1)) == PARAM_CONFIG_OK
+            ):
                 return report.params.get("V", 0) >= 1
         return False
 

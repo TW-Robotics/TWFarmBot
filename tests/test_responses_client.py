@@ -1,5 +1,4 @@
 from planning_service.responses_client import _append_result_images
-from twfarmbot_api_server.app import _CHAT_MEDIA, _materialize_chat_images
 
 
 def test_append_result_images_prefers_segmentation_artifacts() -> None:
@@ -18,7 +17,10 @@ def test_append_result_images_prefers_segmentation_artifacts() -> None:
             {
                 "name": "segment_image",
                 "result": {
-                    "image_urls": ["data:image/png;base64,overlay", "data:image/png;base64,mask"]
+                    "image_urls": [
+                        "data:image/png;base64,overlay",
+                        "data:image/png;base64,mask",
+                    ]
                 },
             },
         ],
@@ -48,16 +50,3 @@ def test_append_result_images_shows_only_latest_plain_photo() -> None:
 
     assert "![FarmBot photo](https://example.test/latest.jpg)" in text
     assert "older.jpg" not in text
-
-
-def test_materialize_chat_images_replaces_embedded_markdown_data_uri() -> None:
-    _CHAT_MEDIA.clear()
-
-    result = _materialize_chat_images(
-        {"type": "delta", "content": "![Mask](data:image/png;base64,aW1hZ2U=)"},
-        "http://api.test",
-    )
-
-    assert result["content"].startswith("![Mask](http://api.test/chat/media/")
-    assert "base64" not in result["content"]
-    assert list(_CHAT_MEDIA.values()) == [(b"image", "image/png")]

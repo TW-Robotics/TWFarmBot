@@ -38,13 +38,15 @@ _ZONE = _obj(
         "center": _CENTER,
     }
 )
-_WAYPOINT = _obj({"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}})
+_WAYPOINT = _obj(
+    {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}
+)
 
 TOOL_OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
-    "list_zones": _obj({"zones": {"type": "array", "items": _ZONE}, "count": _INT, **_ERR}),
-    "get_position": _obj(
-        {"x": _NUM, "y": _NUM, "z": _NUM, "xyz": _POINT, **_ERR}
+    "list_zones": _obj(
+        {"zones": {"type": "array", "items": _ZONE}, "count": _INT, **_ERR}
     ),
+    "get_position": _obj({"x": _NUM, "y": _NUM, "z": _NUM, "xyz": _POINT, **_ERR}),
     "get_health": _obj(
         {
             "status": _STR,
@@ -119,15 +121,14 @@ TOOL_OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         {
             "class_scores": _obj({}, extra={"type": "number"}),
             "dominant_class": _STR,
-            "detected_classes": {"type": ["array", "null"], "items": {"type": "string"}},
+            "detected_classes": {
+                "type": ["array", "null"],
+                "items": {"type": "string"},
+            },
             "source_url": _STR,
             **_ERR,
         }
     ),
-    "analyze_image": _obj(
-        {"prompt": _STR, "source_url": _STR, **_ERR}
-    ),
-    "estimate_traversability": _obj(
-        {"prompt": _STR, "source_url": _STR, **_ERR}
-    ),
+    "analyze_image": _obj({"prompt": _STR, "source_url": _STR, **_ERR}),
+    "estimate_traversability": _obj({"prompt": _STR, "source_url": _STR, **_ERR}),
 }
