@@ -82,7 +82,8 @@ def test_get_messages(client: TestClient) -> None:
     assert r.json() == {"last_messages": ["msg1", "msg2"]}
 
 
-def test_get_images(client: TestClient) -> None:
+def test_get_images(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(read_module, "list_captures", lambda limit=10: [])
     r = client.get("/images", params={"limit": 1, "refresh": "true"})
     assert r.status_code == 200
     assert r.json()["images"][0]["attachment_url"] == "https://example.test/photo.jpg"

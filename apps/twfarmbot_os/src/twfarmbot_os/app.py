@@ -22,6 +22,7 @@ _PUMP_PIN = int(os.getenv("FARMBOT_PUMP_PIN", "8"))
 
 class MoveAxisBody(BaseModel):
     distance: float
+    speed: float | None = None
 
 
 class MoveBody(BaseModel):
@@ -33,6 +34,7 @@ class MoveBody(BaseModel):
 
 class AxisBody(BaseModel):
     axis: str = "all"
+    speed: float | None = None
 
 
 class CommandBody(BaseModel):
@@ -104,11 +106,12 @@ def create_app(
         return {"success": True, "message": "TWFarmbotOS", "state": bot.snapshot()}
 
     @app.get("/state")
-    def state() -> dict[str, Any]:
-        try:
-            bot.refresh_position()
-        except TransportError:
-            log.debug("position refresh failed", exc_info=True)
+    def state(refresh: bool = False) -> dict[str, Any]:
+        if refresh:
+            try:
+                bot.refresh_position()
+            except TransportError:
+                log.debug("position refresh failed", exc_info=True)
         return {"success": True, "state": bot.snapshot()}
 
     @app.post("/command")
@@ -126,7 +129,10 @@ def create_app(
     def move_axis(axis: str, body: MoveAxisBody) -> dict[str, Any]:
         if axis.lower() not in {"x", "y", "z"}:
             raise HTTPException(status_code=400, detail="axis must be x, y, or z")
-        return _run(lambda: bot.move_axis(axis, body.distance), f"move {axis}")
+        return _run(
+            lambda: bot.move_axis(axis, body.distance, body.speed),
+            f"move {axis}",
+        )
 
     @app.post("/home")
     def home() -> dict[str, Any]:
@@ -135,7 +141,11 @@ def create_app(
     @app.post("/find_home")
     def find_home(body: AxisBody | None = None) -> dict[str, Any]:
         axis = body.axis if body else "all"
-        return _run(lambda: bot.find_home(axis), f"find_home {axis}")
+        speed = body.speed if body else None
+        return _run(
+            lambda: bot.find_home(axis, speed=speed),
+            f"find_home {axis}",
+        )
 
     @app.post("/calibrate")
     def calibrate(body: AxisBody) -> dict[str, Any]:

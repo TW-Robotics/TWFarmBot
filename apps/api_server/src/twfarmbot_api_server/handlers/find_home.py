@@ -8,5 +8,10 @@ from watering_service.backends import farmbot
 
 
 def handle_find_home(action: Action) -> Action:
-    farmbot.backend.find_home()
+    axis = str(action.params.get("axis", "all"))
+    speed = action.params.get("speed")
+    farmbot.backend.find_home(
+        axis=axis,
+        speed=float(speed) if speed is not None else 100,
+    )
     return action

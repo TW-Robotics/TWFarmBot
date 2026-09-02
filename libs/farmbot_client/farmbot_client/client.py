@@ -54,8 +54,9 @@ class LocalFarmbot:
     def ping(self) -> dict[str, Any]:
         return self.request("GET", "/")
 
-    def get_state(self) -> dict[str, Any]:
-        payload = self.request("GET", "/state")
+    def get_state(self, *, refresh: bool = False) -> dict[str, Any]:
+        params = {"refresh": "true"} if refresh else None
+        payload = self.request("GET", "/state", params=params)
         state = payload.get("state")
         return state if isinstance(state, dict) else payload
 
@@ -63,14 +64,22 @@ class LocalFarmbot:
         state = self.get_state()
         return {axis: float(state.get(axis, 0) or 0) for axis in ("x", "y", "z")}
 
+    def refresh_state(self) -> dict[str, Any]:
+        return self.get_state(refresh=True)
+
     def command(self, gcode: str) -> dict[str, Any]:
         return self.request("POST", "/command", json={"gcode": gcode})
 
-    def move_axis(self, axis: str, distance: float) -> dict[str, Any]:
+    def move_axis(
+        self, axis: str, distance: float, speed: float | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"distance": float(distance)}
+        if speed is not None:
+            payload["speed"] = float(speed)
         return self.request(
             "POST",
             f"/move/{axis.lower()}",
-            json={"distance": float(distance)},
+            json=payload,
         )
 
     def move(self, x: float, y: float, z: float, speed: float | None = None) -> None:
@@ -80,8 +89,10 @@ class LocalFarmbot:
         self.request("POST", "/move", json=payload)
 
     def find_home(self, axis: str = "all", speed: float = 100) -> None:
-        del speed
-        self.request("POST", "/find_home", json={"axis": axis})
+        payload: dict[str, Any] = {"axis": axis}
+        if speed != 100:
+            payload["speed"] = float(speed)
+        self.request("POST", "/find_home", json=payload)
 
     def set_home(self, axis: str = "all") -> None:
         self.request("POST", "/zero", json={"axis": axis})

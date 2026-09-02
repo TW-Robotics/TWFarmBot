@@ -24,6 +24,14 @@ def test_absolute_move_and_state(tmp_path) -> None:
     assert state["z"] == -10
 
 
+def test_move_speed_percent_is_encoded_as_steps_per_second(tmp_path) -> None:
+    client = _client(tmp_path)
+    res = client.post("/move", json={"x": 1, "y": 0, "z": 0, "speed": 50})
+    assert res.status_code == 200
+    joined = " ".join(res.json()["reports"])
+    assert "A223" in joined
+
+
 def test_relative_move(tmp_path) -> None:
     client = _client(tmp_path)
     client.post("/move", json={"x": 10, "y": 0, "z": 0})

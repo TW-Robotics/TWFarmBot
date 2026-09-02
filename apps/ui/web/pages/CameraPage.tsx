@@ -8,7 +8,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
-import { api, localApi, postAction } from "../api";
+import { api, apiUrl, localApi, postAction } from "../api";
 import { PageHeader } from "../components/PageHeader";
 
 const MODES = [
@@ -17,6 +17,27 @@ const MODES = [
   "PCA Feature Visualization",
   "Traversability Estimation",
 ];
+
+const USB_BANDS = [
+  { id: "rgb", label: "RGB (FHD)" },
+  { id: "nir", label: "Red edge (DMK …551)" },
+  { id: "rededge", label: "NIR (DMK …552)" },
+] as const;
+
+function bandLabel(band: string | undefined): string {
+  if (!band) return "";
+  return USB_BANDS.find((b) => b.id === band)?.label ?? band;
+}
+
+function imageSrc(url: string | undefined, version?: string): string {
+  if (!url) return "";
+  const base = url.startsWith("http://") || url.startsWith("https://")
+    ? url
+    : `${apiUrl()}${url.startsWith("/") ? url : `/${url}`}`;
+  if (!version) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}v=${encodeURIComponent(version)}`;
+}
 
 export function CameraPage() {
   const toast = useToast();
@@ -28,22 +49,85 @@ export function CameraPage() {
   const [negative, setNegative] = useState("");
   const [clusters, setClusters] = useState(6);
   const [busy, setBusy] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [result, setResult] = useState<any>(null);
 
-  const load = async (refresh = false) => {
-    const r = await api<{ images?: any[] }>(`/images?limit=10${refresh ? "&refresh=true" : ""}`, {
+  const load = async (refresh = false, preferId?: string) => {
+    const r = await api<{ images?: any[] }>(`/images?limit=20${refresh ? "&refresh=true" : ""}`, {
       timeoutMs: 15000,
     });
     const list = r.images || [];
     setImages(list);
-    if (list.length && !selectedId) setSelectedId(String(list[0].id));
+    if (!list.length) {
+      setSelectedId("");
+      return list;
+    }
+    const preferred = preferId && list.some((i) => String(i.id) === preferId) ? preferId : "";
+    const nextId = preferred || String(list[0].id);
+    setSelectedId(nextId);
+    return list;
   };
 
   useEffect(() => {
     void load().catch((error) => toast({ body: String(error.message), type: "error" }));
   }, []);
 
+  const refreshGallery = async (preferId?: string) => {
+    setRefreshing(true);
+    try {
+      await load(true, preferId);
+      toast({ body: "Gallery refreshed" });
+    } catch (error) {
+      toast({
+        body: error instanceof Error ? error.message : "Gallery refresh failed",
+        type: "error",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const selected = images.find((i) => String(i.id) === selectedId) || images[0];
+
+  const captureBand = async (band: string) => {
+    setCapturing(true);
+    try {
+      const res = await postAction("capture", { band }, true);
+      const artifactId = res?.action?.params?.artifact_id;
+      const preferId = artifactId ? `${artifactId}-${band}` : undefined;
+      await load(true, preferId);
+      toast({ body: `${band.toUpperCase()} capture saved` });
+    } catch (error) {
+      toast({
+        body: error instanceof Error ? error.message : "Capture failed",
+        type: "error",
+      });
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const captureAll = async () => {
+    setCapturing(true);
+    try {
+      let lastId: string | undefined;
+      for (const band of USB_BANDS) {
+        const res = await postAction("capture", { band: band.id }, true);
+        const artifactId = res?.action?.params?.artifact_id;
+        if (artifactId) lastId = `${artifactId}-${band.id}`;
+      }
+      await load(true, lastId);
+      toast({ body: "All USB cameras captured" });
+    } catch (error) {
+      toast({
+        body: error instanceof Error ? error.message : "Capture failed",
+        type: "error",
+      });
+    } finally {
+      setCapturing(false);
+    }
+  };
 
   const analyze = async () => {
     if (!selected) return;
@@ -52,7 +136,7 @@ export function CameraPage() {
       const body = await localApi("/local/vision", {
         method: "POST",
         body: JSON.stringify({
-          image_url: selected.attachment_url,
+          image_url: imageSrc(selected.attachment_url, selected.created_at),
           mode,
           prompt,
           classes,
@@ -72,32 +156,72 @@ export function CameraPage() {
   return (
     <VStack gap={4}>
       <PageHeader kicker="TWFarmBot · UAS Technikum Wien" title="Camera" />
+
+      <Card padding={4}>
+        <VStack gap={3}>
+          <Text weight="semibold">USB payload cameras</Text>
+          <Text type="supporting" color="secondary">
+            RGB, NIR, and red-edge cameras via udev symlinks (/dev/camera-*).
+          </Text>
+          <HStack gap={2} wrap>
+            {USB_BANDS.map((band) => (
+              <Button
+                key={band.id}
+                label={band.label}
+                isDisabled={capturing}
+                onClick={() => void captureBand(band.id)}
+              />
+            ))}
+            <Button
+              label="Capture all"
+              variant="primary"
+              isDisabled={capturing}
+              isLoading={capturing}
+              onClick={() => void captureAll()}
+            />
+          </HStack>
+        </VStack>
+      </Card>
+
       <HStack gap={2}>
         <Button
-          label="Take photo"
+          label="Take photo (RGB)"
           variant="primary"
           onClick={() =>
-            void postAction("take_photo")
+            void postAction("take_photo", {}, true)
               .then(() => load(true))
-              .then(() => toast({ body: "Capture queued" }))
+              .then(() => toast({ body: "RGB photo saved" }))
               .catch((error) => toast({ body: String(error.message), type: "error" }))
           }
         />
-        <Button label="Refresh gallery" onClick={() => void load(true)} />
+        <Button
+          label="Refresh gallery"
+          isLoading={refreshing}
+          onClick={() => void refreshGallery()}
+        />
       </HStack>
+
       {!selected ? (
-        <Text color="secondary">Refresh the gallery to load FarmBot photos.</Text>
+        <Text color="secondary">Capture from a USB camera or take a photo to populate the gallery.</Text>
       ) : (
         <HStack gap={4}>
-          <img className="camera-preview" src={selected.attachment_url} alt="FarmBot capture" />
+          <img
+            key={selected.id}
+            className="camera-preview"
+            src={imageSrc(selected.attachment_url, selected.created_at)}
+            alt="Camera capture"
+          />
           <Card padding={4} style={{ minWidth: 280 }}>
             <VStack gap={3}>
               <Selector
-                label="Research image"
+                label="Gallery"
                 options={images.map((i) => String(i.id))}
                 value={String(selected.id)}
                 onChange={setSelectedId}
-                renderValue={() => `${selected.created_at || ""} · image ${selected.id}`}
+                renderValue={() => {
+                  const band = selected.band ? ` · ${bandLabel(selected.band)}` : "";
+                  return `${selected.created_at || ""}${band} · ${selected.id}`;
+                }}
               />
               <Selector label="Mode" options={MODES} value={mode} onChange={setMode} />
               {mode === "Open Language Similarity" && (

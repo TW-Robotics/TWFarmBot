@@ -11,6 +11,7 @@ from twfarmbot_core.actions import ActionRegistry
 def register_default_handlers(registry: ActionRegistry) -> None:
     from .watering import handle_water
     from .move import handle_move
+    from .move_axis import handle_move_axis
     from .path import handle_move_path
     from .mount_tool import handle_mount_tool, handle_dismount_tool
     from .pin import handle_read_pin, handle_write_pin
@@ -22,6 +23,7 @@ def register_default_handlers(registry: ActionRegistry) -> None:
 
     registry.register("water", handle_water)
     registry.register("move", handle_move)
+    registry.register("move_axis", handle_move_axis)
     registry.register("move_path", handle_move_path)
     registry.register("mount_tool", handle_mount_tool)
     registry.register("dismount_tool", handle_dismount_tool)

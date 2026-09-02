@@ -21,6 +21,10 @@ class MoveArgs(BaseModel):
     x: float = Field(..., description="X coordinate in millimetres.")
     y: float = Field(..., description="Y coordinate in millimetres.")
     z: float = Field(..., description="Z coordinate in millimetres.")
+    speed: float | None = Field(
+        default=None,
+        description="Optional speed as 1..100 percent of axis max (or steps/s if >100).",
+    )
 
 
 class WaterArgs(BaseModel):
@@ -81,7 +85,7 @@ class MovePathArgs(BaseModel):
     )
     speed: float | None = Field(
         default=None,
-        description="Optional movement speed override.",
+        description="Optional speed as 1..100 percent of axis max (or steps/s if >100).",
     )
     photo_at_waypoints: bool = Field(
         default=False,

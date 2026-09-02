@@ -67,6 +67,46 @@ def capture(band: str) -> str:
     return artifact_id
 
 
+def list_captures(limit: int = 10) -> list[dict[str, Any]]:
+    """Newest capture artifacts on disk (newest first)."""
+    limit = max(1, min(int(limit), 50))
+    cfg = _cameras_config()
+    directory = _artifact_dir(cfg)
+    files = sorted(
+        directory.glob("*-*.jpg"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    out: list[dict[str, Any]] = []
+    for path in files[:limit]:
+        stem = path.stem
+        artifact_id, _, band = stem.partition("-")
+        if not artifact_id or not band:
+            continue
+        out.append(
+            {
+                "id": stem,
+                "artifact_id": artifact_id,
+                "band": band,
+                "path": str(path.resolve()),
+                "created_at": str(int(path.stat().st_mtime)),
+            }
+        )
+    return out
+
+
+def capture_path(artifact_id: str, band: str) -> Path | None:
+    """Resolve a capture JPEG if it exists."""
+    key = str(band or "").strip().lower()
+    if key not in USB_CAPTURE_BANDS:
+        return None
+    aid = str(artifact_id or "").strip()
+    if not aid:
+        return None
+    path = _artifact_dir(_cameras_config()) / f"{aid}-{key}.jpg"
+    return path if path.is_file() else None
+
+
 def _cameras_config() -> dict[str, Any]:
     block = load_yaml_config().get("cameras") or {}
     return block if isinstance(block, dict) else {}
@@ -127,19 +167,9 @@ def _grab_still(device: Path, dest: Path, *, dwell_s: float) -> None:
 
 
 def _grab_uvc(device: Path, dest: Path, *, dwell_s: float) -> None:
-    # pylint: disable=import-outside-toplevel,no-member
-    import cv2  # noqa: PLC0415  # lazy: tests never open a V4L2 node
+    from farmduino.uvc import grab_uvc_still
 
-    cap = cv2.VideoCapture(str(device), cv2.CAP_V4L2)
     try:
-        if not cap.isOpened():
-            raise CaptureError(f"cannot open UVC device {device}")
-        if dwell_s:
-            time.sleep(dwell_s)
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            raise CaptureError(f"UVC device {device} returned no frame")
-        if not cv2.imwrite(str(dest), frame):
-            raise CaptureError(f"failed to write still {dest}")
-    finally:
-        cap.release()
+        grab_uvc_still(device, dest, dwell_s=dwell_s)
+    except RuntimeError as err:
+        raise CaptureError(str(err)) from err

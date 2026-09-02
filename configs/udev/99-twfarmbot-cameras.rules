@@ -1,18 +1,18 @@
-# TWFarmBot payload USB cameras.
-# Bind by USB serial so rgb / nir / rededge never race for /dev/videoN.
-# Software must open /dev/camera-{band} only — never /dev/videoN.
+# TWFarmBot payload USB cameras (Pi: 1× Sunplus FHD + 2× DMK 37BUX290).
+# Bind stable symlinks so rgb / nir / rededge never race for /dev/videoN.
+# Software opens /dev/camera-{band} only — never /dev/videoN.
 #
-# Fill the placeholder serials from the physical camera, then copy this file to
-# /etc/udev/rules.d/ and run:
+# Install:
+#   sudo cp configs/udev/99-twfarmbot-cameras.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules && sudo udevadm trigger
 #
-# Discover serials (identify the camera first; do not open these nodes from code):
-#   udevadm info --query=property --name=/dev/video0 | grep -E 'ID_SERIAL|ID_USB_SERIAL'
-#   udevadm info -a -n /dev/video0 | grep serial
-#
-# UVC devices often expose a capture node (index 0) plus a metadata node.
-# ATTR{index}=="0" keeps the symlink on the still-capture node.
+# Verify: ls -l /dev/camera-*
 
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{serial}=="REPLACE_RGB_SERIAL", SYMLINK+="camera-rgb"
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{serial}=="REPLACE_NIR_SERIAL", SYMLINK+="camera-nir"
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{serial}=="REPLACE_REDEDGE_SERIAL", SYMLINK+="camera-rededge"
+# Sunplus FHD camera (no USB serial — match vendor/product)
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{idVendor}=="1bcf", ATTRS{idProduct}=="2085", SYMLINK+="camera-rgb"
+
+# The Imaging Source DMK 37BUX290 — usb-xhci-hcd.1 port
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{serial}=="47520552", SYMLINK+="camera-nir"
+
+# The Imaging Source DMK 37BUX290 — usb-xhci-hcd.0 port
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{serial}=="47520551", SYMLINK+="camera-rededge"

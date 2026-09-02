@@ -102,10 +102,24 @@ stop_one() {
   if kill -0 "$pid" 2>/dev/null; then
     kill -9 "$pid" 2>/dev/null || true
   fi
+  # uv run leaves a child python process holding serial/camera handles.
+  if [[ "$name" == "os" ]]; then
+    pkill -f '/twfarmbot-os' 2>/dev/null || true
+    sleep 0.5
+  fi
   rm -f "$(pidfile "$name")"
 }
 
 cmd_start() {
+  if command -v npm >/dev/null 2>&1 && [[ -f "$ROOT/apps/ui/package.json" ]]; then
+    local src="$ROOT/apps/ui/web/pages/MotionPage.tsx"
+    local bundle
+    bundle="$(ls -t "$ROOT/apps/ui/src/twfarmbot_ui/static/assets"/index-*.js 2>/dev/null | head -1 || true)"
+    if [[ -f "$src" ]] && { [[ -z "$bundle" ]] || [[ "$src" -nt "$bundle" ]]; }; then
+      echo "rebuilding UI (frontend newer than bundle)..."
+      (cd "$ROOT/apps/ui" && npm run build)
+    fi
+  fi
   local row name bin port
   for row in "${SERVICES[@]}"; do
     IFS='|' read -r name bin port <<<"$row"

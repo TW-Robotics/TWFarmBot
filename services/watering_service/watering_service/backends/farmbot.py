@@ -42,6 +42,17 @@ class FarmBotBackend:
         log.info("farmbot: move x=%s y=%s z=%s speed=%s", x, y, z, speed)
         self._bot().move(x, y, z, speed=speed)
 
+    def move_axis(
+        self, axis: str, distance: float, speed: float | None = None
+    ) -> None:
+        log.info(
+            "farmbot: move_axis axis=%s distance=%s speed=%s",
+            axis,
+            distance,
+            speed,
+        )
+        self._bot().move_axis(axis, distance, speed=speed)
+
     def find_home(self, axis: str = "all", speed: float = 100) -> None:
         log.info("farmbot: find_home axis=%s", axis)
         self._bot().find_home(axis=axis, speed=speed)
@@ -83,7 +94,8 @@ class FarmBotBackend:
         return self._bot().get_xyz()
 
     def refresh_xyz(self) -> Any:
-        return self.get_xyz()
+        state = self._bot().refresh_state()
+        return {axis: float(state.get(axis, 0) or 0) for axis in ("x", "y", "z")}
 
     def get_last_messages(self) -> Any:
         state = self._bot().get_state()
@@ -103,7 +115,6 @@ class FarmBotBackend:
     def get_images(
         self, limit: int = 10, *, refresh: bool = False
     ) -> list[dict[str, Any]]:
-        del refresh
         images = []
         try:
             raw = self._bot().get_images(limit)
