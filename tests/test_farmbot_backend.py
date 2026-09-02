@@ -152,13 +152,13 @@ def test_handler_find_home_calls_backend(monkeypatch):
     called = []
 
     class _StubBackend:
-        def find_home(self):
-            called.append(True)
+        def find_home(self, axis="all", speed=100):
+            called.append((axis, speed))
 
     monkeypatch.setattr(farmbot, "backend", _StubBackend())
 
     h.handle_find_home(Action(kind="find_home", params={}))
-    assert called == [True]
+    assert called == [("all", 100)]
 
 
 def test_handler_take_photo_calls_backend(monkeypatch):

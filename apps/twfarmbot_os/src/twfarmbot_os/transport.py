@@ -91,7 +91,7 @@ class SerialTransport(BaseTransport):
                 line = self._inbox.get(timeout=min(0.25, remaining))
             except Empty:
                 continue
-            if line.startswith("R00") or "STARTUP COMPLETE" in line:
+            if "STARTUP COMPLETE" in line:
                 log.info("Farmduino boot complete (%s)", line)
                 self._drain()
                 return

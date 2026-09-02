@@ -76,11 +76,12 @@ export function App() {
     window.history.replaceState({}, "", url);
   }, []);
 
-  const refreshTelemetry = useCallback(async () => {
+  const refreshTelemetry = useCallback(async (refresh = false) => {
     try {
+      const positionPath = refresh ? "/position?refresh=true" : "/position";
       const [health, position] = await Promise.all([
         api<{ farmbot?: string }>("/health"),
-        api<{ xyz?: { x?: number; y?: number; z?: number } }>("/position"),
+        api<{ xyz?: { x?: number; y?: number; z?: number } }>(positionPath),
       ]);
       setFarmbot(health.farmbot || "?");
       setPose(position.xyz || {});
@@ -111,7 +112,7 @@ export function App() {
       case "garden":
         return <GardenPage />;
       case "motion":
-        return <MotionPage pose={pose} onMoved={refreshTelemetry} />;
+        return <MotionPage pose={pose} onMoved={() => refreshTelemetry(true)} />;
       case "camera":
         return <CameraPage />;
       case "io":

@@ -1,4 +1,4 @@
-"""Capture stills with rpicam-still / libcamera-still / fswebcam, or a stub JPEG."""
+"""Capture stills from USB UVC (/dev/camera-rgb) or Pi camera tools."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+
+from farmduino.uvc import grab_uvc_still
 
 # 1x1 JPEG so simulation needs no camera library.
 _STUB_JPEG = bytes.fromhex(
@@ -20,29 +22,48 @@ _STUB_JPEG = bytes.fromhex(
 )
 
 
+def _usb_device() -> Path:
+    return Path(os.getenv("FARMBOT_CAMERA_DEVICE", "/dev/camera-rgb"))
+
+
 class Camera:
     def __init__(self, directory: str | None = None) -> None:
         raw = directory or os.getenv("FARMBOT_PHOTO_DIR") or "data/farmbot_photos"
         self.directory = Path(raw)
         self.directory.mkdir(parents=True, exist_ok=True)
 
+    def _pick_command(self) -> str | None:
+        override = os.getenv("FARMBOT_CAMERA_CMD", "").strip()
+        if override:
+            return override
+        usb = _usb_device()
+        if usb.exists():
+            fswebcam = shutil.which("fswebcam")
+            if fswebcam:
+                return fswebcam
+            return None
+        for binary in ("rpicam-still", "libcamera-still", "fswebcam"):
+            found = shutil.which(binary)
+            if found:
+                return found
+        return None
+
     def capture(self) -> dict[str, str]:
         photo_id = uuid.uuid4().hex
         path = self.directory / f"{photo_id}.jpg"
-        cmd = os.getenv("FARMBOT_CAMERA_CMD")
-        if not cmd:
-            for binary in ("rpicam-still", "libcamera-still", "fswebcam"):
-                found = shutil.which(binary)
-                if found:
-                    cmd = found
-                    break
+        cmd = self._pick_command()
+        device = _usb_device()
         if cmd and shutil.which(cmd.split()[0]):
             args = cmd.split()
             if os.path.basename(args[0]) == "fswebcam":
+                if "-d" not in args and device.exists():
+                    args.extend(["-d", str(device)])
                 args.extend(["-r", "1280x720", "--no-banner", str(path)])
             else:
                 args.extend(["-n", "-o", str(path), "-t", "1"])
             subprocess.run(args, check=True, timeout=30)
+        elif device.exists():
+            grab_uvc_still(device, path)
         else:
             path.write_bytes(_STUB_JPEG)
         return {

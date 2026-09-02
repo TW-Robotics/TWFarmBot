@@ -262,6 +262,8 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 status_code=500,
                 detail=f"{type(err).__name__}: {err}",
             ) from err
+        if action.kind in {"move", "move_axis", "find_home"}:
+            _refresh_position()
         return {
             "status": "ok",
             "action": {"kind": executed.kind, "params": executed.params},
@@ -475,7 +477,7 @@ def _dispatch_queued(registry: ActionRegistry, action: Action) -> None:
             "queued action failed kind=%s params=%s", action.kind, action.params
         )
     finally:
-        if action.kind in {"move", "find_home"}:
+        if action.kind in {"move", "move_axis", "find_home"}:
             _refresh_position()
 
 

@@ -10,6 +10,8 @@ from .capture import (
     USB_CAPTURE_BANDS,
     CaptureError,
     capture,
+    capture_path,
+    list_captures,
 )
 
 __all__ = [
@@ -18,4 +20,6 @@ __all__ = [
     "UNPINNED_CAPTURE_BANDS",
     "CaptureError",
     "capture",
+    "capture_path",
+    "list_captures",
 ]
