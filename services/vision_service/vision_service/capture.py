@@ -110,14 +110,20 @@ def _dwell_s(cfg: dict[str, Any]) -> float:
 
 
 def _grab_still(device: Path, dest: Path, *, dwell_s: float) -> None:
-    mode = device.stat().st_mode
+    try:
+        mode = device.stat().st_mode
+    except OSError as err:
+        raise CaptureError(f"cannot stat camera node {device}: {err}") from err
     if stat.S_ISCHR(mode):
         _grab_uvc(device, dest, dwell_s=dwell_s)
         return
     # Sim: the configured node exists but is not a V4L2 character device.
     if dwell_s:
         time.sleep(dwell_s)
-    dest.write_bytes(_STUB_JPEG)
+    try:
+        dest.write_bytes(_STUB_JPEG)
+    except OSError as err:
+        raise CaptureError(f"failed to write stub still {dest}: {err}") from err
 
 
 def _grab_uvc(device: Path, dest: Path, *, dwell_s: float) -> None:
