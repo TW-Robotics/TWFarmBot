@@ -46,7 +46,7 @@ before execution. The planner cannot bypass the safety gate; unsafe actions
 are rejected and surfaced to the caller.
 
 Read-only tools (`get_position`, `list_zones`, `get_images`, `get_garden`,
-and the rest of introspection) are ordinary JSON tools. Physical jobs
+`take_photo`, `capture`, and the rest of introspection) are ordinary JSON tools. Physical jobs
 (`inspect_zone`, `water_zone`, `goto_named`, `move`, `water`) stay
 approval-gated function calls. The model never talks to motors or serial.
 

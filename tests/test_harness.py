@@ -99,6 +99,7 @@ def _make_registry() -> ActionRegistry:
     reg.register("move", lambda a: a)
     reg.register("water", lambda a: a)
     reg.register("take_photo", lambda a: a)
+    reg.register("capture", lambda a: a)
     reg.register("e_stop", lambda a: a)
     return reg
 
@@ -110,7 +111,7 @@ def test_tool_registry_contains_all_action_kinds() -> None:
     reg = _make_registry()
     tool_registry = ToolRegistry(reg)
     names = {d.name for d in tool_registry.descriptors()}
-    assert names >= {"move", "water", "take_photo", "e_stop"}
+    assert names >= {"move", "water", "take_photo", "capture", "e_stop"}
 
 
 def test_action_policies_are_categorized() -> None:
@@ -121,6 +122,8 @@ def test_action_policies_are_categorized() -> None:
     assert by_name["move"].policy.requires_approval is True
     assert by_name["take_photo"].policy.category == ToolCategory.READ
     assert by_name["take_photo"].policy.requires_approval is False
+    assert by_name["capture"].policy.category == ToolCategory.READ
+    assert by_name["capture"].policy.requires_approval is False
     assert by_name["e_stop"].policy.category == ToolCategory.ACT
     assert by_name["e_stop"].policy.requires_approval is False
 
@@ -295,6 +298,22 @@ def test_agent_loop_streams_tool_call_and_delta_events() -> None:
     assert tool_events[0]["name"] == "take_photo"
     meta = next(e for e in events if e["type"] == "meta")
     assert meta["programs"] == []
+
+
+def test_agent_loop_json_calls_capture() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("capture", {"band": "rgb"}, "cap_1"),
+            "captured",
+        ]
+    )
+    loop = _make_loop(fake, reg)
+    result = loop.run([{"role": "user", "content": "capture rgb"}])
+    assert result.tool_calls[0]["name"] == "capture"
+    assert result.tool_calls[0]["args"] == {"band": "rgb"}
+    assert result.response == "captured"
 
 
 def test_agent_loop_runs_parallel_json_tool_calls() -> None:
