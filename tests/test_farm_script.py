@@ -1,4 +1,4 @@
-"""Tests for the restricted programmatic tool-calling runtime."""
+"""Tests for the restricted farm-script interpreter (not the planner path)."""
 
 from __future__ import annotations
 

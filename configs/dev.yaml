@@ -7,7 +7,7 @@ log_level: INFO
 # the environment, or reference a different env var via api_key_env.
 planning:
   provider: openai
-  base_url: https://api.openai.com/v1   # Responses API + native PTC
+  base_url: https://api.openai.com/v1   # OpenAI-compatible /chat/completions JSON tools
   model: gpt-5.6
   api_key_env: PLANNING_LLM_API_KEY  # name of the env var that holds the secret
   timeout_s: 120                       # raise this for slower models

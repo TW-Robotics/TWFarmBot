@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from twfarmbot_core.actions import ActionRegistry
 
 from .. import introspection
-from ..tool_outputs import TOOL_OUTPUT_SCHEMAS
 from ..tools import (
     CaptureArgs,
     FindHomeArgs,
@@ -246,7 +245,6 @@ class ToolRegistry:
                     policy=policy,
                     execute=lambda args, t=lc_tool: t.invoke(args),
                     is_introspection=True,
-                    output_schema=TOOL_OUTPUT_SCHEMAS.get(name),
                 )
             )
         return out
