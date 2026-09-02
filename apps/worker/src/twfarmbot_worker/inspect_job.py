@@ -31,18 +31,29 @@ def inspect_config() -> dict[str, Any]:
     block = load_yaml_config().get("worker") or {}
     interval = os.getenv("TWFB_INSPECT_INTERVAL_S")
     return {
-        "interval_s": float(interval if interval is not None else block.get("inspect_interval_s", 21600)),
-        "step_mm": float(os.getenv("TWFB_INSPECT_STEP_MM", block.get("inspect_step_mm", 250))),
+        "interval_s": float(
+            interval if interval is not None else block.get("inspect_interval_s", 21600)
+        ),
+        "step_mm": float(
+            os.getenv("TWFB_INSPECT_STEP_MM", block.get("inspect_step_mm", 250))
+        ),
         "z": float(os.getenv("TWFB_INSPECT_Z", block.get("inspect_z", 0))),
         "classes": str(
-            os.getenv("TWFB_INSPECT_CLASSES", block.get("inspect_classes", "plant, weed, soil"))
+            os.getenv(
+                "TWFB_INSPECT_CLASSES",
+                block.get("inspect_classes", "plant, weed, soil"),
+            )
         ),
         "api_url": os.getenv("TWFB_API_URL", "http://127.0.0.1:8000").rstrip("/"),
-        "timeout_s": float(os.getenv("TWFB_INSPECT_TIMEOUT_S", block.get("inspect_timeout_s", 1800))),
+        "timeout_s": float(
+            os.getenv("TWFB_INSPECT_TIMEOUT_S", block.get("inspect_timeout_s", 1800))
+        ),
     }
 
 
-def write_report(scorecard: dict[str, Any], *, zone_id: str, error: str | None = None) -> Path:
+def write_report(
+    scorecard: dict[str, Any], *, zone_id: str, error: str | None = None
+) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
     session_id = f"{stamp}-inspect-{zone_id}-{secrets.token_hex(3)}"
     summary = (
@@ -60,7 +71,9 @@ def write_report(scorecard: dict[str, Any], *, zone_id: str, error: str | None =
             {"role": "user", "content": f"scheduled inspect {zone_id}"},
             {"role": "assistant", "content": summary},
         ],
-        "inspect": {**scorecard, "error": error} if scorecard or error else {"error": error},
+        "inspect": {**scorecard, "error": error}
+        if scorecard or error
+        else {"error": error},
     }
     path = session_data_dir() / f"{session_id}.json"
     path.write_text(json.dumps(snapshot, indent=2, default=str), encoding="utf-8")
@@ -92,14 +105,25 @@ def run_once(client: httpx.Client | None = None) -> list[dict[str, Any]]:
                 response = client.post("/actions", json=payload)
                 response.raise_for_status()
                 body = response.json()
-                scorecard = (body.get("action") or {}).get("params", {}).get("scorecard") or {}
+                scorecard = (body.get("action") or {}).get("params", {}).get(
+                    "scorecard"
+                ) or {}
                 path = write_report(scorecard, zone_id=zone.id)
                 reports.append({"zone_id": zone.id, "path": str(path), "ok": True})
                 log.info("inspect %s -> %s", zone.id, scorecard.get("summary_text"))
             except Exception as err:  # noqa: BLE001
                 log.exception("inspect failed for %s", zone.id)
-                path = write_report({}, zone_id=zone.id, error=f"{type(err).__name__}: {err}")
-                reports.append({"zone_id": zone.id, "path": str(path), "ok": False, "error": str(err)})
+                path = write_report(
+                    {}, zone_id=zone.id, error=f"{type(err).__name__}: {err}"
+                )
+                reports.append(
+                    {
+                        "zone_id": zone.id,
+                        "path": str(path),
+                        "ok": False,
+                        "error": str(err),
+                    }
+                )
         return reports
     finally:
         if own_client:

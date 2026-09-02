@@ -63,6 +63,10 @@ def _summarize_take_photo(params: dict[str, Any]) -> str:
     return "📷 **take_photo**"
 
 
+def _summarize_capture(params: dict[str, Any]) -> str:
+    return f"📷 **capture** ({params.get('band', '—')})"
+
+
 def _summarize_read_pin(params: dict[str, Any]) -> str:
     return f"📖 **read_pin** {params.get('pin', '—')} ({params.get('mode', 'digital')})"
 
@@ -108,6 +112,7 @@ ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "water": _summarize_water,
     "find_home": _summarize_find_home,
     "take_photo": _summarize_take_photo,
+    "capture": _summarize_capture,
     "read_pin": _summarize_read_pin,
     "write_pin": _summarize_write_pin,
     "mount_tool": _summarize_mount_tool,

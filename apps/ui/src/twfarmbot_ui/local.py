@@ -85,7 +85,10 @@ def run_vision(payload: dict[str, Any]) -> dict[str, Any]:
         )
         for idx, item in enumerate(raw[:3]):
             images.append(
-                {"url": path_to_data_url(item), "caption": f"PCA visualization {idx + 1}"}
+                {
+                    "url": path_to_data_url(item),
+                    "caption": f"PCA visualization {idx + 1}",
+                }
             )
     elif mode == "Traversability Estimation":
         result = processor.predict(
@@ -94,7 +97,9 @@ def run_vision(payload: dict[str, Any]) -> dict[str, Any]:
             prompt=str(payload.get("prompt") or "").strip(),
             negatives=str(payload.get("negatives") or "").strip(),
         )
-        images.append({"url": path_to_data_url(result), "caption": "Traversability map"})
+        images.append(
+            {"url": path_to_data_url(result), "caption": "Traversability map"}
+        )
     else:
         raise ValueError(f"Unknown vision mode: {mode}")
     return {"images": images, **extra}

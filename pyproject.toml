@@ -19,6 +19,7 @@ dependencies = [
     "twfarmbot-safety-service",
     "twfarmbot-watering-service",
     "twfarmbot-planning-service",
+    "twfarmbot-vision-service",
     "twfarmbot-api-server",
     "twfarmbot-ui",
     "twfarmbot-worker",
@@ -39,6 +40,7 @@ twfarmbot-gateway = { workspace = true }
 twfarmbot-safety-service = { workspace = true }
 twfarmbot-watering-service = { workspace = true }
 twfarmbot-planning-service = { workspace = true }
+twfarmbot-vision-service = { workspace = true }
 twfarmbot-api-server = { workspace = true }
 twfarmbot-ui = { workspace = true }
 twfarmbot-worker = { workspace = true }
@@ -56,6 +58,7 @@ members = [
     "services/safety_service",
     "services/watering_service",
     "services/planning_service",
+    "services/vision_service",
     "apps/ui",
     "apps/api_server",
     "apps/worker",

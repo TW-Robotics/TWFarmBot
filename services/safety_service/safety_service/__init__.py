@@ -154,7 +154,28 @@ def _check_water_zone(action: Action, limits: SafetyLimits) -> None:
     except (TypeError, ValueError) as err:
         raise UnsafeActionError(f"water_zone z must be numeric, got {z!r}") from err
     _check_xyz(float(target["x"]), float(target["y"]), z_value, limits)
-    _check_water(Action(kind="water", params={"seconds": action.params.get("seconds", 0)}), limits)
+    _check_water(
+        Action(kind="water", params={"seconds": action.params.get("seconds", 0)}),
+        limits,
+    )
+
+
+_CAPTURE_BANDS = frozenset({"rgb", "nir", "rededge", "thermal", "swir"})
+_UNPINNED_CAPTURE_BANDS = frozenset({"thermal", "swir"})
+
+
+def _check_capture(action: Action, limits: SafetyLimits) -> None:
+    del limits
+    band = action.params.get("band")
+    if not band:
+        raise UnsafeActionError("capture action needs band")
+    key = str(band).strip().lower()
+    if key not in _CAPTURE_BANDS:
+        raise UnsafeActionError(
+            f"capture band must be one of {sorted(_CAPTURE_BANDS)}, got {band!r}"
+        )
+    if key in _UNPINNED_CAPTURE_BANDS:
+        raise UnsafeActionError(f"{key} capture is unavailable: bus not pinned")
 
 
 def _check_inspect_zone(action: Action, limits: SafetyLimits) -> None:
@@ -168,7 +189,9 @@ def _check_inspect_zone(action: Action, limits: SafetyLimits) -> None:
         step = float(action.params.get("step_mm", 200))
         z_value = float(action.params.get("z", 0))
     except (TypeError, ValueError) as err:
-        raise UnsafeActionError(f"inspect_zone step_mm/z must be numeric: {err}") from err
+        raise UnsafeActionError(
+            f"inspect_zone step_mm/z must be numeric: {err}"
+        ) from err
     if step < 50 or step > 800:
         raise UnsafeActionError(f"inspect_zone step_mm must be 50..800, got {step}")
     width = float(target.get("width") or 0)
@@ -187,6 +210,7 @@ register("water", _check_water)
 register("goto_named", _check_goto_named)
 register("water_zone", _check_water_zone)
 register("inspect_zone", _check_inspect_zone)
+register("capture", _check_capture)
 
 
 def validate(action: Action, *, limits: SafetyLimits | None = None) -> Action:

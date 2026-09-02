@@ -93,6 +93,16 @@ class MovePathArgs(BaseModel):
     )
 
 
+class CaptureArgs(BaseModel):
+    band: str = Field(
+        ...,
+        description=(
+            "Payload USB camera band. Required: 'rgb', 'nir', or 'rededge'. "
+            "'thermal' and 'swir' are not available."
+        ),
+    )
+
+
 class InspectZoneArgs(BaseModel):
     zone_id: str = Field(..., description="Zone id or loose name, e.g. 'tomato'.")
     step_mm: float = Field(default=200.0, description="Raster spacing in millimetres.")
@@ -106,11 +116,15 @@ class InspectZoneArgs(BaseModel):
 class WaterZoneArgs(BaseModel):
     zone_id: str = Field(..., description="Zone id or loose name to water.")
     seconds: float = Field(..., description="How long to keep the pump on (1..300).")
-    z: float = Field(default=0.0, description="Gantry Z at the zone centre, in millimetres.")
+    z: float = Field(
+        default=0.0, description="Gantry Z at the zone centre, in millimetres."
+    )
 
 
 class GotoNamedArgs(BaseModel):
-    name: str = Field(..., description="Zone, plant, or preset name, e.g. 'tomatoes' or 'Home'.")
+    name: str = Field(
+        ..., description="Zone, plant, or preset name, e.g. 'tomatoes' or 'Home'."
+    )
     z: float | None = Field(
         default=None,
         description="Optional Z override in millimetres. Uses the resolved target Z when omitted.",
@@ -175,6 +189,7 @@ def tool_calls_to_actions(
             "read_pin",
             "write_pin",
             "take_photo",
+            "capture",
             "mount_tool",
             "dismount_tool",
             "e_stop",

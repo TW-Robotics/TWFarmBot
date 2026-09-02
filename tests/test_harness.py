@@ -238,10 +238,7 @@ def test_agent_loop_runs_looped_actions_in_one_script() -> None:
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
-            "```python\n"
-            "for x in [0, 100, 200]:\n"
-            "    move(x=x, y=0, z=0)\n"
-            "```",
+            "```python\nfor x in [0, 100, 200]:\n    move(x=x, y=0, z=0)\n```",
             "queued three moves",
         ]
     )

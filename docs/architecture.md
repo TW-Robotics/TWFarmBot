@@ -193,13 +193,16 @@ The api_server registers these action kinds via
 | `e_stop` | — | `farmbot_backend.e_stop()` | — |
 | `unlock` | — | `farmbot_backend.unlock()` | — |
 | `take_photo` | — | `farmbot_backend.take_photo()` | — |
+| `capture` | `band` | `vision_service.capture()` (USB UVC via `/dev/camera-{band}`) | band required (`rgb`/`nir`/`rededge`/`thermal`/`swir`); thermal/swir fail closed |
 | `inspect_zone` | `zone_id`, optional `step_mm`/`z`/`classes` | raster + photo + segmentation scorecard | named zone exists; photo count ≤ 24 |
 | `water_zone` | `zone_id`, `seconds`, optional `z` | move to zone centre, then `water` | zone exists; seconds ≤ max |
 | `goto_named` | `name`, optional `z` | resolve zone/plant/preset, then `move` | name resolves; target in bounds |
 
 `farmbot_backend` lives at
 `services/watering_service/watering_service/backends/farmbot.py` and is
-the **only** place that translates our vocabulary into local HTTP calls.
+the **only** place that translates FarmBot vocabulary into local HTTP calls.
+`capture` is not FarmBot serial: payload USB cameras are opened by
+`vision_service` on udev symlinks. `take_photo` / `POST /photo` stay unchanged.
 
 ### Read-only GET routes
 
@@ -225,7 +228,8 @@ imports the Pi client directly:
 Two files plus zero plumbing:
 
 1. Add a method to `services/watering_service/watering_service/backends/farmbot.py`
-   if it touches hardware.
+   if it touches FarmBot hardware. Payload USB cameras go through
+   `vision_service.capture(band)` instead — not `farmbot_gateway`.
 2. Create `apps/api_server/src/twfarmbot_api_server/handlers/<name>.py`
    with `handle_<name>(action: Action) -> Action` (one method call).
 3. Register in `apps/api_server/.../handlers/__init__.py`:

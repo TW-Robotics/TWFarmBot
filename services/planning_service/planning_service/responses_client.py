@@ -106,12 +106,14 @@ class OpenAIResponsesModel(Runnable[Any, AIMessage]):
             if payload.get("status") not in (None, "completed"):
                 raise RuntimeError(f"Responses API ended with {payload.get('status')}")
             output = payload.get("output", [])
-            trace.append({
-                "turn": len(trace) + 1,
-                "response_id": payload.get("id"),
-                "status": payload.get("status"),
-                "output": [_trace_item(item) for item in output],
-            })
+            trace.append(
+                {
+                    "turn": len(trace) + 1,
+                    "response_id": payload.get("id"),
+                    "status": payload.get("status"),
+                    "output": [_trace_item(item) for item in output],
+                }
+            )
             items.extend(output)
             for event in _absorb_programs(output, programs):
                 yield event
@@ -138,7 +140,9 @@ class OpenAIResponsesModel(Runnable[Any, AIMessage]):
                         {
                             "type": "function_call_output",
                             "call_id": call["call_id"],
-                            "output": json.dumps(_compact_tool_result(result), default=str),
+                            "output": json.dumps(
+                                _compact_tool_result(result), default=str
+                            ),
                             "caller": call.get("caller"),
                         }
                     )
@@ -150,11 +154,19 @@ class OpenAIResponsesModel(Runnable[Any, AIMessage]):
                 args = _move_args_from_text(text)
                 if args is not None:
                     result = self._invoke_tool("move", args)
-                    recorded = {"name": "move", "args": args, "result": result, "caller": None}
+                    recorded = {
+                        "name": "move",
+                        "args": args,
+                        "result": result,
+                        "caller": None,
+                    }
                     tool_log.append(recorded)
                     if isinstance(result, dict) and result.get("status") == "proposed":
                         proposed_actions.append(
-                            {"kind": result.get("kind", "move"), "params": result.get("params", args)}
+                            {
+                                "kind": result.get("kind", "move"),
+                                "params": result.get("params", args),
+                            }
                         )
                     yield {"type": "tool_call", **recorded}
             if text:
@@ -219,8 +231,7 @@ def _compact_tool_result(value: Any) -> Any:
         return {
             key: (
                 "[image available to the user]"
-                if key in {"image_url", "image_urls"}
-                and isinstance(item, (str, list))
+                if key in {"image_url", "image_urls"} and isinstance(item, (str, list))
                 else _compact_tool_result(item)
             )
             for key, item in value.items()
@@ -272,9 +283,9 @@ def _append_result_images(text: str, tool_log: list[dict[str, Any]]) -> str:
             result = call.get("result", {})
             images = result.get("images", []) if isinstance(result, dict) else []
             if images and isinstance(images[0], dict):
-                url = images[0].get("attachment_url")
-                if isinstance(url, str):
-                    artifacts.append(("FarmBot photo", url))
+                photo_url = images[0].get("attachment_url")
+                if isinstance(photo_url, str):
+                    artifacts.append(("FarmBot photo", photo_url))
             break
 
     unique = dict.fromkeys(artifacts)
@@ -284,6 +295,7 @@ def _append_result_images(text: str, tool_log: list[dict[str, Any]]) -> str:
 
 def _strict_object_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Normalize Pydantic JSON Schema to OpenAI strict function schema rules."""
+
     def visit(value: Any) -> Any:
         if isinstance(value, list):
             return [visit(item) for item in value]
@@ -333,10 +345,17 @@ def _absorb_programs(
     def upsert(call_id: Any, **fields: Any) -> dict[str, Any]:
         current = by_id.get(call_id)
         if current is None:
-            current = {"call_id": call_id, "code": "", "status": "running", "result": None}
+            current = {
+                "call_id": call_id,
+                "code": "",
+                "status": "running",
+                "result": None,
+            }
             programs.append(current)
             by_id[call_id] = current
-        current.update({key: value for key, value in fields.items() if value is not None})
+        current.update(
+            {key: value for key, value in fields.items() if value is not None}
+        )
         return current
 
     for item in output:
@@ -391,9 +410,7 @@ def _message_text(output: Sequence[dict[str, Any]]) -> str:
 def _requested_action_tool(items: Sequence[dict[str, Any]]) -> str | None:
     """Return the requested physical tool, if the user clearly names one."""
     user_messages = [
-        str(item.get("content", ""))
-        for item in items
-        if item.get("role") == "user"
+        str(item.get("content", "")) for item in items if item.get("role") == "user"
     ]
     user_text = user_messages[-1] if user_messages else ""
     match = re.search(

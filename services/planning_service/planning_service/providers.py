@@ -132,7 +132,9 @@ class OpenAIProvider(LLMProvider):
 
     name = "openai"
 
-    def build_chat_model(self, model: str, config: PlannerConfig) -> OpenAIResponsesModel:
+    def build_chat_model(  # type: ignore[override]
+        self, model: str, config: PlannerConfig
+    ) -> OpenAIResponsesModel:
         return OpenAIResponsesModel(
             base_url=config.base_url,
             model=model,
@@ -161,8 +163,7 @@ def get_provider(name: str | None = None, *, permissive: bool = False) -> LLMPro
     if (
         not permissive
         and key in {OpenRouterProvider.name, OpenAICompatibleProvider.name}
-        and os.getenv(_LEGACY_PROVIDER_FLAG, "0").lower()
-        not in {"1", "true", "yes"}
+        and os.getenv(_LEGACY_PROVIDER_FLAG, "0").lower() not in {"1", "true", "yes"}
     ):
         raise ValueError(
             f"LLM provider {key!r} is disabled; set {_LEGACY_PROVIDER_FLAG}=1 to enable it"

@@ -54,7 +54,9 @@ def score_image_urls(
                     pass
         except Exception as err:  # noqa: BLE001
             log.warning("inspect score failed for %s: %s", image_url, err)
-            frames.append({"source_url": image_url, "error": f"{type(err).__name__}: {err}"})
+            frames.append(
+                {"source_url": image_url, "error": f"{type(err).__name__}: {err}"}
+            )
     return frames
 
 
@@ -75,7 +77,7 @@ def summarize_frames(frames: Sequence[dict[str, Any]]) -> dict[str, Any]:
         for name, values in buckets.items()
         if values
     }
-    dominant = max(means, key=means.get) if means else None
+    dominant = max(means, key=lambda name: means[name]) if means else None
     return {
         "mean_scores": means,
         "dominant_class": dominant,
@@ -90,7 +92,4 @@ def summary_text(zone_name: str, summary: dict[str, Any]) -> str:
     means = summary.get("mean_scores") or {}
     pct = means.get(dominant)
     share = f" ({round(float(pct) * 100)}%)" if isinstance(pct, (int, float)) else ""
-    return (
-        f"{zone_name}: {dominant}{share} over "
-        f"{summary.get('frame_count', 0)} frames"
-    )
+    return f"{zone_name}: {dominant}{share} over {summary.get('frame_count', 0)} frames"

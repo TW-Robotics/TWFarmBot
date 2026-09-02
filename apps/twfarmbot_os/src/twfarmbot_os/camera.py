@@ -22,9 +22,8 @@ _STUB_JPEG = bytes.fromhex(
 
 class Camera:
     def __init__(self, directory: str | None = None) -> None:
-        self.directory = Path(
-            directory or os.getenv("FARMBOT_PHOTO_DIR", "data/farmbot_photos")
-        )
+        raw = directory or os.getenv("FARMBOT_PHOTO_DIR") or "data/farmbot_photos"
+        self.directory = Path(raw)
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def capture(self) -> dict[str, str]:

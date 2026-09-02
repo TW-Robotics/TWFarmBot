@@ -1,0 +1,18 @@
+# TWFarmBot payload USB cameras.
+# Bind by USB serial so rgb / nir / rededge never race for /dev/videoN.
+# Software must open /dev/camera-{band} only — never /dev/videoN.
+#
+# Fill the placeholder serials from the physical camera, then copy this file to
+# /etc/udev/rules.d/ and run:
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# Discover serials (identify the camera first; do not open these nodes from code):
+#   udevadm info --query=property --name=/dev/video0 | grep -E 'ID_SERIAL|ID_USB_SERIAL'
+#   udevadm info -a -n /dev/video0 | grep serial
+#
+# UVC devices often expose a capture node (index 0) plus a metadata node.
+# ATTR{index}=="0" keeps the symlink on the still-capture node.
+
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{serial}=="REPLACE_RGB_SERIAL", SYMLINK+="camera-rgb"
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{serial}=="REPLACE_NIR_SERIAL", SYMLINK+="camera-nir"
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{index}=="0", ATTRS{serial}=="REPLACE_REDEDGE_SERIAL", SYMLINK+="camera-rededge"

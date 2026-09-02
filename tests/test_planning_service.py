@@ -121,9 +121,7 @@ def test_plan_accepts_python_scripts() -> None:
     reg.register("water", lambda a: a)
 
     fake = _ToolAwareFake(
-        responses=[
-            "```python\nwater(seconds=10)\nmove(x=0, y=0, z=0)\n```"
-        ]
+        responses=["```python\nwater(seconds=10)\nmove(x=0, y=0, z=0)\n```"]
     )
     result = plan("water b1 then home", model=fake, registry=reg)
     assert [a.kind for a in result.actions] == ["water", "move"]

@@ -8,7 +8,11 @@ from planning_service.harness.farm_script import (
     FarmScriptRuntime,
     extract_farm_scripts,
 )
-from planning_service.harness.tool_policy import ToolCategory, ToolDescriptor, ToolPolicy
+from planning_service.harness.tool_policy import (
+    ToolCategory,
+    ToolDescriptor,
+    ToolPolicy,
+)
 
 
 class _MoveArgs(BaseModel):
@@ -39,7 +43,9 @@ def _runtime() -> tuple[FarmScriptRuntime, list[tuple[str, dict]]]:
         ToolDescriptor(
             name="move",
             args_schema=_MoveArgs,
-            policy=ToolPolicy(ToolCategory.ACT, requires_approval=True, description="Move"),
+            policy=ToolPolicy(
+                ToolCategory.ACT, requires_approval=True, description="Move"
+            ),
         ),
         ToolDescriptor(
             name="list_zones",
