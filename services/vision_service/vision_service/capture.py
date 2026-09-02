@@ -24,7 +24,7 @@ CAPTURE_BANDS = frozenset({"rgb", "nir", "rededge", "thermal", "swir"})
 USB_CAPTURE_BANDS = frozenset({"rgb", "nir", "rededge"})
 UNPINNED_CAPTURE_BANDS = frozenset({"thermal", "swir"})
 
-# 1x1 JPEG so sim / CI needs no camera library and never opens V4L2.
+# 1x1 JPEG used in sim/CI so we avoid importing cv2 and never open V4L2.
 _STUB_JPEG = bytes.fromhex(
     "ffd8ffe000104a46494600010100000100010000ffdb0043000c08080809080c09"
     "090c11110f1111161414141416161c1818181818181c1e1c1c1c1c1c1c1e2b2323"
