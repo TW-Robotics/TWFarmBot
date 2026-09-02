@@ -100,6 +100,7 @@ def _make_registry() -> ActionRegistry:
     reg.register("water", lambda a: a)
     reg.register("take_photo", lambda a: a)
     reg.register("capture", lambda a: a)
+    reg.register("capture_ndre", lambda a: a)
     reg.register("e_stop", lambda a: a)
     return reg
 
@@ -119,11 +120,13 @@ def test_action_policies_are_categorized() -> None:
     tool_registry = ToolRegistry(reg)
     by_name = tool_registry.by_name()
     assert by_name["move"].policy.category == ToolCategory.ACT
-    assert by_name["move"].policy.requires_approval is True
+    assert by_name["move"].policy.requires_approval is False
     assert by_name["take_photo"].policy.category == ToolCategory.READ
     assert by_name["take_photo"].policy.requires_approval is False
     assert by_name["capture"].policy.category == ToolCategory.READ
     assert by_name["capture"].policy.requires_approval is False
+    assert by_name["capture_ndre"].policy.category == ToolCategory.ANALYZE
+    assert by_name["capture_ndre"].policy.requires_approval is False
     assert by_name["e_stop"].policy.category == ToolCategory.ACT
     assert by_name["e_stop"].policy.requires_approval is False
 
@@ -131,22 +134,24 @@ def test_action_policies_are_categorized() -> None:
 # ───────────────────────────────── ApprovalGate ──────────────────────────────
 
 
-def test_approval_gate_proposes_dangerous_actions_in_chat() -> None:
+def test_approval_gate_executes_actions_when_allowed() -> None:
     reg = _make_registry()
     gate = ApprovalGate(reg)
     descriptor = ToolRegistry(reg).by_name()["move"]
     result = gate.resolve(
-        descriptor, {"x": 0, "y": 0, "z": 0}, propose_only=True, allow_actions=True
+        descriptor, {"x": 0, "y": 0, "z": 0}, propose_only=False, allow_actions=True
     )
-    assert result.status == "proposed"
+    assert result.status == "ok"
 
 
-def test_approval_gate_executes_safe_read_actions() -> None:
+def test_approval_gate_blocks_actions_when_disabled() -> None:
     reg = _make_registry()
     gate = ApprovalGate(reg)
-    descriptor = ToolRegistry(reg).by_name()["take_photo"]
-    result = gate.resolve(descriptor, {}, propose_only=True, allow_actions=True)
-    assert result.status == "ok"
+    descriptor = ToolRegistry(reg).by_name()["move"]
+    result = gate.resolve(
+        descriptor, {"x": 0, "y": 0, "z": 0}, propose_only=False, allow_actions=False
+    )
+    assert result.status == "error"
 
 
 def test_approval_gate_never_executes_in_planning_mode() -> None:
@@ -246,10 +251,8 @@ def test_agent_loop_runs_json_read_and_physical_tool_calls() -> None:
     names = [tc["name"] for tc in result.tool_calls]
     assert names == ["get_position", "move"]
     assert result.tool_calls[0]["result"]["x"] == 11
-    assert result.tool_calls[1]["result"]["status"] == "proposed"
-    assert result.proposed_actions == [
-        {"kind": "move", "params": {"x": 100, "y": 200, "z": 0}}
-    ]
+    assert result.tool_calls[1]["result"]["status"] == "ok"
+    assert result.proposed_actions == []
 
 
 def test_agent_loop_does_not_run_python_fences() -> None:
@@ -263,20 +266,20 @@ def test_agent_loop_does_not_run_python_fences() -> None:
     assert "move(x=1" in result.response
 
 
-def test_agent_loop_proposes_move_without_executing() -> None:
+def test_agent_loop_executes_move_immediately() -> None:
     reg = _make_registry()
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
             _tool_call("move", {"x": 100, "y": 200, "z": 0}),
-            "proposed",
+            "moved",
         ]
     )
-    loop = _make_loop(fake, reg, propose_only=True)
+    loop = _make_loop(fake, reg, propose_only=False)
     result = loop.run([{"role": "user", "content": "move to 100,200"}])
-    assert len(result.proposed_actions) == 1
-    assert result.proposed_actions[0]["kind"] == "move"
-    assert result.response == "proposed"
+    assert len(result.proposed_actions) == 0
+    assert result.tool_calls[0]["result"]["status"] == "ok"
+    assert result.response == "moved"
 
 
 def test_agent_loop_streams_tool_call_and_delta_events() -> None:
@@ -336,8 +339,8 @@ def test_agent_loop_runs_parallel_json_tool_calls() -> None:
             "queued three moves",
         ]
     )
-    loop = _make_loop(fake, reg, propose_only=True)
+    loop = _make_loop(fake, reg, propose_only=False)
     result = loop.run([{"role": "user", "content": "visit three points"}])
     moves = [tc for tc in result.tool_calls if tc["name"] == "move"]
     assert len(moves) == 3
-    assert len(result.proposed_actions) == 3
+    assert len(result.proposed_actions) == 0

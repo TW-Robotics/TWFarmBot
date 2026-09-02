@@ -20,6 +20,7 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     from .unlock import handle_unlock
     from .camera import handle_capture, handle_take_photo
     from .jobs import handle_goto_named, handle_inspect_zone, handle_water_zone
+    from .ndre import handle_capture_ndre
 
     registry.register("water", handle_water)
     registry.register("move", handle_move)
@@ -34,6 +35,7 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     registry.register("find_home", handle_find_home)
     registry.register("take_photo", handle_take_photo)
     registry.register("capture", handle_capture)
+    registry.register("capture_ndre", handle_capture_ndre)
     registry.register("inspect_zone", handle_inspect_zone)
     registry.register("water_zone", handle_water_zone)
     registry.register("goto_named", handle_goto_named)

@@ -54,8 +54,10 @@ def test_schema_violation_is_rejected() -> None:
         parse_plan('"just a string"', _registry())
 
 
-def test_unsafe_action_is_rejected_by_safety_gate() -> None:
-    # x=9000 exceeds the default safety cap of 3000mm on x.
+def test_unsafe_action_is_rejected_by_safety_gate(monkeypatch) -> None:
+    monkeypatch.setenv("FARMBOT_ENFORCE_WORKSPACE", "1")
+    monkeypatch.setenv("FARMBOT_MAX_AXIS_X", "650")
+    # x=9000 exceeds the default safety cap when workspace enforcement is on.
     text = '{"actions": [{"kind": "move", "params": {"x": 9000, "y": 0, "z": 0}}]}'
     with pytest.raises(UnsafeActionError):
         parse_plan(text, _registry())

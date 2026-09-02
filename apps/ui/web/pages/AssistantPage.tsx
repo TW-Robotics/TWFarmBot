@@ -15,6 +15,14 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import { api, apiUrl, postAction, streamChat } from "../api";
+
+function resolveChatImages(text: string): string {
+  const base = apiUrl();
+  return text.replace(
+    /!\[([^\]]*)\]\((\/(?:captures|photos)\/[^)]+)\)/g,
+    (_match, label: string, path: string) => `![${label}](${base}${path})`,
+  );
+}
 import {
   SETTINGS_CHANGED_EVENT,
   getActiveLlmProfile,
@@ -239,7 +247,9 @@ export function AssistantPage() {
               ) : null}
               <ChatMessageBubble variant={message.role === "assistant" ? "ghost" : "filled"}>
                 <Markdown density="compact">
-                  {message.error || message.content || (message.streaming ? "…" : "")}
+                  {resolveChatImages(
+                    message.error || message.content || (message.streaming ? "…" : ""),
+                  )}
                 </Markdown>
               </ChatMessageBubble>
               {message.trace?.length ? (

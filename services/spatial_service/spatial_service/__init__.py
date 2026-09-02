@@ -100,21 +100,16 @@ def load_world(path: str | Path = DEFAULT_CONFIG) -> GardenWorld:
 def format_world_context(world: GardenWorld | Mapping[str, Any] | None = None) -> str:
     """Render a rich, model-friendly summary of the world model.
 
-    Includes zones with computed centres, entities with positions, garden
-    bounds, camera offset, and the last known robot/camera positions if they
-    are present in the snapshot.
+    Includes entities with positions, camera offset, and the last known
+    robot/camera positions if they are present in the snapshot.
     """
     if world is None:
         world = load_world()
     snapshot = world.to_dict() if hasattr(world, "to_dict") else dict(world)
-    lines: list[str] = []
-
-    bounds = snapshot.get("bounds", {})
-    lines.append(
-        f"Garden bounds: x={bounds.get('x', 0)}, y={bounds.get('y', 0)}, "
-        f"width={bounds.get('width', 0)}, height={bounds.get('height', 0)}. "
-        f"All coordinates are in millimetres."
-    )
+    lines: list[str] = [
+        "Coordinates are millimetres. There is no soft workspace gate — "
+        "use absolute move(x,y,z) for any pose the user requests."
+    ]
 
     camera = snapshot.get("camera", {})
     cam_pos = camera.get("position") or snapshot.get("camera_offset", {})
@@ -168,12 +163,11 @@ def format_world_context(world: GardenWorld | Mapping[str, Any] | None = None) -
             )
 
     if not zones and not entities:
-        lines.append("(no zones or entities configured)")
+        lines.append(
+            "(no named zones or plants configured — ask the user for mm "
+            "coordinates or use the current pose)"
+        )
 
-    lines.append(
-        "\nWhen the user refers to a zone or plant by name, move to its centre "
-        "or position first, then perform the requested action (photo, cut, water, etc.)."
-    )
     return "\n".join(lines)
 
 

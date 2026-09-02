@@ -55,11 +55,9 @@ def plan_path(
     """Generate waypoints along a straight line from ``start`` to ``target``.
 
     ``step_mm`` is the maximum distance between consecutive waypoints.
-    The start and target are always included. Waypoints are clamped to the
-    garden bounds.
+    The start and target are always included.
     """
-    if world is None:
-        world = load_world()
+    del world  # soft garden bounds clamping is disabled
     start_pt = _point(start)
     target_pt = _point(target)
 
@@ -77,12 +75,11 @@ def plan_path(
     else:
         steps = max(1, math.ceil(distance / step))
 
-    bounds = world.bounds
     waypoints: list[dict[str, float]] = []
     for i in range(steps + 1):
         t = i / steps
-        x = _clamp(start_pt.x + dx * t, bounds.x, bounds.x + bounds.width)
-        y = _clamp(start_pt.y + dy * t, bounds.y, bounds.y + bounds.height)
+        x = start_pt.x + dx * t
+        y = start_pt.y + dy * t
         waypoints.append({"x": round(x, 2), "y": round(y, 2), "z": z})
 
     # Deduplicate start == target case.

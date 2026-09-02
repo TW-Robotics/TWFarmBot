@@ -7,6 +7,16 @@ from typing import Any
 
 _IMAGE_DATA_RE = re.compile(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+")
 
+_CAPTURE_BAND_LABELS = {
+    "rgb": "RGB capture",
+    "nir": "NIR capture",
+    "rededge": "Red-edge capture",
+}
+
+
+def _capture_attachment_url(artifact_id: str, band: str) -> str:
+    return f"/captures/{artifact_id}/{band}"
+
 
 def compact_tool_result(value: Any) -> Any:
     """Avoid sending binary/base64 vision output back into the next LLM turn."""
@@ -16,7 +26,14 @@ def compact_tool_result(value: Any) -> Any:
         return {
             key: (
                 "[image available to the user]"
-                if key in {"image_url", "image_urls"} and isinstance(item, (str, list))
+                if key
+                in {
+                    "image_url",
+                    "image_urls",
+                    "ndre_preview",
+                    "align_preview",
+                }
+                and isinstance(item, (str, list))
                 else compact_tool_result(item)
             )
             for key, item in value.items()
@@ -62,6 +79,42 @@ def append_result_images(text: str, tool_log: list[dict[str, Any]]) -> str:
             label_set = labels[name]
             label = label_set[index] if index < len(label_set) else "Analysis result"
             artifacts.append((label, url))
+
+    # Prefer the NDRE map alone when this turn ran capture_ndre — skip raw
+    # NIR / red-edge stills even if the agent also called capture.
+    has_ndre = any(call.get("name") == "capture_ndre" for call in tool_log)
+
+    for call in tool_log:
+        if call.get("name") != "capture":
+            continue
+        result = call.get("result", {})
+        if not isinstance(result, dict) or result.get("status") != "ok":
+            continue
+        params = result.get("params", {})
+        if not isinstance(params, dict):
+            continue
+        artifact_id = params.get("artifact_id")
+        band = params.get("band")
+        if not artifact_id or not band:
+            continue
+        band_key = str(band).lower()
+        if has_ndre and band_key in {"nir", "rededge"}:
+            continue
+        label = _CAPTURE_BAND_LABELS.get(band_key, f"{band} capture")
+        artifacts.append((label, _capture_attachment_url(str(artifact_id), band_key)))
+
+    for call in tool_log:
+        if call.get("name") != "capture_ndre":
+            continue
+        result = call.get("result", {})
+        if not isinstance(result, dict) or result.get("status") != "ok":
+            continue
+        params = result.get("params", {})
+        if not isinstance(params, dict):
+            continue
+        preview = params.get("ndre_preview")
+        if isinstance(preview, str) and preview:
+            artifacts.append(("NDRE map", preview))
 
     # A plain photo request is normally verified with get_images. Show only the
     # newest frame from the final lookup, not every historical frame fetched by

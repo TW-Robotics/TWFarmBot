@@ -163,7 +163,8 @@ def get_capture_file(artifact_id: str, band: str) -> FileResponse:
     path = capture_path(artifact_id, band)
     if path is None:
         raise HTTPException(status_code=404, detail="capture not found")
-    return FileResponse(path, media_type="image/jpeg")
+    media = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+    return FileResponse(path, media_type=media)
 
 
 @router.get("/pins")

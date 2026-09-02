@@ -67,6 +67,23 @@ def _summarize_capture(params: dict[str, Any]) -> str:
     return f"📷 **capture** ({params.get('band', '—')})"
 
 
+def _summarize_capture_ndre(params: dict[str, Any]) -> str:
+    interp = (
+        params.get("interpretation")
+        if isinstance(params.get("interpretation"), dict)
+        else {}
+    )
+    label = interp.get("label")
+    hint = interp.get("action_hint")
+    if label and hint:
+        return f"🌿 **capture_ndre** ({label} → {hint})"
+    ndre = params.get("ndre") if isinstance(params.get("ndre"), dict) else {}
+    mean = ndre.get("mean")
+    if mean is not None:
+        return f"🌿 **capture_ndre** (mean {mean})"
+    return "🌿 **capture_ndre**"
+
+
 def _summarize_read_pin(params: dict[str, Any]) -> str:
     return f"📖 **read_pin** {params.get('pin', '—')} ({params.get('mode', 'digital')})"
 
@@ -113,6 +130,7 @@ ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "find_home": _summarize_find_home,
     "take_photo": _summarize_take_photo,
     "capture": _summarize_capture,
+    "capture_ndre": _summarize_capture_ndre,
     "read_pin": _summarize_read_pin,
     "write_pin": _summarize_write_pin,
     "mount_tool": _summarize_mount_tool,

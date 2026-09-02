@@ -29,19 +29,40 @@ def test_plan_path_samples_straight_line() -> None:
     assert len(waypoints) == 4
 
 
-def test_plan_path_clamps_to_bounds() -> None:
+def test_plan_path_does_not_clamp_to_bounds() -> None:
     waypoints = path_planning.plan_path(
         {"x": -100, "y": 50},
         {"x": 3000, "y": 50},
         step_mm=2000,
         z=0,
     )
-    assert waypoints[0]["x"] >= 0
-    assert waypoints[-1]["x"] <= 1900
+    assert waypoints[0]["x"] == -100.0
+    assert waypoints[-1]["x"] == 3000.0
 
 
 def test_scan_zone_returns_raster() -> None:
-    waypoints = path_planning.scan_zone("tomato", step_mm=200, z=100)
+    from twfarmbot_core.domain import (
+        CameraPose,
+        GardenWorld,
+        GardenZone,
+        Point3D,
+        Rectangle,
+    )
+
+    world = GardenWorld(
+        bounds=Rectangle(x=0, y=0, width=2000, height=2000),
+        camera=CameraPose(position=Point3D(0, 0, 0)),
+        camera_offset=Point3D(0, 0, 0),
+        zones=(
+            GardenZone(
+                id="tomato",
+                kind="tomato",
+                name="Tomato Zone",
+                bounds=Rectangle(x=100, y=100, width=400, height=400),
+            ),
+        ),
+    )
+    waypoints = path_planning.scan_zone("tomato", step_mm=200, z=100, world=world)
     assert len(waypoints) > 0
     assert all(w["z"] == 100 for w in waypoints)
     # Rows should alternate direction: first row increasing X, second decreasing.
@@ -75,12 +96,18 @@ def test_tool_registry_exposes_move_path() -> None:
 
 
 def test_move_path_safety_rejects_out_of_bounds() -> None:
+    from safety_service import SafetyLimits
+
     action = Action(
         kind="move_path",
         params={"waypoints": [{"x": 0, "y": 0, "z": 0}, {"x": 9999, "y": 0, "z": 0}]},
     )
+    limits = SafetyLimits(
+        enforce_workspace=True,
+        max_axis_mm={"x": 650, "y": 1900, "z": 300},
+    )
     with pytest.raises(UnsafeActionError):
-        validate(action)
+        validate(action, limits=limits)
 
 
 def test_move_path_safety_accepts_valid_waypoints() -> None:

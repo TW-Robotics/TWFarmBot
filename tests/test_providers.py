@@ -39,6 +39,7 @@ def test_providers_build_chat_completions_models() -> None:
     openai_model = openai.build_chat_model("gpt-5.6", openai_cfg)
     assert openai_model is not None
     assert openai_model.model_name == "gpt-5.6"  # type: ignore[attr-defined]
+    assert openai_model.reasoning_effort == "none"  # type: ignore[attr-defined]
     assert hasattr(openai_model, "bind_tools")
     assert not hasattr(openai_model, "configure_tools")
 

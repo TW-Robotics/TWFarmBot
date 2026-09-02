@@ -12,6 +12,7 @@ from .capture import (
     capture,
     capture_path,
     list_captures,
+    write_capture_file,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "capture",
     "capture_path",
     "list_captures",
+    "write_capture_file",
 ]

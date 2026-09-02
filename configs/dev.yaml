@@ -15,6 +15,7 @@ planning:
   # Provider-specific request body extensions. Only needed for reasoning models.
   # For DeepSeek V4 on OpenRouter use: extra_body: {reasoning: {effort: low}}
   # For native DeepSeek use: extra_body: {thinking: {type: enabled}}
+  # GPT-5 chat-completions tool calling sets reasoning_effort=none automatically.
   extra_body: {}
   # Optional W&B Weave project for tracing. Set WEAVE_PROJECT or this field
   # to enable model/tool-call/token tracing.
@@ -43,14 +44,10 @@ cameras:
 # Local TWFarmbotOS URL (Raspberry Pi Express API).
 # Override with FARMBOT_LOCAL_URL.
 
-# Safety limits enforced before any real-world action runs.
-# Overridable via env: FARMBOT_MAX_WATER_SECONDS / FARMBOT_MAX_AXIS_{X,Y,Z}.
+# Safety: water duration only by default. Workspace axis caps are off unless
+# FARMBOT_ENFORCE_WORKSPACE=1 (then FARMBOT_MAX_AXIS_{X,Y,Z} apply).
 safety:
   max_water_seconds: 300
-  max_axis_mm:
-    x: 650
-    y: 1900
-    z: 300
 
 # Single pump configuration. The water action turns this pin on for N seconds.
 watering:
@@ -76,38 +73,9 @@ positions:
 - {label: "Bed", x: 100, y: 200, z: 0}
 - {label: "Camera top", x: 0, y: 0, z: 300}
 
-# Persistent garden coordinate model. The UI renders the origin at the
-# bottom-left; X grows to the right and Y grows up the bed. Store coordinates
-# using that same frame.
+# Camera offset only — no named zones / soft garden map for now.
 spatial:
-  bounds: {x: 0, y: 0, width: 650, height: 1900}
+  bounds: {x: -5000, y: -5000, width: 10000, height: 10000}
   camera_offset: {x: 0, y: 0, z: 300}
   camera: {yaw_deg: 0, pitch_deg: 90, roll_deg: 0}
-
-  zones:
-  - id: tomato
-    kind: tomato
-    name: "Tomato Zone"
-    x: 1100
-    y: 100
-    width: 800
-    height: 300
-    metadata: {soil_type: loam}
-
-  - id: herbs
-    kind: herbs
-    name: "Herbs Zone"
-    x: 100
-    y: 100
-    width: 1000
-    height: 300
-    metadata: {soil_type: sandy}
-
-  - id: radieschen
-    kind: radischen
-    name: "Radischen Zone"
-    x: 100
-    y: 400
-    width: 1000
-    height: 250
-    metadata: {soil_type: sandy}
+  zones: []

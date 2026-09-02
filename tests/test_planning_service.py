@@ -89,7 +89,9 @@ def test_plan_extracts_json_from_markdown_fence() -> None:
     ]
 
 
-def test_plan_propagates_safety_violation() -> None:
+def test_plan_propagates_safety_violation(monkeypatch) -> None:
+    monkeypatch.setenv("FARMBOT_ENFORCE_WORKSPACE", "1")
+    monkeypatch.setenv("FARMBOT_MAX_AXIS_X", "650")
     fake = _ToolAwareFake(
         responses=[
             '{"actions": [{"kind": "move", "params": {"x": 9000, "y": 0, "z": 0}}]}'

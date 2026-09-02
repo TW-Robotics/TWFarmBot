@@ -1,0 +1,16 @@
+version: 1
+method: dot_centering
+reference_band: nir
+bands:
+  nir:
+    gantry_offset_mm: {x: 0.0, y: 0.0, z: 0.0}
+  rededge:
+    gantry_offset_mm: {x: -102.0, y: 0.0, z: 0.0}
+image_align:
+  dx_px: 0.0
+  dy_px: 0.0
+  rotation_deg: 0.0
+computed:
+  band_separation_mm: {x: -102.0, y: 0.0, z: 0.0}
+  interpretation: >-
+    Gantry delta plus image_align (pixel dx/dy/rotation) warping red-edge onto NIR.

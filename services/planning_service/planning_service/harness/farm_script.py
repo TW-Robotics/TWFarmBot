@@ -186,22 +186,15 @@ def format_tool_catalog(descriptors: Iterable[ToolDescriptor]) -> str:
         "Call the tools below with JSON function/tool calling.",
         "Do not write Python scripts or fenced farm_script blocks.",
         "The runtime executes each call and returns a JSON result.",
-        "Physical ACT tools go through approval and safety before motors move.",
+        "Physical ACT tools run immediately when actions are allowed; safety limits still apply.",
         "",
         "Available tools:",
     ]
     for descriptor in descriptors:
         lines.append(f"- `{_signature(descriptor)}`")
         extra = descriptor.policy.description.strip()
-        approval = ""
-        if descriptor.policy.requires_approval:
-            approval = (
-                " Requires user approval (becomes a proposal unless already allowed)."
-            )
-        elif descriptor.policy.category.value == "act":
-            approval = " Executes immediately when actions are allowed."
-        if extra or approval:
-            lines.append(f"  {extra}{approval}".rstrip())
+        if extra:
+            lines.append(f"  {extra}")
     return "\n".join(lines)
 
 

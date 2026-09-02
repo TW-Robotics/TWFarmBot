@@ -20,8 +20,8 @@ const MODES = [
 
 const USB_BANDS = [
   { id: "rgb", label: "RGB (FHD)" },
-  { id: "nir", label: "Red edge (DMK …551)" },
-  { id: "rededge", label: "NIR (DMK …552)" },
+  { id: "nir", label: "NIR (DMK …551)" },
+  { id: "rededge", label: "Red edge (DMK …552)" },
 ] as const;
 
 function bandLabel(band: string | undefined): string {
@@ -162,6 +162,7 @@ export function CameraPage() {
           <Text weight="semibold">USB payload cameras</Text>
           <Text type="supporting" color="secondary">
             RGB, NIR, and red-edge cameras via udev symlinks (/dev/camera-*).
+            Live NDRE and band-offset tools live on Diagnostics.
           </Text>
           <HStack gap={2} wrap>
             {USB_BANDS.map((band) => (

@@ -235,7 +235,14 @@ class AgentLoop:
         metrics.total_latency_s = time.perf_counter() - total_start
         yield {
             "type": "meta",
-            "tool_calls": tool_log,
+            "tool_calls": [
+                {
+                    "name": call.get("name"),
+                    "args": call.get("args"),
+                    "result": compact_tool_result(call.get("result")),
+                }
+                for call in tool_log
+            ],
             "proposed_actions": proposed,
             "programs": [],
             "metrics": metrics.to_dict(),
@@ -370,7 +377,14 @@ class AgentLoop:
                         "params": result.get("params", args),
                     }
                 )
-            events.append({"type": "tool_call", **recorded})
+            events.append(
+                {
+                    "type": "tool_call",
+                    "name": name,
+                    "args": args,
+                    "result": compact_tool_result(result),
+                }
+            )
             lc_messages.append(
                 ToolMessage(
                     content=json.dumps(compact_tool_result(result), default=str),
