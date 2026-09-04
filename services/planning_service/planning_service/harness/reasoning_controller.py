@@ -13,13 +13,35 @@ from typing import Any, Iterator
 THINK_TAG_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 
 
+def content_text(content: Any) -> str:
+    """Flatten message content to plain user-facing text.
+
+    OpenAI returns a string; Gemini returns content blocks
+    (``[{'type': 'text', 'text': ...}]``). Internal fields such as
+    ``thought_signature`` must never leak into the chat.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        return "".join(parts)
+    return str(content)
+
+
 class ReasoningController:
     """Extract reasoning from LangChain messages and streaming chunks."""
 
     @staticmethod
     def extract(message: Any) -> str | None:
         """Extract thinking from a complete LangChain message."""
-        content = str(getattr(message, "content", "") or "")
+        content = content_text(getattr(message, "content", ""))
         match = THINK_TAG_RE.search(content)
         if match:
             thinking = match.group(1).strip()

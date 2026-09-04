@@ -184,6 +184,24 @@ def extract_tool_calls(response: Any) -> list[dict[str, Any]] | None:
     return out or None
 
 
+# LLMs often emit the *string* "None" (or "null"/"") for unset optional
+# params instead of JSON null. Normalize those to real None where LLM
+# output enters the pipeline, before safety validation and dispatch.
+_NULL_STRINGS = frozenset({"none", "null", "nil", "n/a", ""})
+
+
+def normalize_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Map null-like strings to None in LLM-produced action params."""
+    return {
+        key: (
+            None
+            if isinstance(value, str) and value.strip().lower() in _NULL_STRINGS
+            else value
+        )
+        for key, value in params.items()
+    }
+
+
 def tool_calls_to_actions(
     tool_calls: list[dict[str, Any]],
 ) -> list[tuple[str, dict[str, Any]]]:

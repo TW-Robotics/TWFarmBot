@@ -29,12 +29,14 @@ export const SETTINGS_CHANGED_EVENT = "twfarmbot:settings-changed";
 export const LLM_PROVIDERS = [
   { id: "openai", label: "OpenAI" },
   { id: "openrouter", label: "OpenRouter" },
+  { id: "vertex", label: "Vertex AI" },
   { id: "local", label: "Local (OpenAI-compatible)" },
 ] as const;
 
 export const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5.6" },
   openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4" },
+  vertex: { baseUrl: "", model: "gemini-2.5-flash" },
   local: { baseUrl: "http://127.0.0.1:11434/v1", model: "llama3.2" },
 };
 

@@ -25,6 +25,7 @@ from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 
 from .prompt import PlannerAction, PlannerResponse
+from .tools import normalize_params
 
 
 class PlanError(ValueError):
@@ -85,7 +86,7 @@ def _to_action(item: PlannerAction, known_kinds: Iterable[str]) -> Action:
             f"planner emitted unknown action kind {item.kind!r}; "
             f"known kinds: {sorted(known_kinds)}"
         )
-    action = Action(kind=item.kind, params=dict(item.params))
+    action = Action(kind=item.kind, params=normalize_params(dict(item.params)))
     # The safety gate is the single source of truth for "is this safe".
     safety_validate(action)
     return action

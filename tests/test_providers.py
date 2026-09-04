@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+import pytest
+
 from planning_service.config import PlannerConfig
 from twfarmbot_api_server.app import create_app
 from planning_service.providers import (
     OpenAICompatibleProvider,
     OpenAIProvider,
     OpenRouterProvider,
+    VertexProvider,
     get_provider,
     list_provider_names,
 )
@@ -17,7 +20,7 @@ from planning_service.providers import (
 
 def test_list_provider_names() -> None:
     names = list_provider_names()
-    assert names == ["local", "openai", "openrouter"]
+    assert names == ["local", "openai", "openrouter", "vertex"]
 
 
 def test_get_provider_returns_instance() -> None:
@@ -75,8 +78,60 @@ def test_providers_endpoints() -> None:
     r = client.get("/providers")
     assert r.status_code == 200
     body = r.json()
-    assert body["providers"] == ["local", "openai", "openrouter"]
+    assert body["providers"] == ["local", "openai", "openrouter", "vertex"]
 
     r = client.get("/models?provider=local")
     assert r.status_code == 200
     assert r.json()["provider"] == "local"
+
+
+def test_vertex_needs_project(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("TWFB_LLM_KEYS_FILE", str(tmp_path / "llm_keys.json"))
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("GCLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("PLANNING_LLM_BASE_URL", raising=False)
+    cfg = PlannerConfig(
+        provider="vertex",
+        base_url="https://api.openai.com/v1",
+        model="gpt-5.6",
+        api_key=None,
+        timeout_s=30.0,
+        temperature=0.0,
+    )
+    with pytest.raises(ValueError, match="GOOGLE_CLOUD_PROJECT"):
+        VertexProvider().build_chat_model("gpt-5.6", cfg)
+
+
+def test_vertex_builds_native_model(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("TWFB_LLM_KEYS_FILE", str(tmp_path / "llm_keys.json"))
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "demo-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "europe-west3")
+    monkeypatch.delenv("PLANNING_LLM_BASE_URL", raising=False)
+    cfg = PlannerConfig(
+        provider="vertex",
+        base_url="https://api.openai.com/v1",
+        model="gpt-5.6",
+        api_key=None,
+        timeout_s=30.0,
+        temperature=0.0,
+    )
+    model = VertexProvider().build_chat_model("gpt-5.6", cfg)
+    assert model.model_name == "gemini-3.8-flash"  # type: ignore[attr-defined]
+    assert getattr(model, "project", None) == "demo-project"
+    assert getattr(model, "location", None) == "europe-west3"
+
+
+def test_vertex_strips_google_prefix(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("TWFB_LLM_KEYS_FILE", str(tmp_path / "llm_keys.json"))
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "demo-project")
+    cfg = PlannerConfig(
+        provider="vertex",
+        base_url="",
+        model="google/gemini-2.5-flash",
+        api_key=None,
+        timeout_s=30.0,
+        temperature=0.0,
+    )
+    model = VertexProvider().build_chat_model("google/gemini-2.5-flash", cfg)
+    assert model.model_name == "gemini-2.5-flash"  # type: ignore[attr-defined]

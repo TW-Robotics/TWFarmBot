@@ -18,11 +18,14 @@ import {
   Cog6ToothIcon,
   CubeTransparentIcon,
   HomeIcon,
+  MoonIcon,
   PlayIcon,
   QueueListIcon,
+  SunIcon,
   WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
 import { api, postAction } from "./api";
+import { useThemeMode } from "./theme";
 import { OverviewPage } from "./pages/OverviewPage";
 import { MotionPage } from "./pages/MotionPage";
 import { CameraPage } from "./pages/CameraPage";
@@ -62,6 +65,7 @@ function tabFromUrl(): Tab {
 
 export function App() {
   const toast = useToast();
+  const { mode, toggle } = useThemeMode();
   const [tab, setTab] = useState<Tab>(tabFromUrl);
   const [farmbot, setFarmbot] = useState("unknown");
   const [pose, setPose] = useState<{ x?: number; y?: number; z?: number }>({});
@@ -143,6 +147,13 @@ export function App() {
               <Text type="supporting" color="secondary">
                 FarmBot · {farmbot}
               </Text>
+              <Button
+                label={mode === "dark" ? "Light mode" : "Dark mode"}
+                icon={mode === "dark" ? <SunIcon /> : <MoonIcon />}
+                variant="secondary"
+                width="100%"
+                onClick={toggle}
+              />
               <Button label="ESTOP" variant="primary" width="100%" onClick={() => void estop()} />
             </VStack>
           }

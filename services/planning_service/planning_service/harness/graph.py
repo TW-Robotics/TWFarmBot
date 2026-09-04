@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from ..tool_results import compact_tool_result
 from .approval_gate import ApprovalGate
 from .metrics import Metrics
-from .reasoning_controller import ReasoningController
+from .reasoning_controller import ReasoningController, content_text
 from .tool_policy import ToolDescriptor
 from .tool_registry import ToolRegistry
 from .tracing import is_enabled, timed_invoke, timed_stream, trace_tool_call
@@ -130,7 +130,7 @@ def _last_ai_text(messages: list[Any]) -> str:
     """Return the most recent non-empty AI message content."""
     for message in reversed(messages):
         if isinstance(message, AIMessage):
-            text = str(message.content or "")
+            text = content_text(message.content)
             if text:
                 return text
     return ""
@@ -252,7 +252,7 @@ def build_graph(deps: RunDeps):
                 writer(event)
             content = getattr(chunk, "content", None)
             if content:
-                buffer += str(content)
+                buffer += content_text(content)
                 events, buffer = deps.reasoning.split_stream(buffer)
                 for event in events:
                     writer(event)
@@ -264,7 +264,7 @@ def build_graph(deps: RunDeps):
             response = assembled
         else:
             response = AIMessage(
-                content=str(getattr(assembled, "content", "") or ""),
+                content=content_text(getattr(assembled, "content", "")),
                 tool_calls=list(getattr(assembled, "tool_calls", None) or []),
                 additional_kwargs=dict(
                     getattr(assembled, "additional_kwargs", None) or {}

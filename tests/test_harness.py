@@ -400,6 +400,36 @@ def test_consecutive_errors_stop_the_run() -> None:
     assert len(result.tool_calls) == 2
 
 
+def test_tool_names_are_unique_for_strict_providers() -> None:
+    # Action and introspection vocabularies overlap (read_pin). Providers
+    # like Gemini reject duplicate function declarations, so the registry
+    # must emit each name once.
+    reg = ActionRegistry()
+    reg.register("move", lambda a: a)
+    reg.register("read_pin", lambda a: a)
+    state = InMemorySystemStateProvider(position={"x": 0, "y": 0, "z": 0})
+    tools = ToolRegistry(reg, state).langchain_tools()
+    names = [t.name for t in tools]
+    assert len(names) == len(set(names))
+    assert names.count("read_pin") == 1
+
+
+def test_silent_model_still_gets_closing_summary() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("no_such_tool", {}, "bad_1"),
+            AIMessage(content=""),
+        ]
+    )
+    loop = _make_loop(fake, reg)
+    result = loop.run([{"role": "user", "content": "do the thing"}])
+    assert result.stop_reason == "done"
+    assert result.response
+    assert "no_such_tool" in result.response
+
+
 def test_stream_emits_thinking_then_tool_call_then_meta() -> None:
     reg = _make_registry()
     fake = _ScriptFake(responses=["unused"])
@@ -432,3 +462,41 @@ def test_stream_emits_thinking_then_tool_call_then_meta() -> None:
     metas = by_type.get("meta", [])
     assert len(metas) == 1
     assert metas[0]["stop_reason"] == "done"
+
+
+def test_gemini_block_content_flattens_to_text() -> None:
+    # Gemini returns content blocks; internal fields must never leak.
+    from planning_service.harness.graph import _last_ai_text
+
+    msg = AIMessage(
+        content=[
+            {
+                "type": "text",
+                "text": "Hello! How can I help you",
+                "thought_signature": "CnsBjz1rX/9m7==",
+            }
+        ]
+    )
+    assert _last_ai_text([msg]) == "Hello! How can I help you"
+
+
+def test_block_content_run_returns_clean_text() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            AIMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": "hi there",
+                        "thought_signature": "s3cr3t",
+                    }
+                ]
+            ),
+        ]
+    )
+    loop = _make_loop(fake, reg)
+    result = loop.run([{"role": "user", "content": "hello"}])
+    assert result.response == "hi there"
+    assert "thought_signature" not in result.response

@@ -20,6 +20,8 @@ from .approval_gate import ApprovalGate
 from .context_builder import ContextBuilder
 from .graph import (
     STOP_DONE,
+    STOP_MAX_ERRORS,
+    STOP_MAX_TURNS,
     RunDeps,
     _bind_model_tools,
     _last_ai_text,
@@ -32,7 +34,33 @@ from .tool_registry import ToolRegistry
 
 # Default cap on model turns per call (API-compatible alias for the old const).
 _MAX_TOOL_TURNS = 100
-_FALLBACK_TEXT = "I ran too many tool calls without finishing. Please try again."
+_EMPTY_TEXT = "I could not produce a response. Try again with a more specific request."
+_MAX_SUMMARY_LINES = 8
+
+
+def _closing_summary(tool_log: list[dict[str, Any]], stop_reason: str) -> str:
+    """Build a user-facing closing message from the tool log.
+
+    Used when the model ends a run without final text, so a turn never
+    ends silently: the user always sees what ran and what failed.
+    """
+    lines: list[str] = []
+    if stop_reason == STOP_MAX_TURNS:
+        lines.append("I hit the step limit before finishing.")
+    elif stop_reason == STOP_MAX_ERRORS:
+        lines.append("I stopped after repeated tool errors.")
+    for record in tool_log[-_MAX_SUMMARY_LINES:]:
+        name = str(record.get("name", "tool"))
+        result = record.get("result")
+        error = result.get("error") if isinstance(result, dict) else None
+        status = result.get("status") if isinstance(result, dict) else None
+        if error:
+            lines.append(f"- {name} failed: {error}")
+        elif status == "proposed":
+            lines.append(f"- {name} proposed, awaiting approval.")
+        else:
+            lines.append(f"- {name}: done.")
+    return "\n".join(lines) if lines else _EMPTY_TEXT
 
 
 @dataclass(frozen=True)
@@ -145,8 +173,8 @@ class AgentLoop:
         stop_reason = str(final.get("stop_reason") or STOP_DONE)
         final_text = _last_ai_text(state_messages)
         final_thinking = self._reasoning.extract(_last_ai_message(state_messages))
-        if not final_text and stop_reason != STOP_DONE:
-            final_text = _FALLBACK_TEXT
+        if not final_text:
+            final_text = _closing_summary(tool_log, stop_reason)
         final_text = self._reasoning.strip_from_text(final_text)
         final_text = append_result_images(final_text, tool_log)
         metrics.total_latency_s = time.perf_counter() - total_start
@@ -191,6 +219,9 @@ class AgentLoop:
         proposed = list(state.get("proposed", []))
         stop_reason = str(state.get("stop_reason") or STOP_DONE)
         text = _last_ai_text(state_messages)
+        if not text:
+            text = _closing_summary(tool_log, stop_reason)
+            yield {"type": "delta", "content": text}
         imaged = append_result_images(text, tool_log)
         extra = imaged[len(text) :] if imaged.startswith(text) else ""
         if extra:
@@ -228,8 +259,8 @@ class AgentLoop:
         stop_reason = str(final.get("stop_reason") or STOP_DONE)
         final_text = _last_ai_text(state_messages)
         final_thinking = self._reasoning.extract(_last_ai_message(state_messages))
-        if not final_text and stop_reason != STOP_DONE:
-            final_text = _FALLBACK_TEXT
+        if not final_text:
+            final_text = _closing_summary(tool_log, stop_reason)
         final_text = self._reasoning.strip_from_text(final_text)
         metrics.total_latency_s = time.perf_counter() - total_start
         return AgentTurnResult(
