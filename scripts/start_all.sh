@@ -112,6 +112,10 @@ stop_one() {
 
 cmd_start() {
   if command -v npm >/dev/null 2>&1 && [[ -f "$ROOT/apps/ui/package.json" ]]; then
+    if [[ ! -d "$ROOT/apps/ui/node_modules" ]]; then
+      echo "installing UI dependencies..."
+      (cd "$ROOT/apps/ui" && npm install)
+    fi
     local src="$ROOT/apps/ui/web/pages/MotionPage.tsx"
     local bundle
     bundle="$(ls -t "$ROOT/apps/ui/src/twfarmbot_ui/static/assets"/index-*.js 2>/dev/null | head -1 || true)"
