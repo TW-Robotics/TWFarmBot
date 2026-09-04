@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob
 import logging
 import os
 import threading
@@ -136,12 +137,49 @@ class SerialTransport(BaseTransport):
             pass
 
 
+def _resolve_serial_path(configured: str) -> str:
+    if configured and os.path.exists(configured):
+        return configured
+
+    patterns = (
+        "/dev/cu.usbmodem*",
+        "/dev/cu.usbserial*",
+        "/dev/ttyACM*",
+        "/dev/ttyUSB*",
+    )
+    candidates = sorted(
+        {
+            path
+            for pattern in patterns
+            for path in glob.glob(pattern)
+            if os.path.exists(path)
+        }
+    )
+    if len(candidates) == 1:
+        if configured and configured != candidates[0]:
+            log.warning(
+                "FARMBOT_SERIAL_PATH %s not found; using %s",
+                configured,
+                candidates[0],
+            )
+        return candidates[0]
+    if len(candidates) > 1:
+        raise TransportError(
+            f"FARMBOT_SERIAL_PATH {configured!r} not found; "
+            f"multiple serial ports detected: {', '.join(candidates)}"
+        )
+    raise TransportError(
+        f"FARMBOT_SERIAL_PATH {configured!r} not found and no serial ports detected"
+    )
+
+
 def build_transport() -> BaseTransport:
     mode = os.getenv("FARMBOT_TRANSPORT", "sim").strip().lower()
     if mode in {"sim", "simulate", "simulation"}:
         log.info("TWFarmbotOS using simulated Farmduino")
         return SimulatedTransport()
-    path = os.getenv("FARMBOT_SERIAL_PATH", "/dev/ttyACM0")
+    configured = os.getenv("FARMBOT_SERIAL_PATH", "/dev/ttyACM0")
+    path = _resolve_serial_path(configured)
     baud = int(os.getenv("FARMBOT_SERIAL_BAUD", "115200"))
     log.info("TWFarmbotOS opening serial %s @ %s", path, baud)
     return SerialTransport(path, baud)
