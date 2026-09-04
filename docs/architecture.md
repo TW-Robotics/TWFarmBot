@@ -25,7 +25,6 @@ TWFarmBot/
 │   ├── farmbot_gateway/        # ONLY place that talks to FarmBot hardware
 │   ├── safety_service/         # gates every action before execution
 │   ├── watering_service/       # irrigation (FarmBotBackend only — see backends/farmbot.py)
-│   ├── sensor_service/         # soil / temp / light
 │   ├── vision_service/         # camera + models
 │   ├── planning_service/       # LLM / VLM task planning
 │   └── spatial_service/        # garden coordinates + persistent world model
@@ -328,7 +327,6 @@ only runs when `FARMBOT_LIVE_TEST=1` is set.
 | Trigger watering manually | `apps/api_server` → `/actions` with `kind="water"` |
 | Add a safety rule | `services/safety_service/safety_service/__init__.py:validate` |
 | Read FarmBot state | `farmbot_gateway.get_farmbot()` |
-| Build a new sensor reading | `sensor_service` (skeleton) |
 | Add a CLI tool | a `scripts/` entry, calling the public service API |
 | Run scheduled jobs | `apps/worker` (skeleton) |
 | Add a shared type | `core/twfarmbot_core/domain/` |

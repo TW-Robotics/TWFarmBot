@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Client-side traversability inference script.
+Client-side ReSiReg inference script.
 
 Reads a local image, sends it to the local OpenAI-compatible ReSiReg server,
-and saves the resulting traversability heatmap.
+and saves the returned result image.
+
+Run any inference mode; traverse is the default.
 
 Usage:
-    python client_traverse.py --image /path/to/image.jpg
-    python client_traverse.py --image /path/to/image.jpg --positive "wooden bridge" --negative "tree,water"
-    python client_traverse.py --image /path/to/image.jpg --url http://localhost:8080 --output result.png
+    python client.py --image /path/to/image.jpg --mode traverse
+    python client.py --image /path/to/image.jpg --mode segment --classes "wooden bridge,tree,water"
+    python client.py --image /path/to/image.jpg --mode similarity --positive "wooden bridge" --negative "tree,water"
+    python client.py --image /path/to/image.jpg --mode language --positive "wooden bridge" --negative "tree,water"
 """
 
 import argparse
@@ -42,27 +45,54 @@ def image_to_data_url(path: str) -> str:
     return f"data:{mime};base64,{b64}"
 
 
+def build_prompt(args: argparse.Namespace) -> str:
+    """Construct the prompt text for the selected mode."""
+    mode = args.mode.lower()
+    if mode == "segment":
+        return f"/segment: {args.classes}"
+    if mode == "traverse":
+        return f"/traverse: {args.positive} vs {args.negative}"
+    if mode == "similarity":
+        return f"/similarity: {args.positive} - {args.negative}"
+    if mode == "language":
+        return f"{args.positive} vs {args.negative}"
+    raise ValueError(f"Unknown mode: {args.mode}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run traversability inference via the ReSiReg server."
+        description="Run ReSiReg inference modes via the local server."
     )
     parser.add_argument(
         "--image",
         "-i",
         required=True,
-        help="Path to the input image.",
+        help="Path or URL to the input image.",
+    )
+    parser.add_argument(
+        "--mode",
+        "-m",
+        choices=["traverse", "segment", "similarity", "language"],
+        default="traverse",
+        help="Inference mode to run (default: traverse).",
     )
     parser.add_argument(
         "--positive",
         "-p",
         default="wooden bridge",
-        help="Positive prompt describing the traversable region.",
+        help="Positive prompt (used by traverse, similarity, language).",
     )
     parser.add_argument(
         "--negative",
         "-n",
         default="tree,water",
         help="Negative prompt(s) separated by commas.",
+    )
+    parser.add_argument(
+        "--classes",
+        "-c",
+        default="wooden bridge,tree,water",
+        help="Comma-separated class list for segmentation mode.",
     )
     parser.add_argument(
         "--url",
@@ -73,8 +103,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         "-o",
-        default="traversability_output.png",
-        help="Path to write the output heatmap PNG.",
+        default="resireg_output.png",
+        help="Path to write the output image PNG.",
     )
     parser.add_argument(
         "--model",
@@ -92,7 +122,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    prompt_text = f"/traverse: {args.positive} vs {args.negative}"
+    prompt_text = build_prompt(args)
 
     payload = {
         "model": args.model,
@@ -121,7 +151,7 @@ def main() -> int:
     )
 
     print(f"Sending request to {url} ...")
-    print(f"Prompt: {prompt_text}")
+    print(f"Mode: {args.mode} | Prompt: {prompt_text}")
 
     try:
         with urllib.request.urlopen(req) as resp:
@@ -153,7 +183,7 @@ def main() -> int:
 
     output_path = Path(args.output)
     output_path.write_bytes(base64.b64decode(result_b64))
-    print(f"Saved traversability heatmap to {output_path.resolve()}")
+    print(f"Saved {content.get('mode', args.mode)} result to {output_path.resolve()}")
     return 0
 
 
