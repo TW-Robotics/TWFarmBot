@@ -45,8 +45,7 @@ That one script starts ReSiReg, the API, the UI, and the worker (uses `.env` whe
 ./scripts/start_all.sh stop
 ./scripts/start_all.sh restart
 ```
-
-`stop_all.sh`, `restart_all.sh`, and `logs.sh` call the same script.
+Use subcommands instead of the removed `stop_all.sh` / `restart_all.sh` / `logs.sh` shims.
 
 ## Running as systemd services (auto-start + auto-restart)
 
@@ -92,7 +91,7 @@ uv run pytest tests/ -q
 | `services/` | One service per concern, e.g. hardware gateway, watering, vision, planning, spatial, safety |
 | `projects/` | Isolated student / research projects |
 | `experiments/` | Reproducible evaluations with their own configs and outputs |
-| `libs/` | Reusable, framework-agnostic utilities (geometry, ML helpers, FarmBot client) |
+| `libs/` | Reusable, framework-agnostic utilities (ML helpers, FarmBot client, Farmduino protocol) |
 | `tests/` | Cross-cutting and integration tests (unit tests live next to the code) |
 | `configs/` | YAML/JSON environment, robot and sensor configuration |
 | `docs/` | Architecture, ADRs and onboarding guides |
