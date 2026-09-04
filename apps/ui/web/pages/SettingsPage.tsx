@@ -28,6 +28,7 @@ type ServerLlmSettings = {
   temperature?: number;
   api_key_configured?: boolean;
   keys_configured?: Record<string, boolean>;
+  vertex?: { project?: string | null; location?: string | null };
 };
 
 function profileToPayload(profile: LlmProfile) {
@@ -57,6 +58,11 @@ export function SettingsPage({
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [savingKeys, setSavingKeys] = useState(false);
   const [testingModels, setTestingModels] = useState(false);
+  const [vertexDraft, setVertexDraft] = useState<{ project: string; location: string }>({
+    project: "",
+    location: "",
+  });
+  const [savingVertex, setSavingVertex] = useState(false);
 
   const activeProfile = useMemo(
     () => settings.llmProfiles.find((profile) => profile.id === settings.activeLlmProfileId) ?? null,
@@ -149,9 +155,11 @@ export function SettingsPage({
           )
         : await api<{ models?: string[]; provider?: string; api_key_configured?: boolean }>("/models");
       const count = result.models?.length ?? 0;
+      const needsKey =
+        result.api_key_configured === false && result.provider !== "vertex";
       toast({
         body: `${result.provider || "provider"}: ${count} models available${
-          result.api_key_configured === false ? " (no API key configured)" : ""
+          needsKey ? " (no API key configured)" : ""
         }`,
       });
     } catch (error) {
@@ -163,6 +171,36 @@ export function SettingsPage({
       setTestingModels(false);
     }
   };
+  const saveVertexSettings = async () => {
+    if (!vertexDraft.project.trim() && !vertexDraft.location.trim()) {
+      toast({ body: "Enter a GCP project first" });
+      return;
+    }
+    setSavingVertex(true);
+    try {
+      await api("/settings/llm", {
+        method: "PUT",
+        body: JSON.stringify({
+          keys: {},
+          vertex: {
+            project: vertexDraft.project.trim() || undefined,
+            location: vertexDraft.location.trim() || undefined,
+          },
+        }),
+      });
+      setVertexDraft({ project: "", location: "" });
+      await refreshServerLlm();
+      toast({ body: "Vertex AI settings saved" });
+    } catch (error) {
+      toast({
+        body: error instanceof Error ? error.message : "Saving Vertex settings failed",
+        type: "error",
+      });
+    } finally {
+      setSavingVertex(false);
+    }
+  };
+
   const saveServerKeys = async () => {
     const keys: Record<string, string> = {};
     for (const [provider, value] of Object.entries(keyDrafts)) {
@@ -308,13 +346,21 @@ export function SettingsPage({
                 label="Base URL"
                 value={draft.baseUrl}
                 onChange={(baseUrl) => updateDraft({ baseUrl })}
+                placeholder={draft.provider === "vertex" ? "auto: built from project + location" : undefined}
               />
-              <TextInput
-                label="API key"
-                value={draft.apiKey}
-                onChange={(apiKey) => updateDraft({ apiKey })}
-                type="password"
-              />
+              {draft.provider === "vertex" ? (
+                <Text type="supporting" color="secondary">
+                  Vertex AI needs no API key here — it uses the server&apos;s Google
+                  credentials plus the project/location saved below.
+                </Text>
+              ) : (
+                <TextInput
+                  label="API key"
+                  value={draft.apiKey}
+                  onChange={(apiKey) => updateDraft({ apiKey })}
+                  type="password"
+                />
+              )}
               <TextInput
                 label="Default model"
                 value={draft.model}
@@ -348,7 +394,7 @@ export function SettingsPage({
             Stored on the server (mode 0600, never committed). Used whenever a
             request has no key of its own — env vars still win when set.
           </Text>
-          {LLM_PROVIDERS.map((item) => (
+          {LLM_PROVIDERS.filter((item) => item.id !== "vertex").map((item) => (
             <HStack gap={2} key={item.id}>
               <TextInput
                 label={`${item.label} key`}
@@ -376,6 +422,40 @@ export function SettingsPage({
               variant="primary"
               onClick={() => void saveServerKeys()}
               isDisabled={savingKeys}
+            />
+          </HStack>
+        </VStack>
+      </Card>
+      <Card padding={4}>
+        <VStack gap={3}>
+          <Text weight="semibold">Vertex AI</Text>
+          <Text type="supporting" color="secondary">
+            Uses your GCP credits via the OpenAI-compatible endpoint. Enable the Vertex AI
+            API on the project and give the server Google credentials (service-account key
+            at <code>GOOGLE_APPLICATION_CREDENTIALS</code>). The project id is not secret.
+          </Text>
+          <Text type="supporting">
+            Server: {serverLlm?.vertex?.project || "no project set"} ·{" "}
+            {serverLlm?.vertex?.location || "default location"}
+          </Text>
+          <TextInput
+            label="GCP project id"
+            value={vertexDraft.project}
+            onChange={(project) => setVertexDraft((current) => ({ ...current, project }))}
+            placeholder={serverLlm?.vertex?.project || "my-gcp-project"}
+          />
+          <TextInput
+            label="Location"
+            value={vertexDraft.location}
+            onChange={(location) => setVertexDraft((current) => ({ ...current, location }))}
+            placeholder={serverLlm?.vertex?.location || "global"}
+          />
+          <HStack gap={2}>
+            <Button
+              label={savingVertex ? "Saving…" : "Save Vertex settings"}
+              variant="primary"
+              onClick={() => void saveVertexSettings()}
+              isDisabled={savingVertex}
             />
           </HStack>
         </VStack>

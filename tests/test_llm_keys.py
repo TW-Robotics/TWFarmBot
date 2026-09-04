@@ -91,3 +91,40 @@ def test_override_provider_picks_up_stored_key(keys_file: Path) -> None:
     )
     assert cfg.provider == "openrouter"
     assert cfg.api_key == "sk-stored"
+
+
+def test_vertex_settings_round_trip(keys_file: Path) -> None:
+    out = planning_config.write_vertex_settings(project="demo-proj", location="")
+    assert out == {"project": "demo-proj", "location": "global"}
+    assert planning_config.read_vertex_settings() == {
+        "project": "demo-proj",
+        "location": None,
+    }
+    # Keys co-exist in the same file.
+    planning_config.write_stored_keys({"openai": "sk-x"})
+    assert planning_config.read_vertex_settings()["project"] == "demo-proj"
+    assert planning_config.read_stored_keys() == {"openai": "sk-x"}
+
+
+def test_vertex_settings_env_wins(keys_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    planning_config.write_vertex_settings(project="stored-proj")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "env-proj")
+    assert planning_config.resolve_vertex_settings() == {
+        "project": "env-proj",
+        "location": "global",
+    }
+
+
+def test_settings_vertex_endpoints(keys_file: Path) -> None:
+    client = TestClient(create_app())
+    put = client.put(
+        "/settings/llm", json={"keys": {}, "vertex": {"project": "demo-proj"}}
+    )
+    assert put.status_code == 200
+    assert put.json()["vertex"] == {
+        "project": "demo-proj",
+        "location": "global",
+    }
+    get = client.get("/settings/llm")
+    assert get.status_code == 200
+    assert get.json()["vertex"]["project"] == "demo-proj"

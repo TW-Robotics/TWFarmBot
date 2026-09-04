@@ -146,15 +146,30 @@ def llm_keys_file() -> Path:
     return Path(os.getenv("TWFB_LLM_KEYS_FILE", Path.cwd() / "data" / "llm_keys.json"))
 
 
-def read_stored_keys() -> dict[str, str]:
-    """Return stored per-provider keys (empty when none are saved)."""
+def _read_store() -> dict[str, Any]:
+    """Read the whole server settings doc (``{"keys": ..., "vertex": ...}``)."""
     try:
         raw = json.loads(llm_keys_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    if not isinstance(raw, dict):
-        return {}
-    keys = raw.get("keys", raw) if isinstance(raw, dict) else {}
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _write_store(doc: dict[str, Any]) -> None:
+    """Atomically persist the server settings doc (mode 0600)."""
+    path = llm_keys_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    os.chmod(path, 0o600)
+
+
+def read_stored_keys() -> dict[str, str]:
+    """Return stored per-provider keys (empty when none are saved)."""
+    doc = _read_store()
+    keys = doc.get("keys", doc)
     if not isinstance(keys, dict):
         return {}
     return {
@@ -177,13 +192,9 @@ def write_stored_keys(keys: Mapping[str, str | None]) -> dict[str, bool]:
             stored.pop(name, None)
         else:
             stored[name] = str(key).strip()
-    path = llm_keys_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"keys": stored}, indent=2), encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
-    os.chmod(path, 0o600)
+    doc = _read_store()
+    doc["keys"] = stored
+    _write_store(doc)
     return stored_keys_configured(stored)
 
 
@@ -195,6 +206,71 @@ def stored_keys_configured(
 
     keys = read_stored_keys() if stored is None else stored
     return {name: name in keys for name in list_provider_names()}
+
+
+VERTEX_DEFAULT_LOCATION = "global"
+
+
+def read_vertex_settings() -> dict[str, str | None]:
+    """Return stored Vertex project/location (None when not saved)."""
+    vertex = _read_store().get("vertex")
+    if not isinstance(vertex, dict):
+        return {"project": None, "location": None}
+    project = vertex.get("project")
+    location = vertex.get("location")
+    return {
+        "project": str(project).strip() or None
+        if isinstance(project, str)
+        else None,
+        "location": str(location).strip() or None
+        if isinstance(location, str)
+        else None,
+    }
+
+
+def write_vertex_settings(
+    project: str | None = None, location: str | None = None
+) -> dict[str, str | None]:
+    """Merge Vertex project/location. None = unchanged, blank = cleared.
+
+    Returns the effective settings (env wins over stored values).
+    """
+    doc = _read_store()
+    current = doc.get("vertex")
+    current = dict(current) if isinstance(current, dict) else {}
+    for field, value in (("project", project), ("location", location)):
+        if value is None:
+            continue
+        cleaned = str(value).strip()
+        if cleaned:
+            current[field] = cleaned
+        else:
+            current.pop(field, None)
+    if current:
+        doc["vertex"] = current
+    else:
+        doc.pop("vertex", None)
+    _write_store(doc)
+    return resolve_vertex_settings()
+
+
+def resolve_vertex_settings() -> dict[str, str | None]:
+    """Effective Vertex project/location: env first, then stored values."""
+    stored = read_vertex_settings()
+    return {
+        "project": (
+            os.getenv("GOOGLE_CLOUD_PROJECT")
+            or os.getenv("VERTEX_PROJECT")
+            or os.getenv("GCLOUD_PROJECT")
+            or stored.get("project")
+        ),
+        "location": (
+            os.getenv("GOOGLE_CLOUD_LOCATION")
+            or os.getenv("VERTEX_LOCATION")
+            or stored.get("location")
+            or VERTEX_DEFAULT_LOCATION
+        ),
+    }
 
 
 def _resolve_api_key(planning: Mapping[str, Any], provider: str) -> str | None:

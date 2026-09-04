@@ -177,9 +177,15 @@ class ToolRegistry:
 
     def descriptors(self) -> list[ToolDescriptor]:
         if self._descriptors is None:
-            self._descriptors = list(self._build_action_descriptors()) + list(
+            # Action and introspection vocabularies overlap (e.g. read_pin).
+            # Providers like Gemini reject duplicate function names, so merge
+            # by name — later (introspection) wins, matching by_name().
+            merged: dict[str, ToolDescriptor] = {}
+            for descriptor in list(self._build_action_descriptors()) + list(
                 self._build_introspection_descriptors()
-            )
+            ):
+                merged[descriptor.name] = descriptor
+            self._descriptors = list(merged.values())
         return self._descriptors
 
     def by_name(self) -> dict[str, ToolDescriptor]:

@@ -13,6 +13,7 @@ from planning_service.parser import PlanError, parse_plan
 def _registry() -> ActionRegistry:
     reg = ActionRegistry()
     reg.register("move", lambda a: a)
+    reg.register("move_path", lambda a: a)
     reg.register("water", lambda a: a)
     reg.register("take_photo", lambda a: a)
     return reg
@@ -79,3 +80,18 @@ def test_multiple_actions_in_order() -> None:
     assert len(out) == 2
     assert out[0].kind == "water"
     assert out[1].kind == "move"
+
+
+def test_null_like_strings_become_none() -> None:
+    # LLMs emit the string "None" for unset optional params; it must not
+    # reach safety validation (or dispatch) as a string.
+    text = (
+        '{"actions": [{'
+        '"kind": "move_path", "params": {'
+        '"waypoints": [{"x": 0, "y": 0, "z": 0}],'
+        '"speed": "None", "water_pin": "None",'
+        '"photo_at_waypoints": false}}]}'
+    )
+    (out,) = parse_plan(text, _registry())
+    assert out.params["speed"] is None
+    assert out.params["water_pin"] is None

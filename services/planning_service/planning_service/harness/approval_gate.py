@@ -13,6 +13,7 @@ from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 
 from .tool_policy import ToolDescriptor
+from ..tools import normalize_params
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class ApprovalGate:
     ) -> ToolResult:
         del propose_only
         kind = descriptor.name
+        params = normalize_params(dict(params))
 
         if descriptor.is_introspection:
             return ToolResult(status="noop", kind=kind, params=params)
@@ -74,7 +76,7 @@ class ApprovalGate:
             )
 
         try:
-            action = Action(kind=kind, params=dict(params))
+            action = Action(kind=kind, params=params)
             result = self._registry.dispatch(action)
             return ToolResult(status="ok", kind=kind, params=result.params)
         except UnsafeActionError as err:
@@ -94,4 +96,4 @@ class ApprovalGate:
 
     def check_safety(self, kind: str, params: dict[str, Any]) -> None:
         """Raise ``UnsafeActionError`` if the action would be rejected."""
-        safety_validate(Action(kind=kind, params=dict(params)))
+        safety_validate(Action(kind=kind, params=normalize_params(dict(params))))

@@ -55,12 +55,27 @@ class LlmOverrides(BaseModel):
     temperature: float | None = None
 
 
+class VertexPayload(BaseModel):
+    project: str | None = Field(
+        default=None,
+        description="GCP project id. Blank clears the stored value.",
+    )
+    location: str | None = Field(
+        default=None,
+        description="Vertex region. Blank clears the stored value.",
+    )
+
+
 class LlmKeysPayload(BaseModel):
     keys: dict[str, str | None] = Field(
         default_factory=dict,
         description=(
             "Per-provider API keys. Blank or null values delete the stored key."
         ),
+    )
+    vertex: VertexPayload | None = Field(
+        default=None,
+        description="Vertex AI project/location (project id is not secret).",
     )
 
 
@@ -229,7 +244,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
 
     @app.get("/settings/llm")
     def get_llm_settings() -> dict[str, Any]:
-        from planning_service.config import stored_keys_configured
+        from planning_service.config import resolve_vertex_settings, stored_keys_configured
 
         cfg = load_config()
         return {
@@ -241,17 +256,30 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "api_key_configured": bool(cfg.api_key),
             "keys_configured": stored_keys_configured(),
             "providers": list_provider_names(),
+            "vertex": resolve_vertex_settings(),
         }
 
     @app.put("/settings/llm")
     def put_llm_settings(payload: LlmKeysPayload) -> dict[str, Any]:
-        from planning_service.config import stored_keys_configured, write_stored_keys
+        from planning_service.config import (
+            resolve_vertex_settings,
+            stored_keys_configured,
+            write_stored_keys,
+            write_vertex_settings,
+        )
 
         log.info("PUT /settings/llm providers=%s", sorted(str(k) for k in payload.keys))
         configured = write_stored_keys(payload.keys)
+        vertex = resolve_vertex_settings()
+        if payload.vertex is not None:
+            vertex = write_vertex_settings(
+                project=payload.vertex.project,
+                location=payload.vertex.location,
+            )
         return {
             "status": "ok",
             "keys_configured": configured or stored_keys_configured(),
+            "vertex": vertex,
         }
 
     @app.post("/actions")
