@@ -70,9 +70,7 @@ def test_append_result_images_includes_capture_artifact() -> None:
         ],
     )
 
-    assert (
-        "![NIR capture](/captures/f4bdddfcb97d41e2b160d76ca28159a4/nir)" in text
-    )
+    assert "![NIR capture](/captures/f4bdddfcb97d41e2b160d76ca28159a4/nir)" in text
 
 
 def test_append_result_images_includes_capture_ndre() -> None:

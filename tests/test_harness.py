@@ -219,6 +219,8 @@ def _make_loop(
     reg: ActionRegistry,
     propose_only: bool = True,
     system_state: InMemorySystemStateProvider | None = None,
+    max_turns: int = 100,
+    max_consecutive_errors: int = 5,
 ) -> AgentLoop:
     tool_registry = ToolRegistry(reg, system_state)
     approval_gate = ApprovalGate(reg)
@@ -230,6 +232,8 @@ def _make_loop(
         context_builder=builder,
         propose_only=propose_only,
         allow_actions=True,
+        max_turns=max_turns,
+        max_consecutive_errors=max_consecutive_errors,
     )
 
 
@@ -344,3 +348,87 @@ def test_agent_loop_runs_parallel_json_tool_calls() -> None:
     moves = [tc for tc in result.tool_calls if tc["name"] == "move"]
     assert len(moves) == 3
     assert len(result.proposed_actions) == 0
+
+
+# ───────────────────────────── Long-running turns ────────────────────────────
+
+
+def test_long_run_reasons_over_many_tool_rounds() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    script: list[Any] = [
+        _tool_call("take_photo", {}, f"read_{i}") for i in range(6)
+    ] + ["finished"]
+    fake.set_responses(script)
+
+    loop = _make_loop(fake, reg)
+    result = loop.run([{"role": "user", "content": "watch the bed"}])
+    assert result.response == "finished"
+    assert [tc["name"] for tc in result.tool_calls] == ["take_photo"] * 6
+    assert result.stop_reason == "done"
+
+
+def test_max_turns_stops_endless_tool_loop() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("move", {"x": 1, "y": 2, "z": 0}, "act_1"),
+            _tool_call("move", {"x": 1, "y": 2, "z": 0}, "act_2"),
+            _tool_call("move", {"x": 1, "y": 2, "z": 0}, "act_3"),
+        ]
+    )
+    loop = _make_loop(fake, reg, max_turns=2)
+    result = loop.run([{"role": "user", "content": "keep moving"}])
+    assert result.stop_reason == "max_turns"
+    assert len(result.tool_calls) == 2
+
+
+def test_consecutive_errors_stop_the_run() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("no_such_tool", {}, "bad_1"),
+            _tool_call("no_such_tool", {}, "bad_2"),
+            _tool_call("no_such_tool", {}, "bad_3"),
+        ]
+    )
+    loop = _make_loop(fake, reg, max_consecutive_errors=2)
+    result = loop.run([{"role": "user", "content": "do the thing"}])
+    assert result.stop_reason == "max_errors"
+    assert len(result.tool_calls) == 2
+
+
+def test_stream_emits_thinking_then_tool_call_then_meta() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            AIMessage(
+                content="<think>checking light</think>looking",
+                tool_calls=[
+                    {
+                        "name": "take_photo",
+                        "args": {},
+                        "id": "read_1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            "shot taken",
+        ]
+    )
+
+    loop = _make_loop(fake, reg)
+    events = list(loop.stream([{"role": "user", "content": "look around"}]))
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        by_type.setdefault(str(event["type"]), []).append(event)
+    assert "checking light" in [
+        str(e.get("content", "")) for e in by_type.get("thinking", [])
+    ]
+    assert [e["name"] for e in by_type.get("tool_call", [])] == ["take_photo"]
+    metas = by_type.get("meta", [])
+    assert len(metas) == 1
+    assert metas[0]["stop_reason"] == "done"

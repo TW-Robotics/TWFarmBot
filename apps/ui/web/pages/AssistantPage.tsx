@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChatComposer,
   ChatLayout,
@@ -36,6 +36,10 @@ type ProgramItem = {
   result?: unknown;
   status?: string;
 };
+type TranscriptItem =
+  | { kind: "text"; text: string }
+  | { kind: "thinking"; text: string }
+  | { kind: "tool"; name: string; args?: unknown; result?: unknown };
 
 type ChatMsg = {
   role: "user" | "assistant";
@@ -50,6 +54,7 @@ type ChatMsg = {
   rejected?: boolean;
   executing?: boolean;
   trace?: { turn?: number; response_id?: string; status?: string; output?: Record<string, unknown>[] }[];
+  transcript?: TranscriptItem[];
 };
 
 export function AssistantPage() {
@@ -67,6 +72,7 @@ export function AssistantPage() {
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
+  const stopRef = useRef<AbortController | null>(null);
   const [activeProfileName, setActiveProfileName] = useState<string | null>(null);
 
   const loadModels = useCallback(async () => {
@@ -79,9 +85,13 @@ export function AssistantPage() {
             method: "POST",
             body: JSON.stringify({ llm }),
           })
-        : await api<{ models?: string[]; current?: string; provider?: string }>(
-            `/models?provider=${encodeURIComponent(profile?.provider || "openai")}`,
-          );
+        : await (async () => {
+            const server = await api<{ provider?: string }>("/settings/llm");
+            const provider = profile?.provider || server.provider || "openai";
+            return api<{ models?: string[]; current?: string; provider?: string }>(
+              `/models?provider=${encodeURIComponent(provider)}`,
+            );
+          })();
       const list = result.models || [];
       setModels(list);
       const remembered = localStorage.getItem(`${storageKey}:model`);
@@ -116,6 +126,8 @@ export function AssistantPage() {
     const value = text.trim();
     if (!value || busy) return;
     setBusy(true);
+    const controller = new AbortController();
+    stopRef.current = controller;
     const request = [...messages, { role: "user" as const, content: value }];
     const assistant: ChatMsg = {
       role: "assistant",
@@ -126,6 +138,20 @@ export function AssistantPage() {
       streaming: true,
     };
     setMessages([...request, assistant]);
+    const pushTranscript = (item: TranscriptItem) => {
+      const current = assistant.transcript ?? [];
+      const last = current[current.length - 1];
+      if (
+        (item.kind === "text" || item.kind === "thinking") &&
+        last !== undefined &&
+        last.kind === item.kind
+      ) {
+        last.text += item.text;
+      } else {
+        current.push(item);
+      }
+      assistant.transcript = current;
+    };
     try {
       await streamChat(
         {
@@ -135,13 +161,18 @@ export function AssistantPage() {
           llm: llmOverridesFromProfile(getActiveLlmProfile()),
         },
         (event) => {
-          if (event.type === "delta") assistant.content += event.content || "";
-          else if (event.type === "thinking") assistant.thinking = (assistant.thinking || "") + (event.content || "");
-          else if (event.type === "tool_call") {
+          if (event.type === "delta") {
+            assistant.content += event.content || "";
+            pushTranscript({ kind: "text", text: event.content || "" });
+          } else if (event.type === "thinking") {
+            assistant.thinking = (assistant.thinking || "") + (event.content || "");
+            pushTranscript({ kind: "thinking", text: event.content || "" });
+          } else if (event.type === "tool_call") {
             assistant.tool_calls = [
               ...(assistant.tool_calls || []),
               { name: event.name, args: event.args, result: event.result, caller: event.caller },
             ];
+            pushTranscript({ kind: "tool", name: event.name, args: event.args, result: event.result });
           } else if (event.type === "program") {
             const next = [...(assistant.programs || [])];
             const index = next.findIndex((item) => item.call_id && item.call_id === event.call_id);
@@ -157,9 +188,12 @@ export function AssistantPage() {
           } else if (event.type === "error") assistant.error = event.error;
           setMessages([...request, { ...assistant }]);
         },
+        { signal: controller.signal },
       );
       assistant.streaming = false;
-      if (!assistant.content && !assistant.error) {
+      if (controller.signal.aborted) {
+        pushTranscript({ kind: "text", text: "\n\n*Stopped by user.*" });
+      } else if (!assistant.content && !assistant.error) {
         assistant.content = "I could not produce a response. Try again with a more specific request.";
       }
       setMessages([...request, { ...assistant }]);
@@ -169,6 +203,7 @@ export function AssistantPage() {
       setMessages([...request, { ...assistant }]);
       toast({ body: assistant.error, type: "error" });
     } finally {
+      stopRef.current = null;
       setBusy(false);
     }
   };
@@ -208,6 +243,7 @@ export function AssistantPage() {
           <ChatComposer
             placeholder="Ask about your garden…"
             onSubmit={(value) => void send(value)}
+            onStop={() => stopRef.current?.abort()}
             isStopShown={busy}
             isDisabled={busy}
           />
@@ -216,42 +252,94 @@ export function AssistantPage() {
         <ChatMessageList isStreaming={busy}>
           {messages.map((message, index) => (
             <ChatMessage key={index} sender={message.role}>
-              {message.tool_calls?.length ? (
-                <ChatToolCalls
-                  calls={message.tool_calls.map((tool) => ({
-                    name: tool.name,
-                    target: `${tool.caller ? "program" : "direct"} · ${JSON.stringify(tool.args || {})}`,
-                    status: "complete" as const,
-                  }))}
-                />
-              ) : null}
-              {message.programs?.length ? (
-                <details className="program-trace">
-                  <summary>
-                    Program output ({message.programs.length})
-                  </summary>
-                  {message.programs.map((program, programIndex) => (
-                    <div key={program.call_id || programIndex}>
-                      <div>{program.status || "completed"}</div>
-                      {program.code ? <pre>{program.code}</pre> : null}
-                      {program.result != null ? (
-                        <pre>
-                          {typeof program.result === "string"
-                            ? program.result
-                            : JSON.stringify(program.result, null, 2)}
-                        </pre>
-                      ) : null}
-                    </div>
-                  ))}
-                </details>
-              ) : null}
-              <ChatMessageBubble variant={message.role === "assistant" ? "ghost" : "filled"}>
-                <Markdown density="compact">
-                  {resolveChatImages(
-                    message.error || message.content || (message.streaming ? "…" : ""),
-                  )}
-                </Markdown>
-              </ChatMessageBubble>
+              {message.role === "assistant" && message.transcript?.length ? (
+                <VStack gap={2}>
+                  {message.error ? (
+                    <ChatMessageBubble variant="ghost">
+                      <Markdown density="compact">{message.error}</Markdown>
+                    </ChatMessageBubble>
+                  ) : null}
+                  {message.transcript.map((item, itemIndex) => {
+                    if (item.kind === "tool") {
+                      const resultRecord =
+                        typeof item.result === "object" && item.result !== null
+                          ? (item.result as Record<string, unknown>)
+                          : null;
+                      const failed =
+                        resultRecord !== null && "error" in resultRecord;
+                      return (
+                        <ChatToolCalls
+                          key={itemIndex}
+                          calls={[
+                            {
+                              name: item.name,
+                              target: JSON.stringify(item.args ?? {}),
+                              status: failed ? ("error" as const) : ("complete" as const),
+                              errorMessage: failed
+                                ? String(resultRecord?.error ?? "failed")
+                                : undefined,
+                              resultDetail: (
+                                <pre
+                                  style={{
+                                    whiteSpace: "pre-wrap",
+                                    overflowWrap: "anywhere",
+                                    margin: "4px 0",
+                                  }}
+                                >
+                                  {typeof item.result === "string"
+                                    ? item.result
+                                    : JSON.stringify(item.result, null, 2)}
+                                </pre>
+                              ),
+                            },
+                          ]}
+                        />
+                      );
+                    }
+                    if (item.kind === "thinking") {
+                      return (
+                        <details key={itemIndex} style={{ fontSize: 13 }}>
+                          <summary style={{ cursor: "pointer" }}>Reasoning</summary>
+                          <pre
+                            style={{
+                              whiteSpace: "pre-wrap",
+                              overflowWrap: "anywhere",
+                            }}
+                          >
+                            {item.text}
+                          </pre>
+                        </details>
+                      );
+                    }
+                    return (
+                      <ChatMessageBubble key={itemIndex} variant="ghost">
+                        <Markdown density="compact">
+                          {resolveChatImages(item.text)}
+                        </Markdown>
+                      </ChatMessageBubble>
+                    );
+                  })}
+                </VStack>
+              ) : (
+                <>
+                  {message.tool_calls?.length ? (
+                    <ChatToolCalls
+                      calls={message.tool_calls.map((tool) => ({
+                        name: tool.name,
+                        target: `${tool.caller ? "program" : "direct"} · ${JSON.stringify(tool.args || {})}`,
+                        status: "complete" as const,
+                      }))}
+                    />
+                  ) : null}
+                  <ChatMessageBubble variant={message.role === "assistant" ? "ghost" : "filled"}>
+                    <Markdown density="compact">
+                      {resolveChatImages(
+                        message.error || message.content || (message.streaming ? "…" : ""),
+                      )}
+                    </Markdown>
+                  </ChatMessageBubble>
+                </>
+              )}
               {message.trace?.length ? (
                 <details style={{ margin: "8px 12px", fontSize: 13 }}>
                   <summary style={{ cursor: "pointer" }}>Execution trace ({message.trace.length} turn{message.trace.length === 1 ? "" : "s"})</summary>

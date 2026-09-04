@@ -11,6 +11,7 @@ def handle_capture_ndre(action: Action) -> Action:
     return_to_start = bool(action.params.get("return_to_start", True))
     result = capture_spectral_pair(return_to_start=return_to_start)
     metrics = result.get("metrics") or {}
+
     # Keep band artifact ids for debugging, but omit attachment URLs so the
     # agent reasons from interpretation + metrics (NDRE map is user-only).
     def _band_ref(band: dict | None) -> dict | None:

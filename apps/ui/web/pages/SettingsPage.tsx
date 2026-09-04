@@ -27,6 +27,7 @@ type ServerLlmSettings = {
   timeout_s?: number;
   temperature?: number;
   api_key_configured?: boolean;
+  keys_configured?: Record<string, boolean>;
 };
 
 function profileToPayload(profile: LlmProfile) {
@@ -53,6 +54,8 @@ export function SettingsPage({
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [url, setUrl] = useState(apiUrl());
   const [serverLlm, setServerLlm] = useState<ServerLlmSettings | null>(null);
+  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const [savingKeys, setSavingKeys] = useState(false);
   const [testingModels, setTestingModels] = useState(false);
 
   const activeProfile = useMemo(
@@ -158,6 +161,52 @@ export function SettingsPage({
       });
     } finally {
       setTestingModels(false);
+    }
+  };
+  const saveServerKeys = async () => {
+    const keys: Record<string, string> = {};
+    for (const [provider, value] of Object.entries(keyDrafts)) {
+      if (value.trim()) keys[provider] = value.trim();
+    }
+    if (Object.keys(keys).length === 0) {
+      toast({ body: "Enter at least one key first" });
+      return;
+    }
+    setSavingKeys(true);
+    try {
+      await api("/settings/llm", {
+        method: "PUT",
+        body: JSON.stringify({ keys }),
+      });
+      setKeyDrafts({});
+      await refreshServerLlm();
+      toast({ body: "Server keys saved" });
+    } catch (error) {
+      toast({
+        body: error instanceof Error ? error.message : "Saving keys failed",
+        type: "error",
+      });
+    } finally {
+      setSavingKeys(false);
+    }
+  };
+
+  const clearServerKey = async (provider: string) => {
+    setSavingKeys(true);
+    try {
+      await api("/settings/llm", {
+        method: "PUT",
+        body: JSON.stringify({ keys: { [provider]: "" } }),
+      });
+      await refreshServerLlm();
+      toast({ body: `Cleared ${provider} key` });
+    } catch (error) {
+      toast({
+        body: error instanceof Error ? error.message : "Clearing key failed",
+        type: "error",
+      });
+    } finally {
+      setSavingKeys(false);
     }
   };
 
@@ -290,6 +339,45 @@ export function SettingsPage({
               Create a profile to override provider, API key, and model from the UI.
             </Text>
           )}
+        </VStack>
+      </Card>
+      <Card padding={4}>
+        <VStack gap={3}>
+          <Text weight="semibold">Server API keys</Text>
+          <Text type="supporting" color="secondary">
+            Stored on the server (mode 0600, never committed). Used whenever a
+            request has no key of its own — env vars still win when set.
+          </Text>
+          {LLM_PROVIDERS.map((item) => (
+            <HStack gap={2} key={item.id}>
+              <TextInput
+                label={`${item.label} key`}
+                value={keyDrafts[item.id] ?? ""}
+                onChange={(value) =>
+                  setKeyDrafts((current) => ({ ...current, [item.id]: value }))
+                }
+                type="password"
+              />
+              <Text type="supporting">
+                {serverLlm?.keys_configured?.[item.id] ? "stored" : "not set"}
+              </Text>
+              {serverLlm?.keys_configured?.[item.id] ? (
+                <Button
+                  label="Clear"
+                  onClick={() => void clearServerKey(item.id)}
+                  isDisabled={savingKeys}
+                />
+              ) : null}
+            </HStack>
+          ))}
+          <HStack gap={2}>
+            <Button
+              label={savingKeys ? "Saving…" : "Save server keys"}
+              variant="primary"
+              onClick={() => void saveServerKeys()}
+              isDisabled={savingKeys}
+            />
+          </HStack>
         </VStack>
       </Card>
     </VStack>

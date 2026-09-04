@@ -55,6 +55,15 @@ class LlmOverrides(BaseModel):
     temperature: float | None = None
 
 
+class LlmKeysPayload(BaseModel):
+    keys: dict[str, str | None] = Field(
+        default_factory=dict,
+        description=(
+            "Per-provider API keys. Blank or null values delete the stored key."
+        ),
+    )
+
+
 class PlanPayload(BaseModel):
     request: str = Field(..., min_length=1, description="Natural-language task.")
     debug: bool = Field(
@@ -101,11 +110,15 @@ def _resolve_llm_config(
     llm: LlmOverrides | None,
     model_name: str | None = None,
 ) -> PlannerConfig:
+    from planning_service.config import resolve_api_key_for
+
     cfg = load_config()
     if llm is not None:
         cfg = apply_overrides(cfg, **llm.model_dump(exclude_none=True))
     if model_name:
         cfg = replace(cfg, model=model_name)
+    if cfg.api_key is None:
+        cfg = replace(cfg, api_key=resolve_api_key_for(cfg.provider))
     return cfg
 
 
@@ -216,6 +229,8 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
 
     @app.get("/settings/llm")
     def get_llm_settings() -> dict[str, Any]:
+        from planning_service.config import stored_keys_configured
+
         cfg = load_config()
         return {
             "provider": cfg.provider,
@@ -224,7 +239,19 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "timeout_s": cfg.timeout_s,
             "temperature": cfg.temperature,
             "api_key_configured": bool(cfg.api_key),
+            "keys_configured": stored_keys_configured(),
             "providers": list_provider_names(),
+        }
+
+    @app.put("/settings/llm")
+    def put_llm_settings(payload: LlmKeysPayload) -> dict[str, Any]:
+        from planning_service.config import stored_keys_configured, write_stored_keys
+
+        log.info("PUT /settings/llm providers=%s", sorted(str(k) for k in payload.keys))
+        configured = write_stored_keys(payload.keys)
+        return {
+            "status": "ok",
+            "keys_configured": configured or stored_keys_configured(),
         }
 
     @app.post("/actions")

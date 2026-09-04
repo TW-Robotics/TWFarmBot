@@ -9,9 +9,12 @@ Run any inference mode; traverse is the default.
 
 Usage:
     python client.py --image /path/to/image.jpg --mode traverse
-    python client.py --image /path/to/image.jpg --mode segment --classes "wooden bridge,tree,water"
-    python client.py --image /path/to/image.jpg --mode similarity --positive "wooden bridge" --negative "tree,water"
-    python client.py --image /path/to/image.jpg --mode language --positive "wooden bridge" --negative "tree,water"
+    python client.py --image /path/to/image.jpg --mode segment \
+        --classes "wooden bridge,tree,water"
+    python client.py --image /path/to/image.jpg --mode similarity \
+        --positive "wooden bridge" --negative "tree,water"
+    python client.py --image /path/to/image.jpg --mode language \
+        --positive "wooden bridge" --negative "tree,water"
 """
 
 import argparse
@@ -60,6 +63,7 @@ def build_prompt(args: argparse.Namespace) -> str:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI flags for mode, image, server URL, and output path."""
     parser = argparse.ArgumentParser(
         description="Run ReSiReg inference modes via the local server."
     )
@@ -120,6 +124,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Send one image to the server and save the result image."""
     args = parse_args()
 
     prompt_text = build_prompt(args)

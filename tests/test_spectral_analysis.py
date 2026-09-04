@@ -62,7 +62,9 @@ def test_apply_image_align_translation() -> None:
     assert warped[35:55, 60:80].mean() > 100
 
 
-def test_analyze_spectral_pair_returns_metrics(gradient_pair: tuple[Path, Path]) -> None:
+def test_analyze_spectral_pair_returns_metrics(
+    gradient_pair: tuple[Path, Path],
+) -> None:
     result = analyze_spectral_pair(
         *gradient_pair,
         image_align={"dx_px": 0, "dy_px": 0, "rotation_deg": 0},
@@ -94,7 +96,9 @@ def test_write_capture_file_roundtrip(tmp_path: Path, monkeypatch) -> None:
         import vision_service as vs
 
         path = _P(vs.__file__).parent / "capture.py"
-        spec = importlib.util.spec_from_file_location("vision_service._capture_mod", path)
+        spec = importlib.util.spec_from_file_location(
+            "vision_service._capture_mod", path
+        )
         assert spec and spec.loader
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -104,4 +108,3 @@ def test_write_capture_file_roundtrip(tmp_path: Path, monkeypatch) -> None:
     assert out == tmp_path / "abc-ndre.png"
     assert out.read_bytes() == b"png-bytes"
     assert mod.capture_path("abc", "ndre") == out
-

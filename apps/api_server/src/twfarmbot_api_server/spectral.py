@@ -283,7 +283,11 @@ def post_spectral_capture_pair(payload: SpectralPairPayload) -> dict[str, Any]:
     """Capture NIR, move by offset, capture red-edge, return NDRE."""
     try:
         offset = (
-            {"x": payload.offset_mm.x, "y": payload.offset_mm.y, "z": payload.offset_mm.z}
+            {
+                "x": payload.offset_mm.x,
+                "y": payload.offset_mm.y,
+                "z": payload.offset_mm.z,
+            }
             if payload.offset_mm is not None
             else None
         )

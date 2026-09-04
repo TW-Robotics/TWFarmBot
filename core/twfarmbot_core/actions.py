@@ -68,16 +68,14 @@ def _summarize_capture(params: dict[str, Any]) -> str:
 
 
 def _summarize_capture_ndre(params: dict[str, Any]) -> str:
-    interp = (
-        params.get("interpretation")
-        if isinstance(params.get("interpretation"), dict)
-        else {}
-    )
+    interp_raw = params.get("interpretation")
+    interp: dict[str, Any] = interp_raw if isinstance(interp_raw, dict) else {}
     label = interp.get("label")
     hint = interp.get("action_hint")
     if label and hint:
         return f"🌿 **capture_ndre** ({label} → {hint})"
-    ndre = params.get("ndre") if isinstance(params.get("ndre"), dict) else {}
+    ndre_raw = params.get("ndre")
+    ndre: dict[str, Any] = ndre_raw if isinstance(ndre_raw, dict) else {}
     mean = ndre.get("mean")
     if mean is not None:
         return f"🌿 **capture_ndre** (mean {mean})"
