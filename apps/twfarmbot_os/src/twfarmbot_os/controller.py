@@ -276,9 +276,7 @@ class FarmduinoController:
         axis = axis.lower()
         current = {"x": self.x, "y": self.y, "z": self.z}
         current[axis] = current[axis] + float(distance)
-        return self.move_absolute(
-            current["x"], current["y"], current["z"], speed=speed
-        )
+        return self.move_absolute(current["x"], current["y"], current["z"], speed=speed)
 
     def find_home(self, axis: str = "all", speed: float | None = None) -> list[Report]:
         if speed is not None:

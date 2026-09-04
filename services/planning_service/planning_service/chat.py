@@ -54,9 +54,7 @@ def _make_loop(
     )
     tool_registry = ToolRegistry(registry, system_state)
     approval_gate = ApprovalGate(registry)
-    context_builder = ContextBuilder(
-        tool_registry, world=world
-    )
+    context_builder = ContextBuilder(tool_registry, world=world)
     chat_model = base_model
     selected_model = model_name or cfg.model
     return AgentLoop(

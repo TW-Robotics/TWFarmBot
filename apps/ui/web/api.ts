@@ -93,18 +93,22 @@ export async function streamChat(
     llm?: LlmOverrides | null;
   },
   onEvent: (event: any) => void,
+  options?: { signal?: AbortSignal },
 ): Promise<void> {
-  const response = await fetch(`${apiUrl()}/chat/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const body = await parseBody(response);
-    throw new ApiError(errorMessage(body, response.status), response.status);
-  }
-  if (!response.body) throw new Error("The API returned no stream");
-  const reader = response.body.getReader();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  try {
+    const response = await fetch(`${apiUrl()}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    });
+    if (!response.ok) {
+      const body = await parseBody(response);
+      throw new ApiError(errorMessage(body, response.status), response.status);
+    }
+    if (!response.body) throw new Error("The API returned no stream");
+    reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   const handle = (line: string) => {
@@ -113,15 +117,22 @@ export async function streamChat(
     if (!raw || raw === "[DONE]") return;
     onEvent(JSON.parse(raw));
   };
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buffer += decoder.decode(chunk.value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    lines.forEach(handle);
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      lines.forEach(handle);
+    }
+    if (buffer) handle(buffer);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      await reader?.cancel().catch(() => undefined);
+      return;
+    }
+    throw error;
   }
-  if (buffer) handle(buffer);
 }
 
 export function parseNumber(value: string): number | null {

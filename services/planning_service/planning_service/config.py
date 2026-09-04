@@ -8,14 +8,15 @@ Two layers, highest priority first:
    default). Holds the per-deployment defaults — base URL, model name,
    timeout, temperature.
 
-``api_key`` deliberately lives in env only — it must never end up in
-version control. The YAML is allowed to reference an env var name via
-``api_key_env: PLANNING_LLM_API_KEY`` if a deployment wants the
-non-secret bits in YAML but the secret resolved from env.
+``api_key`` never lives in version control. Resolution order for keys:
+env (``PLANNING_LLM_API_KEY`` / ``api_key_env`` ref) first, then the
+server-side key store (``data/llm_keys.json``, written from the UI
+settings page, mode 0600).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from dataclasses import dataclass, replace
@@ -83,7 +84,7 @@ def load_config(
         or DEFAULT_BASE_URL
     ).rstrip("/")
     model = os.getenv("PLANNING_LLM_MODEL") or planning.get("model") or DEFAULT_MODEL
-    api_key = _resolve_api_key(planning)
+    api_key = _resolve_api_key(planning, provider)
     timeout_s = float(
         os.getenv("PLANNING_LLM_TIMEOUT_S")
         or planning.get("timeout_s")
@@ -126,6 +127,8 @@ def apply_overrides(cfg: PlannerConfig, **overrides: Any) -> PlannerConfig:
     for key, value in overrides.items():
         if value is None:
             continue
+        if key == "api_key" and not str(value).strip():
+            continue
         if key == "base_url":
             updates[key] = str(value).rstrip("/")
         elif key in {"timeout_s", "temperature"}:
@@ -138,12 +141,68 @@ def apply_overrides(cfg: PlannerConfig, **overrides: Any) -> PlannerConfig:
     return replace(cfg, **updates) if updates else cfg
 
 
-def _resolve_api_key(planning: Mapping[str, Any]) -> str | None:
-    """Resolve the API key from env, with optional ``api_key_env`` indirection.
+def llm_keys_file() -> Path:
+    """Path of the server-side key store (never in version control)."""
+    return Path(os.getenv("TWFB_LLM_KEYS_FILE", Path.cwd() / "data" / "llm_keys.json"))
+
+
+def read_stored_keys() -> dict[str, str]:
+    """Return stored per-provider keys (empty when none are saved)."""
+    try:
+        raw = json.loads(llm_keys_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    keys = raw.get("keys", raw) if isinstance(raw, dict) else {}
+    if not isinstance(keys, dict):
+        return {}
+    return {
+        str(provider).lower(): key
+        for provider, key in keys.items()
+        if isinstance(key, str) and key.strip()
+    }
+
+
+def write_stored_keys(keys: Mapping[str, str | None]) -> dict[str, bool]:
+    """Merge per-provider keys into the store; blank values delete entries.
+
+    Returns which providers now have a key stored (booleans only — callers
+    must never surface the values).
+    """
+    stored = read_stored_keys()
+    for provider, key in keys.items():
+        name = str(provider).lower()
+        if key is None or not str(key).strip():
+            stored.pop(name, None)
+        else:
+            stored[name] = str(key).strip()
+    path = llm_keys_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"keys": stored}, indent=2), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    os.chmod(path, 0o600)
+    return stored_keys_configured(stored)
+
+
+def stored_keys_configured(
+    stored: Mapping[str, str] | None = None,
+) -> dict[str, bool]:
+    """Return per-provider key presence (booleans only, never values)."""
+    from .providers import list_provider_names
+
+    keys = read_stored_keys() if stored is None else stored
+    return {name: name in keys for name in list_provider_names()}
+
+
+def _resolve_api_key(planning: Mapping[str, Any], provider: str) -> str | None:
+    """Resolve the API key: env first, then the server-side key store.
 
     The YAML block may set ``api_key_env: SOME_ENV_VAR`` to declare which
-    env var holds the secret; the actual value is always read from the
-    environment so secrets never live in the YAML file.
+    env var holds the secret. Otherwise the per-provider server store
+    (written from the UI settings page) is used.
     """
     direct = os.getenv("PLANNING_LLM_API_KEY")
     if direct:
@@ -151,4 +210,17 @@ def _resolve_api_key(planning: Mapping[str, Any]) -> str | None:
     ref = planning.get("api_key_env")
     if ref:
         return os.getenv(ref) or None
-    return None
+    return read_stored_keys().get(provider.lower())
+
+
+def resolve_api_key_for(provider: str) -> str | None:
+    """Resolve the key for an explicitly selected provider.
+
+    Used after per-request overrides change the provider: env first,
+    then the server-side key store. Never returns a value to callers
+    that log it — treat the result as secret.
+    """
+    direct = os.getenv("PLANNING_LLM_API_KEY")
+    if direct:
+        return direct
+    return read_stored_keys().get(provider.lower())

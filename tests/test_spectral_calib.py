@@ -42,9 +42,7 @@ def test_detect_aruco_marker_centroid(aruco_image: Path) -> None:
 
 def test_build_calibration_computes_band_separation(aruco_image: Path) -> None:
     nir = observe_band("nir", aruco_image, {"x": 100.0, "y": 200.0, "z": 0.0})
-    rededge = observe_band(
-        "rededge", aruco_image, {"x": 100.0, "y": 282.0, "z": 0.0}
-    )
+    rededge = observe_band("rededge", aruco_image, {"x": 100.0, "y": 282.0, "z": 0.0})
     doc = build_calibration([nir, rededge])
     assert doc["computed"]["band_separation_mm"]["y"] == pytest.approx(82.0)
     assert doc["shared"]["gsd_mm_per_px"] == pytest.approx(

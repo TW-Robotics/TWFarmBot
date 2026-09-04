@@ -82,8 +82,12 @@ export function llmOverridesFromProfile(profile: LlmProfile | null): LlmOverride
 
 export function createEmptyProfile(name = "New profile"): LlmProfile {
   const defaults = PROVIDER_DEFAULTS.openai;
+  const randomId =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   return {
-    id: crypto.randomUUID(),
+    id: randomId,
     name,
     provider: "openai",
     baseUrl: defaults.baseUrl,

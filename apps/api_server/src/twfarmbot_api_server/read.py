@@ -67,11 +67,7 @@ def _with_attachment_urls(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
 @router.get("/position")
 def get_position(refresh: bool = False) -> dict[str, Any]:
     try:
-        xyz = (
-            farmbot.backend.refresh_xyz()
-            if refresh
-            else farmbot.backend.get_xyz()
-        )
+        xyz = farmbot.backend.refresh_xyz() if refresh else farmbot.backend.get_xyz()
     except Exception as err:  # noqa: BLE001
         raise HTTPException(
             status_code=502, detail=f"farmbot read failed: {err}"

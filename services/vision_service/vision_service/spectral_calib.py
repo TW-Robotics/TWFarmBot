@@ -256,7 +256,9 @@ def build_calibration(
     }
 
 
-def save_calibration(doc: dict[str, Any], path: str | Path = DEFAULT_CONFIG_PATH) -> Path:
+def save_calibration(
+    doc: dict[str, Any], path: str | Path = DEFAULT_CONFIG_PATH
+) -> Path:
     """Write calibration YAML."""
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)

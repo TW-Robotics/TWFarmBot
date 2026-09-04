@@ -12,7 +12,9 @@ def test_speed_percent_maps_to_steps_per_second() -> None:
 
 
 def test_axis_speeds_are_integers() -> None:
-    speeds = resolve_axis_speeds(50, min_steps_s=(50, 50, 50), max_steps_s=(400, 400, 400))
+    speeds = resolve_axis_speeds(
+        50, min_steps_s=(50, 50, 50), max_steps_s=(400, 400, 400)
+    )
     assert speeds == (223, 223, 223)
 
 

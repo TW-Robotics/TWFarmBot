@@ -19,7 +19,7 @@ def _v4l2_prepare(device: Path) -> None:
         return
     exposure = os.getenv("FARMBOT_CAMERA_EXPOSURE", "300")
     controls = [
-        f"auto_exposure=1",
+        "auto_exposure=1",
         f"exposure_time_absolute={exposure}",
         "backlight_compensation=0",
     ]
@@ -39,7 +39,7 @@ def grab_uvc_still(device: Path, dest: Path, *, dwell_s: float = 0.5) -> None:
     try:
         if not cap.isOpened():
             raise RuntimeError(f"cannot open UVC device {device}")
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))  # type: ignore[attr-defined]
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         warmup = int(os.getenv("FARMBOT_CAMERA_WARMUP_FRAMES", "8"))

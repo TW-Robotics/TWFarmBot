@@ -68,9 +68,7 @@ def _check_axis_value(axis: str, value: float, limits: SafetyLimits) -> None:
         return
     cap = limits.max_axis_mm.get(axis, float("inf"))
     if abs(value) > cap:
-        raise UnsafeActionError(
-            f"move action {axis}={value} exceeds |max| {cap} mm"
-        )
+        raise UnsafeActionError(f"move action {axis}={value} exceeds |max| {cap} mm")
 
 
 def _check_move(action: Action, limits: SafetyLimits) -> None:
@@ -236,7 +234,11 @@ def _check_capture_ndre(action: Action, limits: SafetyLimits) -> None:
         return
 
     if isinstance(start, dict):
-        x0, y0, z0 = float(start.get("x", 0)), float(start.get("y", 0)), float(start.get("z", 0))
+        x0, y0, z0 = (
+            float(start.get("x", 0)),
+            float(start.get("y", 0)),
+            float(start.get("z", 0)),
+        )
     elif isinstance(start, (list, tuple)) and len(start) >= 3:
         x0, y0, z0 = float(start[0]), float(start[1]), float(start[2])
     else:

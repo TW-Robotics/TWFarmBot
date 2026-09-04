@@ -60,13 +60,14 @@ class ReasoningController:
             yield {"type": "thinking", "content": "".join(accumulated_reasoning)}
 
     @classmethod
-    def split_text(cls, text: str) -> Iterator[dict[str, Any]]:
-        """Split text into alternating delta and thinking events.
+    def split_stream(cls, text: str) -> tuple[list[dict[str, Any]], str]:
+        """Split text into events, holding back an unclosed ``<think>`` block.
 
-        Yields ``{"type": "delta", ...}`` and ``{"type": "thinking", ...}``
-        pieces so that ``<think>`` blocks appear as reasoning rather than
-        visible output.
+        Returns ``(events, remainder)`` where ``remainder`` is either empty
+        or starts at an unclosed ``<think>`` tag. Feed ``remainder`` plus
+        the next chunk back into this method; complete pairs always flush.
         """
+        events: list[dict[str, Any]] = []
         buffer = text
         while True:
             start = buffer.find("<think>")
@@ -76,11 +77,30 @@ class ReasoningController:
                 think = buffer[start + 7 : end]
                 suffix = buffer[end + 8 :]
                 if prefix:
-                    yield {"type": "delta", "content": prefix}
+                    events.append({"type": "delta", "content": prefix})
                 if think:
-                    yield {"type": "thinking", "content": think}
+                    events.append({"type": "thinking", "content": think})
                 buffer = suffix
                 continue
             break
-        if buffer:
-            yield {"type": "delta", "content": buffer}
+        tag = buffer.find("<think>")
+        if tag == -1:
+            if buffer:
+                events.append({"type": "delta", "content": buffer})
+            return events, ""
+        if tag > 0:
+            events.append({"type": "delta", "content": buffer[:tag]})
+        return events, buffer[tag:]
+
+    @classmethod
+    def split_text(cls, text: str) -> Iterator[dict[str, Any]]:
+        """Split text into alternating delta and thinking events.
+
+        Yields ``{"type": "delta", ...}`` and ``{"type": "thinking", ...}``
+        pieces so that ``<think>`` blocks appear as reasoning rather than
+        visible output.
+        """
+        events, rest = cls.split_stream(text)
+        yield from events
+        if rest:
+            yield {"type": "delta", "content": rest}

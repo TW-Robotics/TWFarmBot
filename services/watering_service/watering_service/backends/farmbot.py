@@ -42,9 +42,7 @@ class FarmBotBackend:
         log.info("farmbot: move x=%s y=%s z=%s speed=%s", x, y, z, speed)
         self._bot().move(x, y, z, speed=speed)
 
-    def move_axis(
-        self, axis: str, distance: float, speed: float | None = None
-    ) -> None:
+    def move_axis(self, axis: str, distance: float, speed: float | None = None) -> None:
         log.info(
             "farmbot: move_axis axis=%s distance=%s speed=%s",
             axis,
