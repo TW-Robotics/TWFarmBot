@@ -2,7 +2,7 @@ env: dev
 log_level: INFO
 
 # LLM planner configuration. Read by planning_service.load_config().
-# Resolution: PLANNING_LLM_* env var → this block → built-in default.
+# Resolution: PLANNING_LLM_* env → Settings tab store → this block → default.
 # Secrets (api_key) are NEVER stored here — set PLANNING_LLM_API_KEY in
 # the environment, or reference a different env var via api_key_env.
 planning:

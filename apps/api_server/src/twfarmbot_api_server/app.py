@@ -66,6 +66,21 @@ class VertexPayload(BaseModel):
     )
 
 
+class VoicePayload(BaseModel):
+    api_key: str | None = Field(
+        default=None,
+        description="Muse Voice Transcribe key. Blank clears the stored value.",
+    )
+
+
+class PlanningPayload(BaseModel):
+    provider: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    timeout_s: float | None = None
+    temperature: float | None = None
+
+
 class LlmKeysPayload(BaseModel):
     keys: dict[str, str | None] = Field(
         default_factory=dict,
@@ -76,6 +91,14 @@ class LlmKeysPayload(BaseModel):
     vertex: VertexPayload | None = Field(
         default=None,
         description="Vertex AI project/location (project id is not secret).",
+    )
+    voice: VoicePayload | None = Field(
+        default=None,
+        description="Muse Voice Transcribe key (never returned on GET).",
+    )
+    planning: PlanningPayload | None = Field(
+        default=None,
+        description="Default chat provider/model saved from the Settings tab.",
     )
 
 
@@ -123,9 +146,18 @@ class ChatPayload(BaseModel):
         default=None,
         description="Tool-call ids to run after approval. Empty list rejects them.",
     )
+    skip_approval: bool = Field(
+        default=False,
+        description="If true, run risky tools without an operator interrupt.",
+    )
 
 
 class ChatCancelPayload(BaseModel):
+    thread_id: str | None = None
+
+
+class ChatFollowupPayload(BaseModel):
+    text: str = Field(..., min_length=1)
     thread_id: str | None = None
 
 
@@ -266,9 +298,14 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "api_key_configured": bool(cfg.api_key),
         }
 
-    @app.get("/settings/llm")
-    def get_llm_settings() -> dict[str, Any]:
-        from planning_service.config import resolve_vertex_settings, stored_keys_configured
+    def _llm_settings_view() -> dict[str, Any]:
+        from planning_service.config import (
+            planning_env_overrides,
+            resolve_vertex_settings,
+            stored_keys_configured,
+            vertex_env_overrides,
+            voice_key_status,
+        )
 
         cfg = load_config()
         return {
@@ -281,30 +318,36 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "keys_configured": stored_keys_configured(),
             "providers": list_provider_names(),
             "vertex": resolve_vertex_settings(),
+            "vertex_env": vertex_env_overrides(),
+            "voice": voice_key_status(),
+            "env_overrides": planning_env_overrides(),
         }
+
+    @app.get("/settings/llm")
+    def get_llm_settings() -> dict[str, Any]:
+        return _llm_settings_view()
 
     @app.put("/settings/llm")
     def put_llm_settings(payload: LlmKeysPayload) -> dict[str, Any]:
         from planning_service.config import (
-            resolve_vertex_settings,
-            stored_keys_configured,
             write_stored_keys,
+            write_stored_planning,
+            write_stored_voice_key,
             write_vertex_settings,
         )
 
         log.info("PUT /settings/llm providers=%s", sorted(str(k) for k in payload.keys))
-        configured = write_stored_keys(payload.keys)
-        vertex = resolve_vertex_settings()
+        write_stored_keys(payload.keys)
+        if payload.planning is not None:
+            write_stored_planning(**payload.planning.model_dump())
+        if payload.voice is not None:
+            write_stored_voice_key(payload.voice.api_key)
         if payload.vertex is not None:
-            vertex = write_vertex_settings(
+            write_vertex_settings(
                 project=payload.vertex.project,
                 location=payload.vertex.location,
             )
-        return {
-            "status": "ok",
-            "keys_configured": configured or stored_keys_configured(),
-            "vertex": vertex,
-        }
+        return {"status": "ok", **_llm_settings_view()}
 
     @app.post("/actions")
     def post_action(payload: ActionPayload, wait: bool = True) -> dict[str, Any]:
@@ -537,6 +580,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                     model_name=payload.model,
                     thread_id=payload.thread_id,
                     approved_ids=payload.approved_ids,
+                    skip_approval=payload.skip_approval,
                 ):
                     yield f"data: {json.dumps(event)}\n\n"
             except Exception as err:  # noqa: BLE001
@@ -562,9 +606,32 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             log.warning("e_stop after chat cancel failed", exc_info=True)
         return {"status": "ok", "thread_id": thread_id}
 
+    @app.post("/chat/followup")
+    def post_chat_followup(payload: ChatFollowupPayload) -> dict[str, Any]:
+        """Queue a user utterance on the in-flight run. Does not e-stop."""
+        from planning_service.harness.cancel import FollowupRejected, enqueue_followup
+
+        try:
+            thread_id = enqueue_followup(payload.thread_id, payload.text)
+        except FollowupRejected as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"status": "ok", "thread_id": thread_id}
+
+    @app.post("/voice/session")
+    def post_voice_session() -> dict[str, Any]:
+        """Mint a short-lived OpenAI Realtime token for the browser."""
+        from planning_service.realtime import create_client_secret
+
+        try:
+            return create_client_secret()
+        except RuntimeError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
     @app.post("/chat/transcribe")
     def post_chat_transcribe(payload: ChatTranscribePayload) -> dict[str, str]:
-        """Speech-to-text via OpenRouter MAI-Transcribe 2."""
+        """Speech-to-text via OpenAI, with Muse Voice as fallback."""
         import base64
 
         from planning_service.transcribe import TRANSCRIBE_MODEL, transcribe_audio

@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, TypedDict
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import Runnable
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.config import get_stream_writer
@@ -36,7 +36,12 @@ from .tool_policy import ToolDescriptor
 from .tool_registry import ToolRegistry
 from .tracing import is_enabled, timed_invoke, timed_stream, trace_tool_call
 
-from .cancel import STOP_CANCELLED, is_cancelled
+from .cancel import (
+    STOP_CANCELLED,
+    drain_followup,
+    is_cancelled,
+    peek_followup,
+)
 
 STOP_DONE = "done"
 STOP_MAX_TURNS = "max_turns"
@@ -195,6 +200,7 @@ class RunDeps:
     streaming: bool = False
     metrics: Metrics = field(default_factory=Metrics)
     action_names: set[str] = field(default_factory=set)
+    skip_approval: bool = False
 
 
 def _resolve_tool(
@@ -252,7 +258,7 @@ def _needs_approval(
     deps: RunDeps, name: str, args: dict[str, Any] | None = None
 ) -> bool:
     """Interrupt chat for risky acts; jogs and reads run immediately."""
-    if not deps.streaming:
+    if deps.skip_approval or not deps.streaming:
         return False
     descriptor = deps.registry.by_name().get(name)
     if descriptor is None:
@@ -415,15 +421,22 @@ def build_graph(deps: RunDeps):
             args = dict(call["args"])
             if name in deps.action_names:
                 saw_action = True
-            if is_cancelled():
-                result: dict[str, Any] = {
+            if peek_followup():
+                result = {
+                    "status": "skipped",
+                    "kind": name,
+                    "params": args,
+                    "note": "skipped: new user instruction",
+                }
+            elif is_cancelled():
+                result = {
                     "status": "error",
                     "kind": name,
                     "params": args,
                     "error": "stopped by operator",
                 }
             elif call["id"] in pending_ids and call["id"] not in approved_ids:
-                result: dict[str, Any] = {
+                result = {
                     "status": "error",
                     "kind": name,
                     "params": args,
@@ -468,8 +481,16 @@ def build_graph(deps: RunDeps):
             )
         ok = any(_tool_succeeded(r["result"]) for r in records) if records else True
         errors = 0 if ok else state.get("consecutive_errors", 0) + 1
+        outgoing: list[Any] = list(tool_messages)
+        followup = None if is_cancelled() else drain_followup()
+        if is_cancelled():
+            drain_followup()
+        elif followup:
+            outgoing.append(HumanMessage(content=followup))
+            if writer:
+                writer({"type": "followup", "text": followup})
         update = {
-            "messages": tool_messages,
+            "messages": outgoing,
             "tool_log": records,
             "proposed": proposed,
             "tool_calls_made": len(records),

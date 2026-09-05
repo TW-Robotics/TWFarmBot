@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 
@@ -95,14 +96,19 @@ def _tool_call(
     )
 
 
-def _make_registry() -> ActionRegistry:
+def _make_registry(**handlers: Any) -> ActionRegistry:
+    defaults: dict[str, Any] = {
+        "move": lambda a: a,
+        "water": lambda a: a,
+        "take_photo": lambda a: a,
+        "capture": lambda a: a,
+        "capture_ndre": lambda a: a,
+        "e_stop": lambda a: a,
+    }
+    defaults.update(handlers)
     reg = ActionRegistry()
-    reg.register("move", lambda a: a)
-    reg.register("water", lambda a: a)
-    reg.register("take_photo", lambda a: a)
-    reg.register("capture", lambda a: a)
-    reg.register("capture_ndre", lambda a: a)
-    reg.register("e_stop", lambda a: a)
+    for kind, handler in defaults.items():
+        reg.register(kind, handler)
     return reg
 
 
@@ -223,6 +229,7 @@ def _make_loop(
     system_state: InMemorySystemStateProvider | None = None,
     max_turns: int = 100,
     max_consecutive_errors: int = 5,
+    skip_approval: bool = False,
 ) -> AgentLoop:
     tool_registry = ToolRegistry(reg, system_state)
     approval_gate = ApprovalGate(reg)
@@ -234,6 +241,7 @@ def _make_loop(
         context_builder=builder,
         propose_only=propose_only,
         allow_actions=True,
+        skip_approval=skip_approval,
         max_turns=max_turns,
         max_consecutive_errors=max_consecutive_errors,
     )
@@ -556,6 +564,22 @@ def test_stream_pauses_water_for_approval() -> None:
     assert "approval" not in [e["type"] for e in resumed]
 
 
+def test_stream_skips_approval_when_requested() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("water", {"seconds": 2}, "w1"),
+            "watered",
+        ]
+    )
+    loop = _make_loop(fake, reg, propose_only=False, skip_approval=True)
+    events = list(loop.stream([{"role": "user", "content": "water 2s"}]))
+    assert "approval" not in [e["type"] for e in events]
+    assert any(e.get("name") == "water" for e in events if e["type"] == "tool_call")
+    assert any(e["type"] == "meta" for e in events)
+
+
 def test_stream_scan_ndre_emits_images() -> None:
     reg = _make_registry()
     reg.register(
@@ -638,3 +662,143 @@ def test_provider_tool_content_attaches_still(tmp_path, monkeypatch) -> None:
     )
     assert isinstance(content, list)
     assert content[1]["type"] == "image_url"
+
+
+def _batch_tool_calls(*calls: tuple[str, dict[str, Any], str]) -> AIMessage:
+    return AIMessage(
+        content="",
+        tool_calls=[
+            {"name": name, "args": args, "id": call_id, "type": "tool_call"}
+            for name, args, call_id in calls
+        ],
+    )
+
+
+def test_followup_mailbox_rejects_without_active_run() -> None:
+    from planning_service.harness.cancel import (
+        FollowupRejected,
+        begin_run,
+        cancel_run,
+        drain_followup,
+        end_run,
+        enqueue_followup,
+        peek_followup,
+    )
+
+    end_run("t1")
+    with pytest.raises(FollowupRejected):
+        enqueue_followup("t1", "hello")
+    begin_run("t1")
+    enqueue_followup("t1", "hello")
+    enqueue_followup("t1", "again")
+    assert peek_followup("t1")
+    assert drain_followup("t1") == "hello again"
+    assert drain_followup("t1") is None
+    enqueue_followup("t1", "keep")
+    cancel_run("t1")
+    with pytest.raises(FollowupRejected):
+        enqueue_followup("t1", "nope")
+    assert drain_followup("t1") is None
+    end_run("t1")
+
+
+def test_stream_followup_skips_remaining_tools() -> None:
+    ran: list[str] = []
+
+    def photo(action: Any) -> Any:
+        from planning_service.harness.cancel import enqueue_followup
+
+        ran.append("photo")
+        enqueue_followup(None, "do not capture")
+        return action
+
+    def capture(action: Any) -> Any:
+        ran.append("capture")
+        return action
+
+    reg = _make_registry(take_photo=photo, capture=capture)
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _batch_tool_calls(
+                ("take_photo", {}, "p1"),
+                ("capture", {"band": "rgb"}, "c1"),
+            ),
+            "got the follow-up",
+        ]
+    )
+    loop = _make_loop(fake, reg, propose_only=False)
+    events = list(loop.stream([{"role": "user", "content": "photo then capture"}]))
+    assert ran == ["photo"]
+    results = {e["name"]: e["result"] for e in events if e["type"] == "tool_call"}
+    assert results["take_photo"]["status"] == "ok"
+    assert results["capture"]["status"] == "skipped"
+    follow = next(e for e in events if e["type"] == "followup")
+    assert follow["text"] == "do not capture"
+    text = "".join(e.get("content") or "" for e in events if e["type"] == "delta")
+    assert "got the follow-up" in text
+
+
+def test_stream_followup_before_tools_skips_batch() -> None:
+    ran: list[str] = []
+    reg = _make_registry(
+        take_photo=lambda action: ran.append("photo") or action,
+        capture=lambda action: ran.append("capture") or action,
+    )
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _batch_tool_calls(
+                ("take_photo", {}, "p1"),
+                ("capture", {"band": "rgb"}, "c1"),
+            ),
+            "ready",
+        ]
+    )
+    loop = _make_loop(fake, reg, propose_only=False)
+    gen = loop.stream([{"role": "user", "content": "photo and capture"}])
+    thread = next(gen)
+    from planning_service.harness.cancel import enqueue_followup
+
+    enqueue_followup(thread["thread_id"], "just say ready")
+    events = [thread, *gen]
+    assert ran == []
+    skipped = [e for e in events if e["type"] == "tool_call"]
+    assert {e["result"]["status"] for e in skipped} == {"skipped"}
+    assert any(e.get("text") == "just say ready" for e in events if e["type"] == "followup")
+    text = "".join(e.get("content") or "" for e in events if e["type"] == "delta")
+    assert "ready" in text
+
+
+def test_cancel_discards_followup_and_stops() -> None:
+    ran: list[str] = []
+
+    def photo(action: Any) -> Any:
+        from planning_service.harness.cancel import cancel_run, enqueue_followup
+
+        ran.append("photo")
+        enqueue_followup(None, "keep going")
+        cancel_run()
+        return action
+
+    def capture(action: Any) -> Any:
+        ran.append("capture")
+        return action
+
+    reg = _make_registry(take_photo=photo, capture=capture)
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _batch_tool_calls(
+                ("take_photo", {}, "p1"),
+                ("capture", {"band": "rgb"}, "c1"),
+            ),
+            "should not run",
+        ]
+    )
+    loop = _make_loop(fake, reg, propose_only=False)
+    events = list(loop.stream([{"role": "user", "content": "photo then capture"}]))
+    assert ran == ["photo"]
+    assert not any(e["type"] == "followup" for e in events)
+    meta = next(e for e in events if e["type"] == "meta")
+    assert meta["stop_reason"] == "cancelled"

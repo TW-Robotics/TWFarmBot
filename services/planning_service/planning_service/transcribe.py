@@ -1,107 +1,102 @@
-"""Speech-to-text via OpenRouter (MAI-Transcribe 2)."""
+"""Speech-to-text via OpenAI, with Muse Voice as fallback."""
 
 from __future__ import annotations
 
-import base64
+import json
+import time
 from typing import Any
 
-import httpx
+import requests
 
-from .config import PlannerConfig, resolve_api_key_for
+from .config import PlannerConfig, resolve_openai_api_key, resolve_voice_api_key
 
-TRANSCRIBE_MODEL = "microsoft/mai-transcribe-2"
-OPENROUTER_BASE = "https://openrouter.ai/api/v1"
-_FORMATS = frozenset({"wav", "mp3", "flac", "m4a", "ogg", "webm", "aac"})
-
-
-def normalize_audio_format(value: str | None) -> str:
-    raw = (value or "webm").strip().lower()
-    if raw.startswith("audio/"):
-        raw = raw.split("/", 1)[1]
-    raw = raw.split(";")[0].strip()
-    if raw in {"mpeg", "mpga"}:
-        raw = "mp3"
-    if raw in {"x-m4a", "mp4"}:
-        raw = "m4a"
-    if raw not in _FORMATS:
-        raise ValueError(f"unsupported audio format {value!r}")
-    return raw
+TRANSCRIBE_MODEL = "muse-voice-transcribe-1.0"
+TRANSCRIBE_URL = "https://api.meta.ai/v1/asr/transcribe"
+_KEYWORDS = ["FarmBot", "NDRE", "NIR", "red edge", "gantry"]
 
 
-def openrouter_stt_credentials(cfg: PlannerConfig) -> tuple[str, str]:
-    """Base URL + API key for OpenRouter STT (chat may use another provider)."""
-    key = resolve_api_key_for("openrouter")
-    base = OPENROUTER_BASE
-    if cfg.provider == "openrouter":
-        base = (cfg.base_url or OPENROUTER_BASE).rstrip("/")
-        key = cfg.api_key or key
+def _api_key() -> str | None:
+    return resolve_voice_api_key()
+
+
+def _openai_transcribe(audio: bytes, fmt: str, timeout: float) -> str:
+    key = resolve_openai_api_key()
     if not key:
-        raise ValueError("OpenRouter API key required for transcription")
-    return base, key
+        raise RuntimeError("no OpenAI API key configured for transcription")
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {key}"},
+            files={"file": (f"audio.{fmt}", audio, f"audio/{fmt}")},
+            data={"model": "gpt-4o-mini-transcribe"},
+            timeout=timeout,
+        )
+    except requests.RequestException as err:
+        raise RuntimeError(f"transcription request failed: {err}") from err
+    if response.status_code >= 400:
+        detail = (response.text or "")[:300]
+        raise RuntimeError(f"transcription failed ({response.status_code}): {detail}")
+    data: Any = response.json() if response.content else {}
+    text = data.get("text") if isinstance(data, dict) else None
+    if not isinstance(text, str):
+        raise RuntimeError("transcription response missing text")
+    return text.strip()
 
 
 def transcribe_audio(
-    audio_bytes: bytes,
+    audio: bytes,
     *,
-    fmt: str,
-    config: PlannerConfig,
-    model: str = TRANSCRIBE_MODEL,
+    fmt: str = "wav",
+    config: PlannerConfig | None = None,
 ) -> str:
-    """Return transcript text from MAI-Transcribe 2 (or another STT slug)."""
-    fmt = normalize_audio_format(fmt)
-    if not audio_bytes:
+    """Transcribe a clip via OpenAI, falling back to Muse Voice."""
+    if not audio:
         raise ValueError("audio is empty")
-    base, key = openrouter_stt_credentials(config)
-    payload = {
-        "model": model,
-        "input_audio": {
-            "data": base64.b64encode(audio_bytes).decode("ascii"),
-            "format": fmt,
-        },
+    fmt = (fmt or "wav").lower().lstrip(".")
+    timeout = max(90.0, config.timeout_s) if config else 90.0
+    if resolve_openai_api_key():
+        return _openai_transcribe(audio, fmt, timeout)
+    if fmt != "wav":
+        raise ValueError("Muse Voice Transcribe requires a 16 kHz or 24 kHz WAV clip")
+    key = _api_key()
+    if not key:
+        raise RuntimeError("no API key configured for transcription")
+    files = {
+        "request": (
+            None,
+            json.dumps(
+                {
+                    "model": TRANSCRIBE_MODEL,
+                    "audioEncoding": "WAV",
+                    "mode": "PUSH_TO_TALK",
+                    "keywords": _KEYWORDS,
+                    "languageBias": ["English"],
+                }
+            ),
+            "application/json",
+        ),
+        "audio": ("audio.wav", audio, "audio/wav"),
     }
-    response = httpx.post(
-        f"{base}/audio/transcriptions",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=max(30.0, float(config.timeout_s)),
-    )
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Accept": "application/json",
+    }
     try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as err:
-        detail = _error_detail(err.response)
-        raise RuntimeError(detail) from err
-    return _text_from_body(response.json())
-
-
-def _text_from_body(body: Any) -> str:
-    if isinstance(body, dict):
-        text = body.get("text")
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-        nested = body.get("error")
-        if isinstance(nested, dict) and nested.get("message"):
-            raise RuntimeError(str(nested["message"]))
-        if isinstance(nested, str) and nested:
-            raise RuntimeError(nested)
-    raise RuntimeError("transcription returned no text")
-
-
-def _error_detail(response: httpx.Response) -> str:
-    try:
-        body = response.json()
-    except Exception:  # noqa: BLE001
-        return response.text or f"transcription failed ({response.status_code})"
-    if isinstance(body, dict):
-        err = body.get("error")
-        if isinstance(err, dict) and err.get("message"):
-            message = str(err["message"])
-            meta = err.get("metadata")
-            raw = meta.get("raw") if isinstance(meta, dict) else None
-            if raw:
-                return f"{message}: {raw}"
-            return message
-        if isinstance(err, str):
-            return err
-        if body.get("detail"):
-            return str(body["detail"])
-    return f"transcription failed ({response.status_code})"
+        response = requests.post(
+            TRANSCRIBE_URL, headers=headers, files=files, timeout=timeout
+        )
+        if response.status_code == 429:
+            time.sleep(2)
+            response = requests.post(
+                TRANSCRIBE_URL, headers=headers, files=files, timeout=timeout
+            )
+    except requests.RequestException as err:
+        raise RuntimeError(f"transcription request failed: {err}") from err
+    if response.status_code >= 400:
+        detail = (response.text or "")[:300]
+        raise RuntimeError(f"transcription failed ({response.status_code}): {detail}")
+    data: Any = response.json() if response.content else {}
+    text = data.get("transcript") if isinstance(data, dict) else None
+    if not isinstance(text, str):
+        raise RuntimeError("transcription response missing transcript")
+    return text.strip()

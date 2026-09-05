@@ -48,6 +48,7 @@ def _make_loop(
     allow_actions: bool = True,
     propose_only: bool = False,
     model_name: str | None = None,
+    skip_approval: bool = False,
 ) -> AgentLoop:
     cfg, base_model = build_base_model(
         model=model, config=config, model_name=model_name
@@ -67,6 +68,7 @@ def _make_loop(
         propose_only=propose_only,
         allow_actions=allow_actions,
         include_reasoning=_include_reasoning_for(selected_model),
+        skip_approval=skip_approval,
     )
 
 
@@ -131,6 +133,7 @@ def stream_chat(
     model_name: str | None = None,
     thread_id: str | None = None,
     approved_ids: list[str] | None = None,
+    skip_approval: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """Streaming conversational assistant.
 
@@ -156,6 +159,7 @@ def stream_chat(
         allow_actions=allow_actions,
         propose_only=propose_only,
         model_name=model_name,
+        skip_approval=skip_approval,
     )
     resume = None if approved_ids is None else {"approved_ids": list(approved_ids)}
     yield from loop.stream(messages, thread_id=thread_id, resume=resume)

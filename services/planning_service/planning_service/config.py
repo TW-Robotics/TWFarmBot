@@ -1,17 +1,15 @@
 """Configuration for the planning service.
 
-Two layers, highest priority first:
+Resolution order (first non-empty wins, per field):
 
-1. ``PLANNING_LLM_*`` environment variables (override everything; useful
-   for secrets and per-process overrides).
-2. ``planning:`` block in the YAML config (``configs/dev.yaml`` by
-   default). Holds the per-deployment defaults — base URL, model name,
-   timeout, temperature.
+1. ``PLANNING_LLM_*`` environment variables
+2. Values saved from the Settings tab (``data/llm_keys.json``)
+3. ``planning:`` block in the YAML config (``configs/dev.yaml``)
+4. Built-in defaults
 
 ``api_key`` never lives in version control. Resolution order for keys:
 env (``PLANNING_LLM_API_KEY`` / ``api_key_env`` ref) first, then the
-server-side key store (``data/llm_keys.json``, written from the UI
-settings page, mode 0600).
+server-side key store (written from Settings, mode 0600).
 """
 
 from __future__ import annotations
@@ -66,34 +64,50 @@ def load_config(
 
     Resolution order (first non-empty wins, per field):
       1. ``PLANNING_LLM_*`` env var
-      2. ``planning:`` block in ``yaml_path`` (defaults to
+      2. Settings-tab store (``data/llm_keys.json``)
+      3. ``planning:`` block in ``yaml_path`` (defaults to
          ``configs/dev.yaml``)
-      3. Built-in default
+      4. Built-in default
 
     If ``yaml_data`` is supplied (e.g. in tests), it is used instead of
     reading from disk.
     """
     planning = _load_planning_block(yaml_path, yaml_data)
+    stored = read_stored_planning()
 
     provider = (
-        os.getenv("PLANNING_LLM_PROVIDER") or planning.get("provider") or "openai"
+        os.getenv("PLANNING_LLM_PROVIDER")
+        or stored.get("provider")
+        or planning.get("provider")
+        or "openai"
     ).lower()
     base_url = (
         os.getenv("PLANNING_LLM_BASE_URL")
+        or stored.get("base_url")
         or planning.get("base_url")
         or DEFAULT_BASE_URL
     ).rstrip("/")
-    model = os.getenv("PLANNING_LLM_MODEL") or planning.get("model") or DEFAULT_MODEL
+    model = (
+        os.getenv("PLANNING_LLM_MODEL")
+        or stored.get("model")
+        or planning.get("model")
+        or DEFAULT_MODEL
+    )
     api_key = _resolve_api_key(planning, provider)
     timeout_s = float(
         os.getenv("PLANNING_LLM_TIMEOUT_S")
+        or stored.get("timeout_s")
         or planning.get("timeout_s")
         or DEFAULT_TIMEOUT_S
     )
     raw_temperature = (
         os.getenv("PLANNING_LLM_TEMPERATURE")
         if os.getenv("PLANNING_LLM_TEMPERATURE") is not None
-        else planning.get("temperature") or DEFAULT_TEMPERATURE
+        else stored.get("temperature")
+        if stored.get("temperature") is not None
+        else planning.get("temperature")
+        if planning.get("temperature") is not None
+        else DEFAULT_TEMPERATURE
     )
     temperature = float(str(raw_temperature))
     extra_body = planning.get("extra_body")
@@ -147,7 +161,7 @@ def llm_keys_file() -> Path:
 
 
 def _read_store() -> dict[str, Any]:
-    """Read the whole server settings doc (``{"keys": ..., "vertex": ...}``)."""
+    """Read the whole server settings doc (keys, vertex, voice, planning)."""
     try:
         raw = json.loads(llm_keys_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -273,19 +287,187 @@ def resolve_vertex_settings() -> dict[str, str | None]:
     }
 
 
+def planning_env_overrides() -> dict[str, bool]:
+    """Which planner fields are locked by environment variables."""
+    return {
+        "provider": bool(os.getenv("PLANNING_LLM_PROVIDER")),
+        "base_url": bool(os.getenv("PLANNING_LLM_BASE_URL")),
+        "model": bool(os.getenv("PLANNING_LLM_MODEL")),
+        "api_key": bool(os.getenv("PLANNING_LLM_API_KEY")),
+        "timeout_s": bool(os.getenv("PLANNING_LLM_TIMEOUT_S")),
+        "temperature": os.getenv("PLANNING_LLM_TEMPERATURE") is not None,
+    }
+
+
+def vertex_env_overrides() -> dict[str, bool]:
+    """Which Vertex fields are locked by environment variables."""
+    return {
+        "project": bool(
+            os.getenv("GOOGLE_CLOUD_PROJECT")
+            or os.getenv("VERTEX_PROJECT")
+            or os.getenv("GCLOUD_PROJECT")
+        ),
+        "location": bool(
+            os.getenv("GOOGLE_CLOUD_LOCATION") or os.getenv("VERTEX_LOCATION")
+        ),
+    }
+
+
+def read_stored_planning() -> dict[str, Any]:
+    """Return planner defaults saved from Settings (no secrets)."""
+    raw = _read_store().get("planning")
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for field in ("provider", "base_url", "model"):
+        value = raw.get(field)
+        if isinstance(value, str) and value.strip():
+            out[field] = value.strip()
+    for field in ("timeout_s", "temperature"):
+        value = raw.get(field)
+        if value is None or value == "":
+            continue
+        try:
+            out[field] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def write_stored_planning(
+    provider: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    timeout_s: float | None = None,
+    temperature: float | None = None,
+) -> dict[str, Any]:
+    """Merge planner defaults. ``None`` = unchanged, blank string = cleared."""
+    doc = _read_store()
+    current = doc.get("planning")
+    current = dict(current) if isinstance(current, dict) else {}
+    for field, value in (
+        ("provider", provider),
+        ("base_url", base_url),
+        ("model", model),
+    ):
+        if value is None:
+            continue
+        cleaned = str(value).strip()
+        if cleaned:
+            current[field] = cleaned.lower() if field == "provider" else cleaned
+        else:
+            current.pop(field, None)
+    for field, value in (("timeout_s", timeout_s), ("temperature", temperature)):
+        if value is None:
+            continue
+        current[field] = float(value)
+    if current:
+        doc["planning"] = current
+    else:
+        doc.pop("planning", None)
+    _write_store(doc)
+    return read_stored_planning()
+
+
+def read_stored_voice_key() -> str | None:
+    """Return the Muse Voice key saved from Settings, if any."""
+    voice = _read_store().get("voice")
+    if not isinstance(voice, dict):
+        return None
+    key = voice.get("api_key")
+    if isinstance(key, str) and key.strip():
+        return key.strip()
+    return None
+
+
+def write_stored_voice_key(api_key: str | None) -> bool:
+    """Merge the Muse Voice key. ``None`` = unchanged, blank = cleared.
+
+    Returns whether a key is now stored (never the value).
+    """
+    if api_key is None:
+        return bool(read_stored_voice_key())
+    doc = _read_store()
+    cleaned = str(api_key).strip()
+    current = doc.get("voice")
+    current = dict(current) if isinstance(current, dict) else {}
+    if cleaned:
+        current["api_key"] = cleaned
+        doc["voice"] = current
+    else:
+        current.pop("api_key", None)
+        if current:
+            doc["voice"] = current
+        else:
+            doc.pop("voice", None)
+    _write_store(doc)
+    return bool(read_stored_voice_key())
+
+
+def resolve_openai_api_key() -> str | None:
+    """Native OpenAI key for Realtime / transcription (not OpenRouter)."""
+    direct = os.getenv("OPENAI_API_KEY")
+    if direct and direct.strip():
+        return direct.strip()
+    stored = read_stored_keys().get("openai")
+    if stored:
+        return stored
+    planning = os.getenv("PLANNING_LLM_API_KEY")
+    provider = (
+        os.getenv("PLANNING_LLM_PROVIDER")
+        or str(read_stored_planning().get("provider") or "")
+    ).lower()
+    base = os.getenv("PLANNING_LLM_BASE_URL") or str(
+        read_stored_planning().get("base_url") or ""
+    )
+    openai_base = (not base) or ("openai.com" in base)
+    if planning and planning.strip() and provider in {"", "openai"} and openai_base:
+        return planning.strip()
+    return None
+
+
+def resolve_voice_api_key() -> str | None:
+    """Muse Voice key: env first, then the Settings store."""
+    return (
+        os.getenv("MUSE_VOICE_API_KEY")
+        or os.getenv("META_MODEL_API_KEY")
+        or os.getenv("MODEL_API_KEY")
+        or read_stored_voice_key()
+    )
+
+
+def voice_key_status() -> dict[str, bool]:
+    """Voice-key presence only — never the secret itself."""
+    env = bool(
+        os.getenv("MUSE_VOICE_API_KEY")
+        or os.getenv("META_MODEL_API_KEY")
+        or os.getenv("MODEL_API_KEY")
+    )
+    stored = bool(read_stored_voice_key())
+    openai = bool(resolve_openai_api_key())
+    return {
+        "configured": openai or env or stored,
+        "realtime": openai,
+        "stored": stored,
+        "env": env,
+    }
+
+
 def _resolve_api_key(planning: Mapping[str, Any], provider: str) -> str | None:
     """Resolve the API key: env first, then the server-side key store.
 
     The YAML block may set ``api_key_env: SOME_ENV_VAR`` to declare which
-    env var holds the secret. Otherwise the per-provider server store
-    (written from the UI settings page) is used.
+    env var holds the secret. An empty env var falls through to the
+    Settings-tab store so setup does not require editing ``.env``.
     """
     direct = os.getenv("PLANNING_LLM_API_KEY")
     if direct:
         return direct
     ref = planning.get("api_key_env")
     if ref:
-        return os.getenv(ref) or None
+        from_ref = os.getenv(str(ref))
+        if from_ref:
+            return from_ref
     return read_stored_keys().get(provider.lower())
 
 

@@ -103,6 +103,7 @@ export async function streamChat(
     llm?: LlmOverrides | null;
     thread_id?: string | null;
     approved_ids?: string[] | null;
+    skip_approval?: boolean;
   },
   onEvent: (event: any) => void,
   options?: { signal?: AbortSignal },
