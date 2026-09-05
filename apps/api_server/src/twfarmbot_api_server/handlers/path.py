@@ -7,6 +7,7 @@ import time
 from threading import Thread
 from typing import Any
 
+from planning_service.harness.cancel import is_cancelled
 from twfarmbot_core.domain import Action
 
 from watering_service.backends import farmbot
@@ -28,6 +29,8 @@ def _execute_moves(
 ) -> None:
     """Issue all waypoint moves (and optional photos) sequentially."""
     for wp in waypoints:
+        if is_cancelled():
+            return
         x = float(wp["x"])
         y = float(wp["y"])
         z = float(wp["z"])
@@ -78,6 +81,8 @@ def _wait_for_path_completion(
     final = waypoints[-1]
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
+        if is_cancelled():
+            return False
         move_thread.join(timeout=_POSITION_POLL_INTERVAL_S)
         pos = _current_position()
         if pos is None:

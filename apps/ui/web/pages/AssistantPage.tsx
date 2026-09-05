@@ -39,13 +39,141 @@ type ProgramItem = {
 type TranscriptItem =
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
-  | { kind: "tool"; name: string; args?: unknown; result?: unknown };
+  | {
+      kind: "tool";
+      name: string;
+      args?: unknown;
+      result?: unknown;
+      images?: { label: string; url: string }[];
+    };
+
+function captureSrc(url: string): string {
+  if (url.startsWith("data:") || url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+  return `${apiUrl()}${url}`;
+}
+
+function ToolStillGrid({ images }: { images: { label: string; url: string }[] }) {
+  if (!images.length) return null;
+  return (
+    <HStack gap={2} style={{ flexWrap: "wrap", marginTop: 8 }}>
+      {images.map((image) => (
+        <VStack key={`${image.label}:${image.url}`} gap={1}>
+          <img
+            alt={image.label}
+            src={captureSrc(image.url)}
+            style={{
+              maxWidth: 240,
+              maxHeight: 180,
+              objectFit: "contain",
+              borderRadius: 6,
+            }}
+          />
+          <Text type="supporting" color="secondary">
+            {image.label}
+          </Text>
+        </VStack>
+      ))}
+    </HStack>
+  );
+}
+
+type ToolImage = { label: string; url: string };
+
+function ndrePreviewFromSample(sample: Record<string, unknown>): string | null {
+  const preview = sample.ndre_preview;
+  if (typeof preview === "string" && preview.startsWith("/captures/")) {
+    return preview;
+  }
+  const nir = sample.nir;
+  if (nir && typeof nir === "object" && nir !== null) {
+    const artifactId = (nir as Record<string, unknown>).artifact_id;
+    if (typeof artifactId === "string" && artifactId) {
+      return `/captures/${artifactId}/ndre`;
+    }
+  }
+  return null;
+}
+
+function toolResultImages(name: string, result: unknown): ToolImage[] {
+  if (!result || typeof result !== "object") return [];
+  const record = result as Record<string, unknown>;
+  const params =
+    record.params && typeof record.params === "object"
+      ? (record.params as Record<string, unknown>)
+      : null;
+  const images: ToolImage[] = [];
+
+  if (name === "scan_ndre" && params && Array.isArray(params.samples)) {
+    params.samples.forEach((sample, index) => {
+      if (!sample || typeof sample !== "object") return;
+      const url = ndrePreviewFromSample(sample as Record<string, unknown>);
+      if (!url) return;
+      const axisPos =
+        (sample as Record<string, unknown>).y ?? (sample as Record<string, unknown>).x;
+      const label =
+        typeof axisPos === "number"
+          ? `NDRE ${index + 1} (${axisPos} mm)`
+          : `NDRE ${index + 1}`;
+      images.push({ label, url });
+    });
+  }
+
+  if (name === "capture_ndre" && params) {
+    const preview = params.ndre_preview;
+    if (typeof preview === "string" && preview) {
+      images.push({ label: "NDRE map", url: preview });
+    }
+  }
+
+  return images;
+}
+
+function mergeToolImages(
+  images: ToolImage[] | undefined,
+  name: string,
+  result: unknown,
+): ToolImage[] {
+  const fromResult = toolResultImages(name, result);
+  if (!images?.length) return fromResult;
+  if (!fromResult.length) return images;
+  const seen = new Set(images.map((item) => item.url));
+  return [...images, ...fromResult.filter((item) => !seen.has(item.url))];
+}
+
+function attachMetaToolImages(
+  assistant: ChatMsg,
+  toolCalls: { name: string; args?: unknown; result?: unknown; images?: ToolImage[] }[],
+) {
+  assistant.tool_calls = toolCalls.map((tool) => ({
+    ...tool,
+    images: mergeToolImages(tool.images, tool.name, tool.result),
+  }));
+  if (!assistant.transcript?.length) return;
+  for (const tool of assistant.tool_calls) {
+    if (!tool.images?.length) continue;
+    for (let index = assistant.transcript.length - 1; index >= 0; index -= 1) {
+      const item = assistant.transcript[index];
+      if (item.kind === "tool" && item.name === tool.name) {
+        if (!item.images?.length) item.images = tool.images;
+        break;
+      }
+    }
+  }
+}
 
 type ChatMsg = {
   role: "user" | "assistant";
   content: string;
   thinking?: string;
-  tool_calls?: { name: string; args?: any; result?: any; caller?: { type?: string } | null }[];
+  tool_calls?: {
+    name: string;
+    args?: any;
+    result?: any;
+    images?: ToolImage[];
+    caller?: { type?: string } | null;
+  }[];
   programs?: ProgramItem[];
   proposed_actions?: { kind: string; params?: Record<string, unknown> }[];
   streaming?: boolean;
@@ -126,6 +254,23 @@ export function AssistantPage() {
     localStorage.setItem(storageKey, JSON.stringify(messages));
   }, [messages, storageKey]);
 
+  const stopRun = async () => {
+    const threadId = threadIdRef.current;
+    stopRef.current?.abort();
+    if (threadId) {
+      try {
+        await api("/chat/cancel", {
+          method: "POST",
+          body: JSON.stringify({ thread_id: threadId }),
+        });
+      } catch {
+        /* stream abort is enough if cancel is unreachable */
+      }
+    }
+    setPendingApprovals([]);
+    setBusy(false);
+  };
+
   const send = async (text: string) => {
     const value = text.trim();
     if (!value || busy) return;
@@ -177,7 +322,14 @@ export function AssistantPage() {
               ...(assistant.tool_calls || []),
               { name: event.name, args: event.args, result: event.result, caller: event.caller },
             ];
-            pushTranscript({ kind: "tool", name: event.name, args: event.args, result: event.result });
+            pushTranscript({
+              kind: "tool",
+              name: event.name,
+              args: event.args,
+              result: event.result,
+              images: mergeToolImages(event.images, event.name, event.result),
+            });
+            setPendingApprovals([]);
           } else if (event.type === "program") {
             const next = [...(assistant.programs || [])];
             const index = next.findIndex((item) => item.call_id && item.call_id === event.call_id);
@@ -194,9 +346,14 @@ export function AssistantPage() {
             assistant.streaming = false;
           } else if (event.type === "meta") {
             assistant.proposed_actions = event.proposed_actions || [];
-            assistant.tool_calls = event.tool_calls || assistant.tool_calls;
+            if (event.tool_calls?.length) {
+              attachMetaToolImages(assistant, event.tool_calls);
+            } else {
+              assistant.tool_calls = event.tool_calls || assistant.tool_calls;
+            }
             assistant.programs = event.programs || assistant.programs;
             assistant.trace = event.trace || assistant.trace;
+            setPendingApprovals([]);
           } else if (event.type === "error") assistant.error = event.error;
           setMessages([...request, { ...assistant }]);
         },
@@ -249,6 +406,12 @@ export function AssistantPage() {
         (event) => {
           if (event.type === "delta") {
             assistant.content = (assistant.content || "") + (event.content || "");
+            const current = assistant.transcript ?? [];
+            const last = current[current.length - 1];
+            const piece = event.content || "";
+            if (last?.kind === "text") last.text += piece;
+            else current.push({ kind: "text", text: piece });
+            assistant.transcript = current;
           } else if (event.type === "thinking") {
             assistant.thinking = (assistant.thinking || "") + (event.content || "");
           } else if (event.type === "tool_call") {
@@ -257,15 +420,34 @@ export function AssistantPage() {
               { name: event.name, args: event.args, result: event.result, caller: event.caller },
             ];
             const current = assistant.transcript ?? [];
-            current.push({ kind: "tool", name: event.name, args: event.args, result: event.result });
+            current.push({
+              kind: "tool",
+              name: event.name,
+              args: event.args,
+              result: event.result,
+              images: mergeToolImages(event.images, event.name, event.result),
+            });
             assistant.transcript = current;
+            setPendingApprovals([]);
           } else if (event.type === "approval") {
-            threadIdRef.current = event.thread_id || threadIdRef.current;
-            setPendingApprovals(event.pending_approvals || []);
-            assistant.streaming = false;
+            const incoming = event.pending_approvals || [];
+            const replay =
+              ids.length > 0 &&
+              incoming.length === ids.length &&
+              incoming.every((item: { id: string }) => ids.includes(item.id));
+            if (!replay) {
+              threadIdRef.current = event.thread_id || threadIdRef.current;
+              setPendingApprovals(incoming);
+              assistant.streaming = false;
+            }
           } else if (event.type === "meta") {
-            assistant.tool_calls = event.tool_calls || assistant.tool_calls;
+            if (event.tool_calls?.length) {
+              attachMetaToolImages(assistant, event.tool_calls);
+            } else {
+              assistant.tool_calls = event.tool_calls || assistant.tool_calls;
+            }
             assistant.proposed_actions = event.proposed_actions || assistant.proposed_actions;
+            setPendingApprovals([]);
           } else if (event.type === "error") assistant.error = event.error;
           setMessages([...request.slice(0, -1), { ...assistant }]);
         },
@@ -305,6 +487,9 @@ export function AssistantPage() {
           />
         )}
         <Button label="Clear" onClick={() => setMessages([])} />
+        {busy || pendingApprovals.length > 0 ? (
+          <Button label="Stop" onClick={() => void stopRun()} />
+        ) : null}
       </HStack>
       <ChatLayout
         density="spacious"
@@ -319,9 +504,9 @@ export function AssistantPage() {
           <ChatComposer
             placeholder="Ask about your garden…"
             onSubmit={(value) => void send(value)}
-            onStop={() => stopRef.current?.abort()}
+            onStop={() => void stopRun()}
             isStopShown={busy}
-            isDisabled={busy || pendingApprovals.length > 0}
+            isDisabled={pendingApprovals.length > 0}
           />
         }
       >
@@ -346,32 +531,36 @@ export function AssistantPage() {
                         (resultRecord.status === "error" ||
                           Boolean(resultRecord.error));
                       return (
-                        <ChatToolCalls
-                          key={itemIndex}
-                          calls={[
-                            {
-                              name: item.name,
-                              target: JSON.stringify(item.args ?? {}),
-                              status: failed ? ("error" as const) : ("complete" as const),
-                              errorMessage: failed
-                                ? String(resultRecord?.error ?? "failed")
-                                : undefined,
-                              resultDetail: (
-                                <pre
-                                  style={{
-                                    whiteSpace: "pre-wrap",
-                                    overflowWrap: "anywhere",
-                                    margin: "4px 0",
-                                  }}
-                                >
-                                  {typeof item.result === "string"
-                                    ? item.result
-                                    : JSON.stringify(item.result, null, 2)}
-                                </pre>
-                              ),
-                            },
-                          ]}
-                        />
+                        <VStack key={itemIndex} gap={2}>
+                          <ChatToolCalls
+                            calls={[
+                              {
+                                name: item.name,
+                                target: JSON.stringify(item.args ?? {}),
+                                status: failed ? ("error" as const) : ("complete" as const),
+                                errorMessage: failed
+                                  ? String(resultRecord?.error ?? "failed")
+                                  : undefined,
+                                resultDetail: (
+                                  <pre
+                                    style={{
+                                      whiteSpace: "pre-wrap",
+                                      overflowWrap: "anywhere",
+                                      margin: "4px 0",
+                                    }}
+                                  >
+                                    {typeof item.result === "string"
+                                      ? item.result
+                                      : JSON.stringify(item.result, null, 2)}
+                                  </pre>
+                                ),
+                              },
+                            ]}
+                          />
+                          <ToolStillGrid
+                            images={mergeToolImages(item.images, item.name, item.result)}
+                          />
+                        </VStack>
                       );
                     }
                     if (item.kind === "thinking") {
@@ -401,13 +590,25 @@ export function AssistantPage() {
               ) : (
                 <>
                   {message.tool_calls?.length ? (
-                    <ChatToolCalls
-                      calls={message.tool_calls.map((tool) => ({
-                        name: tool.name,
-                        target: `${tool.caller ? "program" : "direct"} · ${JSON.stringify(tool.args || {})}`,
-                        status: "complete" as const,
-                      }))}
-                    />
+                    <VStack gap={2}>
+                      <ChatToolCalls
+                        calls={message.tool_calls.map((tool) => ({
+                          name: tool.name,
+                          target: `${tool.caller ? "program" : "direct"} · ${JSON.stringify(tool.args || {})}`,
+                          status: "complete" as const,
+                        }))}
+                      />
+                      {message.tool_calls.some(
+                        (tool) =>
+                          mergeToolImages(tool.images, tool.name, tool.result).length > 0,
+                      ) ? (
+                        <ToolStillGrid
+                          images={message.tool_calls.flatMap((tool) =>
+                            mergeToolImages(tool.images, tool.name, tool.result),
+                          )}
+                        />
+                      ) : null}
+                    </VStack>
                   ) : null}
                   <ChatMessageBubble variant={message.role === "assistant" ? "ghost" : "filled"}>
                     <Markdown density="compact">

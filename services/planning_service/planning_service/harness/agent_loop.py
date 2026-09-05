@@ -16,9 +16,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 from langgraph.types import Command
 
-from ..tool_results import append_result_images, compact_tool_result
+from ..tool_results import append_result_images, compact_tool_result, _sse_images
 from .approval_gate import ApprovalGate
 from .context_builder import ContextBuilder
+from .cancel import STOP_CANCELLED, RunCancelled, begin_run, end_run, is_cancelled
 from .graph import (
     STOP_DONE,
     STOP_MAX_ERRORS,
@@ -51,6 +52,8 @@ def _closing_summary(tool_log: list[dict[str, Any]], stop_reason: str) -> str:
         lines.append("I hit the step limit before finishing.")
     elif stop_reason == STOP_MAX_ERRORS:
         lines.append("I stopped after repeated tool errors.")
+    elif stop_reason == STOP_CANCELLED:
+        lines.append("Stopped by the operator.")
     for record in tool_log[-_MAX_SUMMARY_LINES:]:
         name = str(record.get("name", "tool"))
         result = record.get("result")
@@ -154,7 +157,6 @@ class AgentLoop:
             "tool_log": [],
             "proposed": [],
             "saw_action_call": False,
-            "nudged": False,
         }
 
     def run(self, messages: list[dict[str, Any]]) -> AgentTurnResult:
@@ -201,7 +203,39 @@ class AgentLoop:
         total_start = time.perf_counter()
         metrics = Metrics()
         thread_id = thread_id or uuid.uuid4().hex
-        yield {"type": "thread", "thread_id": thread_id}
+        begin_run(thread_id)
+        try:
+            yield {"type": "thread", "thread_id": thread_id}
+            yield from self._stream_graph(
+                messages,
+                thread_id=thread_id,
+                resume=resume,
+                metrics=metrics,
+                total_start=total_start,
+            )
+        except RunCancelled:
+            yield {"type": "delta", "content": "Stopped by the operator."}
+            yield {
+                "type": "meta",
+                "thread_id": thread_id,
+                "tool_calls": [],
+                "proposed_actions": [],
+                "programs": [],
+                "metrics": metrics.to_dict(),
+                "stop_reason": STOP_CANCELLED,
+            }
+        finally:
+            end_run(thread_id)
+
+    def _stream_graph(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        thread_id: str,
+        resume: dict[str, Any] | None,
+        metrics: Metrics,
+        total_start: float,
+    ) -> Iterator[dict[str, Any]]:
         graph = build_graph(
             self._deps(metrics, stop_after_propose=False, streaming=True)
         )
@@ -216,16 +250,19 @@ class AgentLoop:
                 messages, include_reasoning=self._include_reasoning
             )
             inputs = self._initial_state(lc_messages)
-        paused = False
         for mode, payload in graph.stream(
             inputs, config, stream_mode=["custom", "updates"]
         ):
+            if is_cancelled(thread_id):
+                raise RunCancelled("stopped by operator")
             if mode == "custom":
-                yield dict(payload)
+                event = dict(payload)
+                if event.get("type") == "approval":
+                    continue
+                yield event
             elif mode == "updates":
                 pending = interrupt_payload(payload)
                 if pending:
-                    paused = True
                     yield {
                         "type": "approval",
                         "thread_id": thread_id,
@@ -235,11 +272,15 @@ class AgentLoop:
                 tools_update = payload.get("tools")
                 if isinstance(tools_update, dict):
                     for record in tools_update.get("tool_log", []):
+                        name = str(record.get("name") or "")
+                        result = record.get("result")
+                        images = _sse_images(name, result)
                         yield {
                             "type": "tool_call",
-                            "name": record.get("name"),
+                            "name": name,
                             "args": record.get("args"),
-                            "result": compact_tool_result(record.get("result")),
+                            "result": compact_tool_result(result),
+                            "images": images,
                         }
         snapshot = graph.get_state(config)
         interrupts = getattr(snapshot, "interrupts", ()) or ()
@@ -260,6 +301,8 @@ class AgentLoop:
         tool_log = list(state.get("tool_log", []))
         proposed = list(state.get("proposed", []))
         stop_reason = str(state.get("stop_reason") or STOP_DONE)
+        if is_cancelled(thread_id):
+            stop_reason = STOP_CANCELLED
         text = _last_ai_text(state_messages)
         if not text:
             text = _closing_summary(tool_log, stop_reason)
@@ -277,6 +320,7 @@ class AgentLoop:
                     "name": call.get("name"),
                     "args": call.get("args"),
                     "result": compact_tool_result(call.get("result")),
+                    "images": _sse_images(str(call.get("name") or ""), call.get("result")),
                 }
                 for call in tool_log
             ],

@@ -125,6 +125,10 @@ class ChatPayload(BaseModel):
     )
 
 
+class ChatCancelPayload(BaseModel):
+    thread_id: str | None = None
+
+
 class ModelsPayload(BaseModel):
     llm: LlmOverrides | None = None
 
@@ -532,6 +536,19 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
+
+    @app.post("/chat/cancel")
+    def post_chat_cancel(payload: ChatCancelPayload) -> dict[str, Any]:
+        """Stop the in-flight agent loop and halt the gantry."""
+        from planning_service.harness.cancel import cancel_run
+        from watering_service.backends import farmbot
+
+        thread_id = cancel_run(payload.thread_id)
+        try:
+            farmbot.backend.e_stop()
+        except Exception:  # noqa: BLE001
+            log.warning("e_stop after chat cancel failed", exc_info=True)
+        return {"status": "ok", "thread_id": thread_id}
 
     return app
 

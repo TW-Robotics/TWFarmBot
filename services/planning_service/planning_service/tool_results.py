@@ -23,26 +23,33 @@ def _capture_attachment_url(artifact_id: str, band: str) -> str:
     return f"/captures/{artifact_id}/{band}"
 
 
+def _ndre_preview_from_sample(sample: dict[str, Any]) -> str | None:
+    """Resolve a user-loadable NDRE preview URL for one scan sample."""
+    preview = sample.get("ndre_preview")
+    if isinstance(preview, str) and preview.startswith("/captures/"):
+        return preview
+    nir = sample.get("nir")
+    if isinstance(nir, dict) and nir.get("artifact_id"):
+        return _capture_attachment_url(str(nir["artifact_id"]), "ndre")
+    return None
+
+
+def _sse_images(name: str, result: Any) -> list[dict[str, str]]:
+    """Compact ``{label, url}`` list for chat SSE events."""
+    return [
+        {"label": label, "url": url}
+        for label, url in vision_artifacts([{"name": name, "result": result}])
+        if isinstance(url, str)
+        and (url.startswith("/") or url.startswith("data:image/"))
+    ]
+
+
 def compact_tool_result(value: Any) -> Any:
-    """Avoid sending binary/base64 vision output back into the next LLM turn."""
+    """Drop inline base64; keep /captures/ paths the UI can load."""
     if isinstance(value, list):
         return [compact_tool_result(item) for item in value]
     if isinstance(value, dict):
-        return {
-            key: (
-                "[image available to the user]"
-                if key
-                in {
-                    "image_url",
-                    "image_urls",
-                    "ndre_preview",
-                    "align_preview",
-                }
-                and isinstance(item, (str, list))
-                else compact_tool_result(item)
-            )
-            for key, item in value.items()
-        }
+        return {key: compact_tool_result(item) for key, item in value.items()}
     if isinstance(value, str) and value.startswith("data:image/"):
         return "[image available to the user]"
     return value
@@ -138,8 +145,8 @@ def compact_input_text(text: str) -> str:
     return _IMAGE_DATA_RE.sub("[previous image available to the user]", text)
 
 
-def append_result_images(text: str, tool_log: list[dict[str, Any]]) -> str:
-    """Expose final vision artifacts without dumping intermediate camera history."""
+def vision_artifacts(tool_log: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """User-facing stills from a tool log (paths, not base64)."""
     artifacts: list[tuple[str, str]] = []
     labels = {
         "analyze_image": ("Similarity map",),
@@ -170,9 +177,9 @@ def append_result_images(text: str, tool_log: list[dict[str, Any]]) -> str:
             label = label_set[index] if index < len(label_set) else "Analysis result"
             artifacts.append((label, url))
 
-    # Prefer the NDRE map alone when this turn ran capture_ndre — skip raw
+    # Prefer NDRE maps when this turn ran capture_ndre / scan_ndre — skip raw
     # NIR / red-edge stills even if the agent also called capture.
-    has_ndre = any(call.get("name") == "capture_ndre" for call in tool_log)
+    has_ndre = any(call.get("name") in {"capture_ndre", "scan_ndre"} for call in tool_log)
 
     for call in tool_log:
         if call.get("name") != "capture":
@@ -206,9 +213,30 @@ def append_result_images(text: str, tool_log: list[dict[str, Any]]) -> str:
         if isinstance(preview, str) and preview:
             artifacts.append(("NDRE map", preview))
 
-    # A plain photo request is normally verified with get_images. Show only the
-    # newest frame from the final lookup, not every historical frame fetched by
-    # intermediate agent turns.
+    for call in tool_log:
+        if call.get("name") != "scan_ndre":
+            continue
+        result = call.get("result", {})
+        if not isinstance(result, dict) or result.get("status") == "error":
+            continue
+        params = result.get("params", {})
+        samples = params.get("samples") if isinstance(params, dict) else None
+        if not isinstance(samples, list):
+            continue
+        for index, sample in enumerate(samples):
+            if not isinstance(sample, dict):
+                continue
+            preview = _ndre_preview_from_sample(sample)
+            if not preview:
+                continue
+            axis_pos = sample.get("y", sample.get("x"))
+            label = (
+                f"NDRE {index + 1} ({axis_pos:g} mm)"
+                if isinstance(axis_pos, (int, float))
+                else f"NDRE {index + 1}"
+            )
+            artifacts.append((label, preview))
+
     if not artifacts:
         for call in reversed(tool_log):
             if call.get("name") != "get_images":
@@ -220,7 +248,11 @@ def append_result_images(text: str, tool_log: list[dict[str, Any]]) -> str:
                 if isinstance(attachment, str):
                     artifacts.append(("FarmBot photo", attachment))
             break
+    return list(dict.fromkeys(artifacts))
 
-    unique = dict.fromkeys(artifacts)
+
+def append_result_images(text: str, tool_log: list[dict[str, Any]]) -> str:
+    """Expose final vision artifacts without dumping intermediate camera history."""
+    unique = vision_artifacts(tool_log)
     additions = [f"![{label}]({url})" for label, url in unique if url not in text]
     return text + ("\n\n" + "\n\n".join(additions) if additions else "")
