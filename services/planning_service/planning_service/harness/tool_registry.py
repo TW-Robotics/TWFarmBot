@@ -66,7 +66,8 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         ToolCategory.READ,
         requires_approval=False,
         description=(
-            "Trigger the camera to take a photo at the current gantry position."
+            "Trigger the FarmBot onboard camera. Prefer capture(band=rgb) when "
+            "you need a still you can inspect yourself."
         ),
     ),
     "capture": ToolPolicy(
@@ -75,7 +76,9 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         safety_rules=("capture",),
         description=(
             "Grab one still from a payload USB camera. band is required "
-            "(rgb, nir, or rededge). Does not move the gantry."
+            "(rgb, nir, or rededge). Does not move the gantry. The still is "
+            "attached for you to inspect — look at it yourself; do not call "
+            "a separate image-analysis service."
         ),
     ),
     "capture_ndre": ToolPolicy(
@@ -124,6 +127,8 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
 }
 
 # Zone/garden map tooling is parked until beds are reconfigured.
+# Resi heatmaps/PCA stay on the Camera page; the chat model looks at
+# attached RGB stills itself. segment_image remains for pixel masks.
 _HIDDEN_AGENT_TOOLS = frozenset(
     {
         "inspect_zone",
@@ -132,6 +137,9 @@ _HIDDEN_AGENT_TOOLS = frozenset(
         "list_zones",
         "get_garden",
         "scan_zone",
+        "analyze_image",
+        "visualize_image_features",
+        "estimate_traversability",
     }
 )
 

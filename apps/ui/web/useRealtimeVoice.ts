@@ -12,6 +12,12 @@ function speakable(text: string): string {
     .trim();
 }
 
+function isMetricSpeak(text: string): boolean {
+  return /vegetation[_\s-]?fraction|stress[_\s-]?fraction|\bndre mean\b|mean\s*[:=]\s*-?\d|\(\s*nir\s*[−-]\s*red/i.test(
+    text,
+  );
+}
+
 function takeSentences(buffer: string): { ready: string[]; rest: string } {
   const ready: string[] = [];
   let rest = buffer;
@@ -35,6 +41,7 @@ export function useRealtimeVoice() {
     audio: HTMLAudioElement;
     buffer: string;
     activeResponse: boolean;
+    spokenCount: number;
   } | null>(null);
   const handlersRef = useRef<{
     onText: (text: string) => void;
@@ -53,6 +60,7 @@ export function useRealtimeVoice() {
   const cancelSpeak = () => {
     const session = sessionRef.current;
     if (session) session.buffer = "";
+    if (session) session.spokenCount = 0;
     if (session?.activeResponse) {
       sendEvent({ type: "response.cancel" });
       session.activeResponse = false;
@@ -63,7 +71,9 @@ export function useRealtimeVoice() {
   const speak = (text: string) => {
     const session = sessionRef.current;
     const clean = speakable(text);
-    if (!clean || !session) return;
+    if (!clean || !session || isMetricSpeak(clean)) return;
+    if (session.spokenCount >= 2) return;
+    session.spokenCount += 1;
     if (session.activeResponse) {
       sendEvent({ type: "response.cancel" });
     }
@@ -194,7 +204,7 @@ export function useRealtimeVoice() {
         throw new Error((await sdpResponse.text()) || `Realtime connect failed (${sdpResponse.status})`);
       }
       await pc.setRemoteDescription({ type: "answer", sdp: await sdpResponse.text() });
-      sessionRef.current = { pc, dc, stream, audio, buffer: "", activeResponse: false };
+      sessionRef.current = { pc, dc, stream, audio, buffer: "", activeResponse: false, spokenCount: 0 };
       setPaused(false);
       setListening(true);
     } catch (error) {

@@ -42,6 +42,20 @@ def test_chat_prompt_explains_ndre_nir_rededge() -> None:
     assert "not thermal" in prompt
     assert "not the RGB red channel" in prompt
     assert "segment_image" in prompt
+    assert "Inspect RGB yourself" in prompt
+    assert "analyze_image" not in prompt
+    assert "interpretation.advice" in prompt
+    assert "not each stop" in prompt
+    assert "Voice mode" not in prompt
+
+
+def test_voice_prompt_asks_for_short_spoken_ndre() -> None:
+    prompt = ContextBuilder(ToolRegistry(_make_registry())).chat_system_prompt(
+        voice=True
+    )
+    assert "Voice mode" in prompt
+    assert "NDRE" in prompt
+    assert "two short sentences" in prompt
 
 
 def test_user_prompt_includes_world_context() -> None:

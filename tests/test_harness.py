@@ -647,21 +647,85 @@ def test_agent_loop_runs_tools_then_model_again() -> None:
     assert result.response == "moved"
 
 
-def test_provider_tool_content_attaches_still(tmp_path, monkeypatch) -> None:
+def test_provider_tool_content_is_json_text_only(tmp_path, monkeypatch) -> None:
     from planning_service.tool_results import provider_tool_content
 
-    jpeg = tmp_path / "shot-rgb.jpg"
-    jpeg.write_bytes(b"\xff\xd8" + b"\x00" * 32 + b"\xff\xd9")
     monkeypatch.setattr(
         "planning_service.tool_results._capture_file_uri",
-        lambda *_args: f"data:image/jpeg;base64,{jpeg.read_bytes().hex()[:8]}",
+        lambda *_args: "data:image/jpeg;base64,abcd",
     )
     content = provider_tool_content(
         "capture",
         {"status": "ok", "params": {"band": "rgb", "artifact_id": "shot"}},
     )
-    assert isinstance(content, list)
-    assert content[1]["type"] == "image_url"
+    assert isinstance(content, str)
+    assert "image_url" not in content
+
+
+def test_provider_vision_message_follows_capture(monkeypatch) -> None:
+    from langchain_core.messages import HumanMessage
+    from planning_service.tool_results import provider_vision_message
+
+    monkeypatch.setattr(
+        "planning_service.tool_results._capture_file_uri",
+        lambda *_args: "data:image/jpeg;base64,abcd",
+    )
+    msg = provider_vision_message(
+        "capture",
+        {"status": "ok", "params": {"band": "rgb", "artifact_id": "shot"}},
+    )
+    assert isinstance(msg, HumanMessage)
+    assert msg.content[1]["type"] == "image_url"
+
+
+def test_agent_hides_resi_except_segment() -> None:
+    tools = ToolRegistry(_make_registry(), InMemorySystemStateProvider())
+    names = set(tools.by_name())
+    assert "segment_image" in names
+    assert "analyze_image" not in names
+    assert "visualize_image_features" not in names
+    assert "estimate_traversability" not in names
+
+
+def test_capture_still_is_user_turn_for_model(monkeypatch) -> None:
+    from langchain_core.messages import HumanMessage
+
+    seen: list[Any] = []
+
+    class RecordingFake(_ScriptFake):
+        def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> AIMessage:
+            seen.append(input)
+            return super().invoke(input, config=config, **kwargs)
+
+    monkeypatch.setattr(
+        "planning_service.tool_results._capture_file_uri",
+        lambda *_args: "data:image/jpeg;base64,abcd",
+    )
+    fake = RecordingFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("capture", {"band": "rgb"}, "c1"),
+            "coverage looks patchy",
+        ]
+    )
+
+    def capture(action: Any) -> Any:
+        action.params["artifact_id"] = "shot"
+        return action
+
+    loop = _make_loop(fake, _make_registry(capture=capture), propose_only=False)
+    result = loop.run([{"role": "user", "content": "check coverage"}])
+    assert "coverage looks patchy" in result.response
+    assert len(seen) >= 2
+    second = seen[1]
+    messages = second if isinstance(second, list) else list(second)
+    vision = [
+        m
+        for m in messages
+        if isinstance(m, HumanMessage) and isinstance(m.content, list)
+    ]
+    assert vision
+    assert vision[-1].content[1]["type"] == "image_url"
 
 
 def _batch_tool_calls(*calls: tuple[str, dict[str, Any], str]) -> AIMessage:

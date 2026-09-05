@@ -23,10 +23,9 @@ You can chat naturally with the user, answer questions about the robot, and
 use the available tools.
 
 Call tools through JSON function/tool calling. Read tools
-(get_position, get_images, get_health, get_pins, segment_image, analyze_image,
-plan_path) are ordinary JSON tools. Call independent reads together when
-useful, then answer from the results. Do not write Python scripts or
-farm_script fences.
+(get_position, get_images, get_health, get_pins, plan_path) are ordinary
+JSON tools. Call independent reads together when useful, then answer from
+the results. Do not write Python scripts or farm_script fences.
 
 For physical work, call the action tools directly (move, water, find_home,
 move_path, take_photo, capture, capture_ndre, etc.). Prefer absolute
@@ -57,7 +56,18 @@ Spectral cameras (this robot — do not confuse with RGB or NDVI):
   alone; mean ≥ 0.15 → moderate, water only with other evidence; high
   stress_fraction with mean < 0.15 → likely stressed; mean < 0.05 and little
   vegetation → soil/empty/misaimed, do not water.
+- After `capture_ndre` or `scan_ndre`, the user-facing reply is ONE short
+  sentence paraphrasing `interpretation.advice` (e.g. "Canopy looks healthy —
+  I wouldn't water from this."). Do not list mean, fractions, or the formula.
+  The NDRE map is already on screen. For a scan, summarise the whole bed in
+  that one sentence, not each stop.
 - Do not run `segment_image` on NIR or red-edge grayscale. For plant ID use RGB.
+"""
+
+_VOICE_STYLE = """
+Voice mode: the user hears your reply aloud. Use at most two short sentences.
+Never read markdown, maps, tables, or NDRE numbers. After NDRE, speak only the
+takeaway.
 """
 
 _CHAT_FOOTER = """
@@ -70,9 +80,13 @@ Guidelines:
 - When the user names a plant/area without coordinates, ask for mm targets
   or use the current pose — do not invent zone centres or cite garden bounds.
 - When you call `capture`, `take_photo`, or `capture_ndre`, the latest still is
-  attached as an image you can see.
+  attached as an image you can see. Inspect RGB yourself (coverage, weeds,
+  plant vs soil, gaps). Do not call `segment_image` just to "look at" a photo,
+  and never tell the user to inspect it for you.
+- `segment_image` is Resi pixel masks only — use it when you need a class
+  overlay, not ordinary visual QA.
 - `capture_ndre` returns `interpretation`, `action_hint`, and `advice` plus an
-  NDRE map shown to the user. Follow those fields; do not only recite numbers.
+  NDRE map shown to the user. Reply with one sentence from those fields.
 - Water duration is still safety-limited. If a tool returns an error, explain
   it briefly.
 - `scan_ndre(axis, end_mm, step_mm, start_mm?)` walks an axis and captures
@@ -114,12 +128,14 @@ class ContextBuilder:
         self._registry = tool_registry
         self._world = world
 
-    def chat_system_prompt(self) -> str:
+    def chat_system_prompt(self, *, voice: bool = False) -> str:
         parts = [_CHAT_HEADER]
         parts.append(self._render_tool_section())
         parts.append(_format_pin_context())
         parts.append(_SPECTRAL)
         parts.append(_CHAT_FOOTER)
+        if voice:
+            parts.append(_VOICE_STYLE)
         parts.append(
             "\nRegistered action kinds you can use: "
             + ", ".join(sorted(self._registry.by_name()))
@@ -140,8 +156,9 @@ class ContextBuilder:
         messages: list[dict[str, Any]],
         *,
         include_reasoning: bool = False,
+        voice: bool = False,
     ) -> list[SystemMessage | HumanMessage | AIMessage | ToolMessage]:
-        system = self.chat_system_prompt()
+        system = self.chat_system_prompt(voice=voice)
         world_context = (
             format_world_context(self._world) if self._world is not None else None
         )

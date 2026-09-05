@@ -167,7 +167,9 @@ class AgentLoop:
         total_start = time.perf_counter()
         metrics = Metrics()
         lc_messages = self._context_builder.chat_messages(
-            messages, include_reasoning=self._include_reasoning
+            messages,
+            include_reasoning=self._include_reasoning,
+            voice=self._skip_approval,
         )
         graph = build_graph(
             self._deps(metrics, stop_after_propose=False, streaming=False)
@@ -250,7 +252,9 @@ class AgentLoop:
             inputs: Any = Command(resume=resume)
         else:
             lc_messages = self._context_builder.chat_messages(
-                messages, include_reasoning=self._include_reasoning
+                messages,
+                include_reasoning=self._include_reasoning,
+                voice=self._skip_approval,
             )
             inputs = self._initial_state(lc_messages)
         for mode, payload in graph.stream(
