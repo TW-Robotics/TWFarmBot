@@ -144,12 +144,10 @@ def test_env_beats_stored_planning(keys_file: Path, monkeypatch: pytest.MonkeyPa
     assert cfg.model == "env-model"
 
 
-def test_settings_voice_and_planning_never_leak(
+def test_settings_planning_never_leaks_keys(
     keys_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("MUSE_VOICE_API_KEY", raising=False)
-    monkeypatch.delenv("META_MODEL_API_KEY", raising=False)
-    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("PLANNING_LLM_MODEL", raising=False)
     monkeypatch.delenv("PLANNING_LLM_PROVIDER", raising=False)
     client = TestClient(create_app())
@@ -157,39 +155,23 @@ def test_settings_voice_and_planning_never_leak(
         "/settings/llm",
         json={
             "keys": {"openai": "sk-chat-secret"},
-            "voice": {"api_key": "muse-secret-key"},
             "planning": {"provider": "openai", "model": "gpt-test"},
         },
     )
     assert put.status_code == 200
     dumped = json.dumps(put.json())
-    assert "muse-secret-key" not in dumped
     assert "sk-chat-secret" not in dumped
-    assert put.json()["voice"]["configured"] is True
-    assert put.json()["voice"]["stored"] is True
+    assert put.json()["voice"]["realtime"] is True
     assert put.json()["model"] == "gpt-test"
 
     get = client.get("/settings/llm")
     assert get.status_code == 200
     body = get.json()
-    assert "muse-secret-key" not in json.dumps(body)
+    assert "sk-chat-secret" not in json.dumps(body)
     assert body["voice"]["configured"] is True
     assert body["model"] == "gpt-test"
     stored = json.loads(keys_file.read_text(encoding="utf-8"))
-    assert stored["voice"]["api_key"] == "muse-secret-key"
     assert stored["planning"]["model"] == "gpt-test"
-
-
-def test_settings_clear_voice_key(keys_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MUSE_VOICE_API_KEY", raising=False)
-    monkeypatch.delenv("META_MODEL_API_KEY", raising=False)
-    monkeypatch.delenv("MODEL_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    client = TestClient(create_app())
-    client.put("/settings/llm", json={"keys": {}, "voice": {"api_key": "muse-x"}})
-    cleared = client.put("/settings/llm", json={"keys": {}, "voice": {"api_key": ""}})
-    assert cleared.json()["voice"]["configured"] is not True
-    assert planning_config.read_stored_voice_key() is None
 
 
 def test_settings_vertex_endpoints(keys_file: Path) -> None:

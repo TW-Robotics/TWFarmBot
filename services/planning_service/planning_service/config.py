@@ -161,7 +161,7 @@ def llm_keys_file() -> Path:
 
 
 def _read_store() -> dict[str, Any]:
-    """Read the whole server settings doc (keys, vertex, voice, planning)."""
+    """Read the whole server settings doc (keys, vertex, planning)."""
     try:
         raw = json.loads(llm_keys_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -369,41 +369,6 @@ def write_stored_planning(
     return read_stored_planning()
 
 
-def read_stored_voice_key() -> str | None:
-    """Return the Muse Voice key saved from Settings, if any."""
-    voice = _read_store().get("voice")
-    if not isinstance(voice, dict):
-        return None
-    key = voice.get("api_key")
-    if isinstance(key, str) and key.strip():
-        return key.strip()
-    return None
-
-
-def write_stored_voice_key(api_key: str | None) -> bool:
-    """Merge the Muse Voice key. ``None`` = unchanged, blank = cleared.
-
-    Returns whether a key is now stored (never the value).
-    """
-    if api_key is None:
-        return bool(read_stored_voice_key())
-    doc = _read_store()
-    cleaned = str(api_key).strip()
-    current = doc.get("voice")
-    current = dict(current) if isinstance(current, dict) else {}
-    if cleaned:
-        current["api_key"] = cleaned
-        doc["voice"] = current
-    else:
-        current.pop("api_key", None)
-        if current:
-            doc["voice"] = current
-        else:
-            doc.pop("voice", None)
-    _write_store(doc)
-    return bool(read_stored_voice_key())
-
-
 def resolve_openai_api_key() -> str | None:
     """Native OpenAI key for Realtime / transcription (not OpenRouter)."""
     direct = os.getenv("OPENAI_API_KEY")
@@ -426,31 +391,10 @@ def resolve_openai_api_key() -> str | None:
     return None
 
 
-def resolve_voice_api_key() -> str | None:
-    """Muse Voice key: env first, then the Settings store."""
-    return (
-        os.getenv("MUSE_VOICE_API_KEY")
-        or os.getenv("META_MODEL_API_KEY")
-        or os.getenv("MODEL_API_KEY")
-        or read_stored_voice_key()
-    )
-
-
 def voice_key_status() -> dict[str, bool]:
-    """Voice-key presence only — never the secret itself."""
-    env = bool(
-        os.getenv("MUSE_VOICE_API_KEY")
-        or os.getenv("META_MODEL_API_KEY")
-        or os.getenv("MODEL_API_KEY")
-    )
-    stored = bool(read_stored_voice_key())
+    """Whether OpenAI Realtime can run — never the secret itself."""
     openai = bool(resolve_openai_api_key())
-    return {
-        "configured": openai or env or stored,
-        "realtime": openai,
-        "stored": stored,
-        "env": env,
-    }
+    return {"configured": openai, "realtime": openai}
 
 
 def _resolve_api_key(planning: Mapping[str, Any], provider: str) -> str | None:
