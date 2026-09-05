@@ -33,7 +33,7 @@ type ServerLlmSettings = {
   keys_configured?: Record<string, boolean>;
   vertex?: { project?: string | null; location?: string | null };
   vertex_env?: { project?: boolean; location?: boolean };
-  voice?: { configured?: boolean; realtime?: boolean; stored?: boolean; env?: boolean };
+  voice?: { configured?: boolean; realtime?: boolean };
   env_overrides?: {
     provider?: boolean;
     base_url?: boolean;
@@ -140,10 +140,8 @@ export function SettingsPage({
     temperature: 0,
     apiKey: "",
   });
-  const [voiceDraft, setVoiceDraft] = useState("");
   const [vertexDraft, setVertexDraft] = useState({ project: "", location: "" });
   const [savingChat, setSavingChat] = useState(false);
-  const [savingVoice, setSavingVoice] = useState(false);
   const [savingVertex, setSavingVertex] = useState(false);
   const [testingModels, setTestingModels] = useState(false);
   const [checkingApi, setCheckingApi] = useState(false);
@@ -172,7 +170,6 @@ export function SettingsPage({
       project: result.vertex?.project || "",
       location: result.vertex?.location || "",
     });
-    setVoiceDraft("");
   }, []);
 
   const refreshServerLlm = useCallback(async () => {
@@ -261,50 +258,6 @@ export function SettingsPage({
       });
     } finally {
       setSavingChat(false);
-    }
-  };
-
-  const saveVoice = async () => {
-    if (!voiceDraft.trim()) {
-      toast({ body: "Paste a Muse Voice key first" });
-      return;
-    }
-    setSavingVoice(true);
-    try {
-      applyServer(
-        await api<ServerLlmSettings>("/settings/llm", {
-          method: "PUT",
-          body: JSON.stringify({ keys: {}, voice: { api_key: voiceDraft.trim() } }),
-        }),
-      );
-      toast({ body: "Voice key saved on this robot" });
-    } catch (error) {
-      toast({
-        body: error instanceof Error ? error.message : "Saving voice key failed",
-        type: "error",
-      });
-    } finally {
-      setSavingVoice(false);
-    }
-  };
-
-  const clearVoice = async () => {
-    setSavingVoice(true);
-    try {
-      applyServer(
-        await api<ServerLlmSettings>("/settings/llm", {
-          method: "PUT",
-          body: JSON.stringify({ keys: {}, voice: { api_key: "" } }),
-        }),
-      );
-      toast({ body: "Cleared voice key" });
-    } catch (error) {
-      toast({
-        body: error instanceof Error ? error.message : "Clearing voice key failed",
-        type: "error",
-      });
-    } finally {
-      setSavingVoice(false);
     }
   };
 
@@ -597,46 +550,19 @@ export function SettingsPage({
 
       <StepCard step={3} title="Voice" status={voiceReady ? "ready" : "optional"}>
         <Text type="supporting" color="secondary">
-          The Voice button uses OpenAI Realtime: server-side listening plus instant spoken
-          replies. It needs a native OpenAI key from step 2 (OpenRouter keys cannot do this).
+          Voice and dictate use OpenAI Realtime / transcription with the same native OpenAI
+          key as step 2. OpenRouter keys cannot do this. No extra voice key is required.
         </Text>
         {voiceReady ? (
-          <Text type="supporting">OpenAI Realtime is ready. No extra voice key is required.</Text>
+          <Text type="supporting">OpenAI Realtime is ready.</Text>
         ) : (
           <Banner
             status="warning"
             title="Save an OpenAI key in step 2"
-            description="Voice will stay off until a native OpenAI API key is stored. You can still type in the Assistant tab."
+            description="Voice stays off until a native OpenAI API key is stored. You can still type."
             collapsible={false}
           />
         )}
-        <Text type="supporting" color="secondary">
-          Optional: a Muse Voice key is only used if OpenAI is unavailable for the dictate
-          button.
-        </Text>
-        <TextInput
-          label="Muse Voice API key (optional fallback)"
-          value={voiceDraft}
-          onChange={setVoiceDraft}
-          type="password"
-          placeholder={
-            serverLlm?.voice?.stored
-              ? "Saved on this robot — paste a new key to replace"
-              : "Not required when OpenAI is configured"
-          }
-          isDisabled={Boolean(serverLlm?.voice?.env)}
-          disabledMessage="Locked by MUSE_VOICE_API_KEY"
-        />
-        <HStack gap={2}>
-          <Button
-            label={savingVoice ? "Saving…" : "Save fallback key"}
-            onClick={() => void saveVoice()}
-            isDisabled={savingVoice || Boolean(serverLlm?.voice?.env)}
-          />
-          {serverLlm?.voice?.stored && !serverLlm.voice.env ? (
-            <Button label="Clear" onClick={() => void clearVoice()} isDisabled={savingVoice} />
-          ) : null}
-        </HStack>
       </StepCard>
 
       <StepCard step={4} title="Vertex AI" status={vertexReady ? "ready" : "optional"}>

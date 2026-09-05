@@ -66,13 +66,6 @@ class VertexPayload(BaseModel):
     )
 
 
-class VoicePayload(BaseModel):
-    api_key: str | None = Field(
-        default=None,
-        description="Muse Voice Transcribe key. Blank clears the stored value.",
-    )
-
-
 class PlanningPayload(BaseModel):
     provider: str | None = None
     base_url: str | None = None
@@ -91,10 +84,6 @@ class LlmKeysPayload(BaseModel):
     vertex: VertexPayload | None = Field(
         default=None,
         description="Vertex AI project/location (project id is not secret).",
-    )
-    voice: VoicePayload | None = Field(
-        default=None,
-        description="Muse Voice Transcribe key (never returned on GET).",
     )
     planning: PlanningPayload | None = Field(
         default=None,
@@ -332,7 +321,6 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         from planning_service.config import (
             write_stored_keys,
             write_stored_planning,
-            write_stored_voice_key,
             write_vertex_settings,
         )
 
@@ -340,8 +328,6 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         write_stored_keys(payload.keys)
         if payload.planning is not None:
             write_stored_planning(**payload.planning.model_dump())
-        if payload.voice is not None:
-            write_stored_voice_key(payload.voice.api_key)
         if payload.vertex is not None:
             write_vertex_settings(
                 project=payload.vertex.project,
@@ -631,7 +617,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
 
     @app.post("/chat/transcribe")
     def post_chat_transcribe(payload: ChatTranscribePayload) -> dict[str, str]:
-        """Speech-to-text via OpenAI, with Muse Voice as fallback."""
+        """Speech-to-text via OpenAI for the dictate button."""
         import base64
 
         from planning_service.transcribe import TRANSCRIBE_MODEL, transcribe_audio

@@ -573,7 +573,7 @@ export function AssistantPage() {
             isStopShown={busy || pendingApprovals.length > 0}
             sendActions={
               <HStack gap={2} vAlign="center">
-                {voice.listening || mic.transcribing ? (
+                {voice.listening || mic.busy ? (
                   <Text type="supporting" color="secondary">
                     {voice.listening ? "Listening…" : "Transcribing…"}
                   </Text>
