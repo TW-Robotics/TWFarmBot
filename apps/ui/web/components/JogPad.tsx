@@ -1,12 +1,25 @@
 import { useEffect, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
+import { Center } from "@astryxdesign/core/Center";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { TextInput } from "@astryxdesign/core/TextInput";
+import { Slider } from "@astryxdesign/core/Slider";
+import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
-import { fmt, parseNumber, postAction } from "../api";
+import {
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  ArrowsPointingInIcon,
+} from "@heroicons/react/24/outline";
+import { postAction } from "../api";
 
 type Pose = { x?: number; y?: number; z?: number };
+
+const icon = { width: 20, height: 20 };
+const STEPS = ["1", "10", "50", "100", "250", "500"];
 
 export function JogPad({
   pose,
@@ -18,27 +31,18 @@ export function JogPad({
   showGoto?: boolean;
 }) {
   const toast = useToast();
-  const [step, setStep] = useState("10");
-  const [speed, setSpeed] = useState("100");
-  const [gx, setGx] = useState(fmt(pose?.x));
-  const [gy, setGy] = useState(fmt(pose?.y));
-  const [gz, setGz] = useState(fmt(pose?.z));
+  const [step, setStep] = useState(10);
+  const [speed, setSpeed] = useState(100);
+  const [gx, setGx] = useState(pose?.x ?? 0);
+  const [gy, setGy] = useState(pose?.y ?? 0);
+  const [gz, setGz] = useState(pose?.z ?? 0);
   const [busy, setBusy] = useState(false);
-  const d = Number(step);
 
   useEffect(() => {
-    setGx(fmt(pose?.x));
-    setGy(fmt(pose?.y));
-    setGz(fmt(pose?.z));
+    setGx(pose?.x ?? 0);
+    setGy(pose?.y ?? 0);
+    setGz(pose?.z ?? 0);
   }, [pose?.x, pose?.y, pose?.z]);
-
-  const speedParams = (): Record<string, number> => {
-    const speedPct = Number(speed);
-    if (Number.isFinite(speedPct) && speedPct > 0 && speedPct <= 100) {
-      return { speed: speedPct };
-    }
-    return { speed: 100 };
-  };
 
   const afterMove = async () => {
     if (onMoved) await onMoved();
@@ -47,7 +51,7 @@ export function JogPad({
   const jog = async (axis: "x" | "y" | "z", distance: number, label: string) => {
     setBusy(true);
     try {
-      await postAction("move_axis", { axis, distance, ...speedParams() }, true);
+      await postAction("move_axis", { axis, distance, speed }, true);
       toast({ body: label });
       await afterMove();
     } catch (error) {
@@ -60,7 +64,7 @@ export function JogPad({
   const move = async (nx: number, ny: number, nz: number, label?: string) => {
     setBusy(true);
     try {
-      await postAction("move", { x: nx, y: ny, z: nz, ...speedParams() }, true);
+      await postAction("move", { x: nx, y: ny, z: nz, speed }, true);
       toast({ body: label || `→ (${nx.toFixed(0)}, ${ny.toFixed(0)}, ${nz.toFixed(0)})` });
       await afterMove();
     } catch (error) {
@@ -71,58 +75,86 @@ export function JogPad({
   };
 
   return (
-    <VStack gap={3}>
-      <SegmentedControl value={step} onChange={setStep} label="Jog step · mm">
-        {["1", "10", "50", "100"].map((s) => (
-          <SegmentedControlItem key={s} value={s} label={s} />
-        ))}
-      </SegmentedControl>
-      <SegmentedControl value={speed} onChange={setSpeed} label="Move speed · %">
-        {["25", "50", "75", "100"].map((s) => (
-          <SegmentedControlItem key={s} value={s} label={s} />
-        ))}
-      </SegmentedControl>
-      <HStack gap={2} justify="center">
-        <Button label={`Y+ ${d}`} isDisabled={busy} onClick={() => void jog("y", d, `Y+${d}`)} />
-      </HStack>
-      <HStack gap={2} justify="center">
-        <Button label={`X− ${d}`} isDisabled={busy} onClick={() => void jog("x", -d, `X-${d}`)} />
-        <Button
-          label="Home"
-          variant="primary"
-          isDisabled={busy}
-          onClick={() => void move(0, 0, 0, "Home")}
+    <VStack gap={4}>
+      <HStack gap={3} align="end" wrap>
+        <NumberInput
+          label="Jog distance · mm"
+          value={step}
+          onChange={setStep}
+          min={0.5}
+          max={2000}
+          step={1}
         />
-        <Button label={`X+ ${d}`} isDisabled={busy} onClick={() => void jog("x", d, `X+${d}`)} />
-      </HStack>
-      <HStack gap={2} justify="center">
-        <Button label={`Y− ${d}`} isDisabled={busy} onClick={() => void jog("y", -d, `Y-${d}`)} />
-      </HStack>
-      <HStack gap={2}>
-        <Button label={`Z+ ${d}`} isDisabled={busy} onClick={() => void jog("z", d, `Z+${d}`)} />
-        <Button label={`Z− ${d}`} isDisabled={busy} onClick={() => void jog("z", -d, `Z-${d}`)} />
-      </HStack>
-      {showGoto ? (
-        <HStack gap={2}>
-          <TextInput label="X" value={gx} onChange={setGx} />
-          <TextInput label="Y" value={gy} onChange={setGy} />
-          <TextInput label="Z" value={gz} onChange={setGz} />
-          <Button
-            label="Go to"
-            variant="primary"
-            isDisabled={busy}
-            onClick={() => {
-              const nx = parseNumber(gx);
-              const ny = parseNumber(gy);
-              const nz = parseNumber(gz);
-              if (nx == null || ny == null || nz == null) {
-                toast({ body: "Use a plain number like 123.4", type: "error" });
-                return;
-              }
-              void move(nx, ny, nz);
-            }}
-          />
+        <HStack gap={1} wrap>
+          {STEPS.map((s) => (
+            <Button
+              key={s}
+              label={s}
+              variant={step === Number(s) ? "primary" : "secondary"}
+              onClick={() => setStep(Number(s))}
+            />
+          ))}
         </HStack>
+      </HStack>
+      <Slider
+        label="Speed"
+        value={speed}
+        onChange={setSpeed}
+        min={10}
+        max={100}
+        step={5}
+        valueDisplay="text"
+        formatValue={(v) => `${v}%`}
+      />
+      <Center axis="horizontal">
+        <div className="jog-grid">
+          <div className="jog-yplus">
+            <IconButton label={`Y +${step} mm`} icon={<ArrowUpIcon style={icon} />} width="100%" isDisabled={busy} onClick={() => void jog("y", step, `Y+${step}`)} />
+          </div>
+          <div className="jog-xmin">
+            <IconButton label={`X −${step} mm`} icon={<ArrowLeftIcon style={icon} />} width="100%" isDisabled={busy} onClick={() => void jog("x", -step, `X-${step}`)} />
+          </div>
+          <div className="jog-origin">
+            <IconButton
+              label="Go to origin"
+              icon={<ArrowsPointingInIcon style={icon} />}
+              variant="secondary"
+              width="100%"
+              isDisabled={busy}
+              onClick={() => void move(0, 0, 0, "Origin")}
+            />
+          </div>
+          <div className="jog-xplus">
+            <IconButton label={`X +${step} mm`} icon={<ArrowRightIcon style={icon} />} width="100%" isDisabled={busy} onClick={() => void jog("x", step, `X+${step}`)} />
+          </div>
+          <div className="jog-yminus">
+            <IconButton label={`Y −${step} mm`} icon={<ArrowDownIcon style={icon} />} width="100%" isDisabled={busy} onClick={() => void jog("y", -step, `Y-${step}`)} />
+          </div>
+          <div className="jog-zplus">
+            <Button label="Z+" width="100%" isDisabled={busy} onClick={() => void jog("z", step, `Z+${step}`)} />
+          </div>
+          <div className="jog-zminus">
+            <Button label="Z−" width="100%" isDisabled={busy} onClick={() => void jog("z", -step, `Z-${step}`)} />
+          </div>
+        </div>
+      </Center>
+      {showGoto ? (
+        <VStack gap={2}>
+          <Text type="supporting" color="secondary">
+            Absolute target · mm
+          </Text>
+          <HStack gap={2} wrap align="end">
+            <NumberInput label="X" value={gx} onChange={setGx} />
+            <NumberInput label="Y" value={gy} onChange={setGy} />
+            <NumberInput label="Z" value={gz} onChange={setGz} />
+            <Button
+              label="Go to"
+              variant="primary"
+              isDisabled={busy}
+              onClick={() => void move(gx, gy, gz)}
+            />
+          </HStack>
+        </VStack>
       ) : null}
     </VStack>
   );
