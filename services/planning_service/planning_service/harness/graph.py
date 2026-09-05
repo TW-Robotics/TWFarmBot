@@ -19,11 +19,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, TypedDict
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.config import get_stream_writer
-from langgraph.graph import START, StateGraph
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
 from pydantic import BaseModel
@@ -36,34 +36,7 @@ from .tool_policy import ToolDescriptor
 from .tool_registry import ToolRegistry
 from .tracing import is_enabled, timed_invoke, timed_stream, trace_tool_call
 
-_WORK_HINTS = (
-    "move",
-    "water",
-    "photo",
-    "capture",
-    "ndre",
-    "home",
-    "scan",
-    "step",
-    "jog",
-    "path",
-)
-
-_CONTINUE_NUDGE = (
-    "Continue the operator's request with tools now. For a bed transect "
-    "(steps along X/Y with photos or NDRE) call scan_ndre once with axis, "
-    "end_mm, and step_mm. Do not stop after a single get_position or "
-    "capture_ndre."
-)
-
-_TRANSECT_HINTS = (
-    "step",
-    "across",
-    "transect",
-    "along",
-    "every",
-    "scan",
-)
+from .cancel import STOP_CANCELLED, is_cancelled
 
 STOP_DONE = "done"
 STOP_MAX_TURNS = "max_turns"
@@ -83,7 +56,6 @@ class HarnessState(TypedDict, total=False):
     tool_log: Annotated[list[dict[str, Any]], operator.add]
     proposed: Annotated[list[dict[str, Any]], operator.add]
     saw_action_call: bool
-    nudged: bool
 
 
 def _llm_friendly_result(result: Any) -> Any:
@@ -147,6 +119,29 @@ def _tool_calls_from_message(response: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _ai_from_stream(assembled: Any, buffer: str) -> AIMessage:
+    """Keep streamed tool_call_chunks, not just the final tool_calls list."""
+    if assembled is None:
+        return AIMessage(content=buffer)
+    calls = _tool_calls_from_message(assembled)
+    content = content_text(getattr(assembled, "content", "")) or buffer
+    if isinstance(assembled, AIMessage) and getattr(assembled, "tool_calls", None):
+        return assembled
+    return AIMessage(
+        content=content,
+        tool_calls=[
+            {
+                "name": call["name"],
+                "args": call["args"],
+                "id": call["id"],
+                "type": "tool_call",
+            }
+            for call in calls
+        ],
+        additional_kwargs=dict(getattr(assembled, "additional_kwargs", None) or {}),
+    )
+
+
 def _last_ai_message(messages: list[Any]) -> Any | None:
     for message in reversed(messages):
         if isinstance(message, AIMessage):
@@ -160,51 +155,6 @@ def _tool_succeeded(result: Any) -> bool:
     if result.get("status") == "error" or result.get("error"):
         return False
     return True
-
-
-def _user_asked_for_work(messages: list[Any]) -> bool:
-    for message in reversed(messages):
-        if not isinstance(message, HumanMessage):
-            continue
-        if content_text(message.content) == _CONTINUE_NUDGE:
-            continue
-        text = content_text(message.content).lower()
-        return any(hint in text for hint in _WORK_HINTS)
-    return False
-
-
-def _ran_physical_action(state: HarnessState, deps: RunDeps) -> bool:
-    if state.get("saw_action_call"):
-        return True
-    return any(
-        str(record.get("name", "")) in deps.action_names
-        for record in state.get("tool_log") or []
-    )
-
-
-def _user_wants_transect(messages: list[Any]) -> bool:
-    for message in reversed(messages):
-        if not isinstance(message, HumanMessage):
-            continue
-        if content_text(message.content) == _CONTINUE_NUDGE:
-            continue
-        text = content_text(message.content).lower()
-        return any(hint in text for hint in _TRANSECT_HINTS)
-    return False
-
-
-def _should_continue_job(state: HarnessState, deps: RunDeps) -> bool:
-    if state.get("nudged"):
-        return False
-    names = {str(record.get("name", "")) for record in state.get("tool_log") or []}
-    if "scan_ndre" in names:
-        return False
-    messages = list(state.get("messages") or [])
-    if _user_wants_transect(messages):
-        return True
-    if _ran_physical_action(state, deps):
-        return False
-    return _user_asked_for_work(messages)
 
 
 def _bind_model_tools(model: Runnable, tools: list[Any]) -> Runnable:
@@ -362,34 +312,42 @@ def build_graph(deps: RunDeps):
 
     def agent_node(state: HarnessState) -> dict[str, Any]:
         """Invoke the model once and record the turn."""
-        if state.get("turn", 0) >= deps.max_turns:
-            return {"stop_reason": STOP_MAX_TURNS}
+        if is_cancelled() or state.get("turn", 0) >= deps.max_turns:
+            return {
+                "stop_reason": STOP_CANCELLED if is_cancelled() else STOP_MAX_TURNS
+            }
         response = timed_invoke(
-            deps.model, state["messages"], deps.model_name, metrics=deps.metrics
+            deps.model,
+            state["messages"],
+            deps.model_name,
+            metrics=deps.metrics,
         )
         update: dict[str, Any] = {
             "messages": [response],
             "turn": state.get("turn", 0) + 1,
         }
-        if not _tool_calls_from_message(response):
-            if _should_continue_job(state, deps):
-                update["messages"] = [response, HumanMessage(content=_CONTINUE_NUDGE)]
-                update["nudged"] = True
-            else:
-                update["stop_reason"] = STOP_DONE
+        if _tool_calls_from_message(response):
+            update["stop_reason"] = ""
+        else:
+            update["stop_reason"] = STOP_DONE
         return update
 
     def agent_stream_node(state: HarnessState) -> dict[str, Any]:
         """Streaming twin of ``agent_node``: forwards deltas as custom events."""
-        if state.get("turn", 0) >= deps.max_turns:
-            return {"stop_reason": STOP_MAX_TURNS}
+        if is_cancelled() or state.get("turn", 0) >= deps.max_turns:
+            return {
+                "stop_reason": STOP_CANCELLED if is_cancelled() else STOP_MAX_TURNS
+            }
         writer = get_stream_writer()
         buffer = ""
         streamed_reasoning: list[str] = []
         reasoning_emitted = False
         assembled: Any = None
         for chunk in timed_stream(
-            deps.model, state["messages"], deps.model_name, metrics=deps.metrics
+            deps.model,
+            state["messages"],
+            deps.model_name,
+            metrics=deps.metrics,
         ):
             assembled = chunk if assembled is None else assembled + chunk
             kwargs = getattr(chunk, "additional_kwargs", {}) or {}
@@ -412,33 +370,23 @@ def build_graph(deps: RunDeps):
                     writer(event)
         if buffer:
             writer({"type": "delta", "content": buffer})
-        if assembled is None:
-            response = AIMessage(content="")
-        elif isinstance(assembled, AIMessage):
-            response = assembled
-        else:
-            response = AIMessage(
-                content=content_text(getattr(assembled, "content", "")),
-                tool_calls=list(getattr(assembled, "tool_calls", None) or []),
-                additional_kwargs=dict(
-                    getattr(assembled, "additional_kwargs", None) or {}
-                ),
-            )
+        response = _ai_from_stream(assembled, buffer)
         update = {
             "messages": [response],
             "turn": state.get("turn", 0) + 1,
         }
-        if not _tool_calls_from_message(response):
-            if _should_continue_job(state, deps):
-                update["messages"] = [response, HumanMessage(content=_CONTINUE_NUDGE)]
-                update["nudged"] = True
-            else:
-                update["stop_reason"] = STOP_DONE
+        if _tool_calls_from_message(response):
+            update["stop_reason"] = ""
+        else:
+            update["stop_reason"] = STOP_DONE
         return update
 
     def tools_node(state: HarnessState) -> dict[str, Any]:
         """Execute the latest tool calls and record compacted results."""
-        calls = _tool_calls_from_message(_last_ai_message(state["messages"]))
+        last = (state.get("messages") or [None])[-1]
+        calls = (
+            _tool_calls_from_message(last) if isinstance(last, AIMessage) else []
+        )
         pending = [
             c for c in calls if _needs_approval(deps, str(c["name"]), dict(c["args"]))
         ]
@@ -464,7 +412,14 @@ def build_graph(deps: RunDeps):
             args = dict(call["args"])
             if name in deps.action_names:
                 saw_action = True
-            if call["id"] in pending_ids and call["id"] not in approved_ids:
+            if is_cancelled():
+                result: dict[str, Any] = {
+                    "status": "error",
+                    "kind": name,
+                    "params": args,
+                    "error": "stopped by operator",
+                }
+            elif call["id"] in pending_ids and call["id"] not in approved_ids:
                 result: dict[str, Any] = {
                     "status": "error",
                     "kind": name,
@@ -498,21 +453,19 @@ def build_graph(deps: RunDeps):
             "consecutive_errors": errors,
             "saw_action_call": saw_action,
         }
-        if errors >= deps.max_errors:
+        if is_cancelled():
+            update["stop_reason"] = STOP_CANCELLED
+        elif errors >= deps.max_errors:
             update["stop_reason"] = STOP_MAX_ERRORS
         return update
 
-    def route_after_agent(state: HarnessState) -> Literal["tools", "agent", "__end__"]:
-        """Continue to tools unless a stop reason fired."""
+    def route_after_agent(state: HarnessState) -> Literal["tools", "__end__"]:
+        """Run tools when the latest message is a tool-calling AI turn."""
         if state.get("stop_reason"):
             return "__end__"
-        last_ai = _last_ai_message(list(state.get("messages") or []))
-        if last_ai is not None and _tool_calls_from_message(last_ai):
+        last = (state.get("messages") or [None])[-1]
+        if isinstance(last, AIMessage) and _tool_calls_from_message(last):
             return "tools"
-        if state.get("nudged") and isinstance(
-            (state.get("messages") or [None])[-1], HumanMessage
-        ):
-            return "agent"
         return "__end__"
 
     def route_after_tools(state: HarnessState) -> Literal["agent", "__end__"]:
@@ -527,6 +480,14 @@ def build_graph(deps: RunDeps):
     graph.add_node("agent", agent_stream_node if deps.streaming else agent_node)
     graph.add_node("tools", tools_node)
     graph.add_edge(START, "agent")
-    graph.add_conditional_edges("agent", route_after_agent)
-    graph.add_conditional_edges("tools", route_after_tools)
+    graph.add_conditional_edges(
+        "agent",
+        route_after_agent,
+        {"tools": "tools", "__end__": END},
+    )
+    graph.add_conditional_edges(
+        "tools",
+        route_after_tools,
+        {"agent": "agent", "__end__": END},
+    )
     return graph.compile(checkpointer=CHECKPOINTER)

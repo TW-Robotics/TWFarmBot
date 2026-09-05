@@ -23,6 +23,7 @@ from planning_service.harness import (
 )
 from planning_service.introspection import InMemorySystemStateProvider
 from twfarmbot_core.actions import ActionRegistry
+from twfarmbot_core.domain import Action
 
 
 class _ScriptFake(FakeListChatModel):
@@ -530,15 +531,64 @@ def test_stream_pauses_water_for_approval() -> None:
     )
     assert any(e.get("name") == "water" for e in resumed if e["type"] == "tool_call")
     assert any(e["type"] == "meta" for e in resumed)
+    assert "approval" not in [e["type"] for e in resumed]
 
 
-def test_agent_loop_keeps_going_after_get_position_only() -> None:
+def test_stream_scan_ndre_emits_images() -> None:
+    reg = _make_registry()
+    reg.register(
+        "scan_ndre",
+        lambda _action: Action(
+            kind="scan_ndre",
+            params={
+                "samples": [
+                    {"y": 0.0, "ndre_preview": "/captures/a/ndre"},
+                    {"y": 50.0, "ndre_preview": "/captures/b/ndre"},
+                ],
+                "count": 2,
+            },
+        ),
+    )
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call(
+                "scan_ndre",
+                {"axis": "y", "end_mm": 50, "step_mm": 50, "start_mm": 0},
+                "scan_1",
+            ),
+            "done",
+        ]
+    )
+    loop = _make_loop(fake, reg, propose_only=False)
+    events = list(loop.stream([{"role": "user", "content": "scan y"}]))
+    pending = next(e for e in events if e["type"] == "approval")
+    resumed = list(
+        loop.stream(
+            [],
+            thread_id=pending["thread_id"],
+            resume={"approved_ids": [pending["pending_approvals"][0]["id"]]},
+        )
+    )
+    tool = next(
+        e for e in resumed if e["type"] == "tool_call" and e.get("name") == "scan_ndre"
+    )
+    assert tool["images"] == [
+        {"label": "NDRE 1 (0 mm)", "url": "/captures/a/ndre"},
+        {"label": "NDRE 2 (50 mm)", "url": "/captures/b/ndre"},
+    ]
+    meta = next(e for e in resumed if e["type"] == "meta")
+    scan = next(tc for tc in meta["tool_calls"] if tc["name"] == "scan_ndre")
+    assert scan["images"] == tool["images"]
+
+
+def test_agent_loop_runs_tools_then_model_again() -> None:
+    """After a tool result, the graph returns to the model for another turn."""
     reg = _make_registry()
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
             _tool_call("get_position", {}, "p1"),
-            "I have the current pose.",
             _tool_call("move", {"x": 0, "y": 100, "z": 0}, "m1"),
             "moved",
         ]

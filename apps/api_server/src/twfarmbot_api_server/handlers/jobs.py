@@ -7,6 +7,7 @@ from typing import Any
 from twfarmbot_core.config import load_yaml_config
 from twfarmbot_core.domain import Action
 from watering_service.backends import farmbot
+from planning_service.harness.cancel import is_cancelled
 
 from .move import handle_move
 from .ndre import handle_capture_ndre
@@ -131,12 +132,25 @@ def handle_scan_ndre(action: Action) -> Action:
     return_home = bool(action.params.get("return_to_start", True))
     stops = axis_stops(start_mm, end_mm, step_mm)
     samples: list[dict[str, Any]] = []
+    cancelled = False
     for stop in stops:
+        if is_cancelled():
+            cancelled = True
+            break
         target = {"x": origin["x"], "y": origin["y"], "z": z, axis: stop}
         handle_move(Action(kind="move", params=target))
         captured = handle_capture_ndre(
             Action(kind="capture_ndre", params={"return_to_start": False})
         )
+        nir = captured.params.get("nir")
+        artifact_id = (
+            str(nir.get("artifact_id"))
+            if isinstance(nir, dict) and nir.get("artifact_id")
+            else None
+        )
+        preview = captured.params.get("ndre_preview")
+        if not preview and artifact_id:
+            preview = f"/captures/{artifact_id}/ndre"
         samples.append(
             {
                 "x": target["x"],
@@ -145,12 +159,12 @@ def handle_scan_ndre(action: Action) -> Action:
                 "ndre": captured.params.get("ndre"),
                 "interpretation": captured.params.get("interpretation"),
                 "summary": captured.params.get("summary"),
-                "nir": captured.params.get("nir"),
+                "nir": nir,
                 "rededge": captured.params.get("rededge"),
-                "ndre_preview": captured.params.get("ndre_preview"),
+                "ndre_preview": preview,
             }
         )
-    if return_home:
+    if return_home and not cancelled:
         handle_move(Action(kind="move", params=origin))
     return Action(
         kind="scan_ndre",
@@ -159,6 +173,7 @@ def handle_scan_ndre(action: Action) -> Action:
             "stops": stops,
             "samples": samples,
             "count": len(samples),
+            "cancelled": cancelled,
         },
     )
 

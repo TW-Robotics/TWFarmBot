@@ -1,4 +1,9 @@
-from planning_service.tool_results import append_result_images
+from planning_service.tool_results import (
+    _ndre_preview_from_sample,
+    _sse_images,
+    append_result_images,
+    compact_tool_result,
+)
 
 
 def test_append_result_images_prefers_segmentation_artifacts() -> None:
@@ -118,3 +123,66 @@ def test_append_result_images_includes_capture_ndre() -> None:
     assert "NIR capture" not in text
     assert "Red-edge capture" not in text
     assert "/captures/aaa/nir" not in text
+
+
+def test_append_result_images_includes_scan_ndre_previews() -> None:
+    text = append_result_images(
+        "Sweep done.",
+        [
+            {
+                "name": "scan_ndre",
+                "result": {
+                    "status": "ok",
+                    "kind": "scan_ndre",
+                    "params": {
+                        "samples": [
+                            {
+                                "y": 0,
+                                "ndre_preview": "/captures/a/ndre",
+                            },
+                            {
+                                "y": 50,
+                                "ndre_preview": "/captures/b/ndre",
+                            },
+                        ]
+                    },
+                },
+            }
+        ],
+    )
+    assert "![NDRE 1 (0 mm)](/captures/a/ndre)" in text
+    assert "![NDRE 2 (50 mm)](/captures/b/ndre)" in text
+    compacted = compact_tool_result(
+        {
+            "params": {
+                "samples": [{"ndre_preview": "/captures/a/ndre"}],
+            }
+        }
+    )
+    assert compacted["params"]["samples"][0]["ndre_preview"] == "/captures/a/ndre"
+
+
+def test_ndre_preview_from_sample_falls_back_to_nir_artifact() -> None:
+    assert (
+        _ndre_preview_from_sample({"nir": {"artifact_id": "abc123", "band": "nir"}})
+        == "/captures/abc123/ndre"
+    )
+
+
+def test_sse_images_for_scan_ndre() -> None:
+    images = _sse_images(
+        "scan_ndre",
+        {
+            "status": "ok",
+            "params": {
+                "samples": [
+                    {"y": 0, "nir": {"artifact_id": "aaa", "band": "nir"}},
+                    {"y": 50, "ndre_preview": "/captures/bbb/ndre"},
+                ]
+            },
+        },
+    )
+    assert images == [
+        {"label": "NDRE 1 (0 mm)", "url": "/captures/aaa/ndre"},
+        {"label": "NDRE 2 (50 mm)", "url": "/captures/bbb/ndre"},
+    ]
