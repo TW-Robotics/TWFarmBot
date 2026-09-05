@@ -131,7 +131,7 @@ cmd_start() {
   done
   echo
   echo "OS      http://localhost:3001"
-  echo "UI      http://localhost:8501"
+  echo "UI      https://localhost:8501  (self-signed; use https:// so remote mic works)"
   echo "API     http://localhost:8000/docs"
 }
 

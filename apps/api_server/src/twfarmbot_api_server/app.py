@@ -129,6 +129,12 @@ class ChatCancelPayload(BaseModel):
     thread_id: str | None = None
 
 
+class ChatTranscribePayload(BaseModel):
+    audio_base64: str = Field(..., min_length=1)
+    format: str = Field(default="webm")
+    llm: LlmOverrides | None = None
+
+
 class ModelsPayload(BaseModel):
     llm: LlmOverrides | None = None
 
@@ -157,7 +163,13 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     configured_origins = os.getenv("TWFB_CORS_ORIGINS", "")
     cors_origins = [
         origin.strip() for origin in configured_origins.split(",") if origin.strip()
-    ] or ["http://localhost:8501", "http://127.0.0.1:8501", "null"]
+    ] or [
+        "http://localhost:8501",
+        "http://127.0.0.1:8501",
+        "https://localhost:8501",
+        "https://127.0.0.1:8501",
+        "null",
+    ]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
@@ -549,6 +561,26 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         except Exception:  # noqa: BLE001
             log.warning("e_stop after chat cancel failed", exc_info=True)
         return {"status": "ok", "thread_id": thread_id}
+
+    @app.post("/chat/transcribe")
+    def post_chat_transcribe(payload: ChatTranscribePayload) -> dict[str, str]:
+        """Speech-to-text via OpenRouter MAI-Transcribe 2."""
+        import base64
+
+        from planning_service.transcribe import TRANSCRIBE_MODEL, transcribe_audio
+
+        try:
+            audio = base64.b64decode(payload.audio_base64, validate=False)
+        except Exception as err:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="invalid audio_base64") from err
+        cfg = _resolve_llm_config(payload.llm)
+        try:
+            text = transcribe_audio(audio, fmt=payload.format, config=cfg)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        except RuntimeError as err:
+            raise HTTPException(status_code=502, detail=str(err)) from err
+        return {"text": text, "model": TRANSCRIBE_MODEL}
 
     return app
 

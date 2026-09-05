@@ -35,7 +35,7 @@ uv sync
 
 That one script starts ReSiReg, the API, the UI, and the worker (uses `.env` when present). Then open:
 
-- UI: `http://localhost:8501`
+- UI: `https://localhost:8501` (self-signed cert; required for the microphone on a remote browser)
 - API docs: `http://localhost:8000/docs`
 - ReSiReg: `http://localhost:8080`
 

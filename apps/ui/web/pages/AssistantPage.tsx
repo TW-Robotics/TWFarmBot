@@ -5,24 +5,30 @@ import {
   ChatMessage,
   ChatMessageBubble,
   ChatMessageList,
-  ChatToolCalls,
+  ChatSendButton,
 } from "@astryxdesign/core/Chat";
 import { Markdown } from "@astryxdesign/core/Markdown";
 import { Button } from "@astryxdesign/core/Button";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
-import { api, apiUrl, postAction, streamChat } from "../api";
-
-function resolveChatImages(text: string): string {
-  const base = apiUrl();
-  return text.replace(
-    /!\[([^\]]*)\]\((\/(?:captures|photos)\/[^)]+)\)/g,
-    (_match, label: string, path: string) => `![${label}](${base}${path})`,
-  );
-}
+import { MicrophoneIcon, StopIcon } from "@heroicons/react/24/outline";
+import { api, apiUrl, streamChat } from "../api";
+import { useMicTranscribe } from "../useMicTranscribe";
+import {
+  ApprovalBanner,
+  AssistantContent,
+  MessageMetadata,
+  mergeToolImages,
+  resolveChatImages,
+  type ChatMsg,
+  type PendingApproval,
+  type ToolImage,
+  type TranscriptItem,
+} from "../components/chat";
 import {
   SETTINGS_CHANGED_EVENT,
   getActiveLlmProfile,
@@ -30,116 +36,79 @@ import {
   profileLabel,
 } from "../settings";
 
-type ProgramItem = {
-  call_id?: string;
-  code?: string;
-  result?: unknown;
-  status?: string;
-};
-type TranscriptItem =
-  | { kind: "text"; text: string }
-  | { kind: "thinking"; text: string }
-  | {
-      kind: "tool";
-      name: string;
-      args?: unknown;
-      result?: unknown;
-      images?: { label: string; url: string }[];
-    };
-
-function captureSrc(url: string): string {
-  if (url.startsWith("data:") || url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-  return `${apiUrl()}${url}`;
+/** A tool began executing: append a row that renders as "running". */
+function applyToolStart(
+  assistant: ChatMsg,
+  event: { id?: string; name: string; args?: unknown },
+) {
+  assistant.tool_calls = [
+    ...(assistant.tool_calls || []),
+    { id: event.id, name: event.name, args: event.args },
+  ];
+  const current = assistant.transcript ?? [];
+  current.push({ kind: "tool", id: event.id, name: event.name, args: event.args });
+  assistant.transcript = current;
 }
 
-function ToolStillGrid({ images }: { images: { label: string; url: string }[] }) {
-  if (!images.length) return null;
-  return (
-    <HStack gap={2} style={{ flexWrap: "wrap", marginTop: 8 }}>
-      {images.map((image) => (
-        <VStack key={`${image.label}:${image.url}`} gap={1}>
-          <img
-            alt={image.label}
-            src={captureSrc(image.url)}
-            style={{
-              maxWidth: 240,
-              maxHeight: 180,
-              objectFit: "contain",
-              borderRadius: 6,
-            }}
-          />
-          <Text type="supporting" color="secondary">
-            {image.label}
-          </Text>
-        </VStack>
-      ))}
-    </HStack>
-  );
-}
-
-type ToolImage = { label: string; url: string };
-
-function ndrePreviewFromSample(sample: Record<string, unknown>): string | null {
-  const preview = sample.ndre_preview;
-  if (typeof preview === "string" && preview.startsWith("/captures/")) {
-    return preview;
-  }
-  const nir = sample.nir;
-  if (nir && typeof nir === "object" && nir !== null) {
-    const artifactId = (nir as Record<string, unknown>).artifact_id;
-    if (typeof artifactId === "string" && artifactId) {
-      return `/captures/${artifactId}/ndre`;
+/** A tool finished: patch its running row in place, or append for legacy streams. */
+function applyToolResult(
+  assistant: ChatMsg,
+  event: {
+    id?: string;
+    name: string;
+    args?: unknown;
+    result?: unknown;
+    images?: ToolImage[];
+    caller?: { type?: string } | null;
+  },
+) {
+  const images = mergeToolImages(event.images, event.name, event.result);
+  const transcript = assistant.transcript ?? [];
+  if (event.id) {
+    for (let index = transcript.length - 1; index >= 0; index -= 1) {
+      const item = transcript[index];
+      if (item.kind === "tool" && item.id === event.id && item.result === undefined) {
+        item.result = event.result;
+        item.images = images;
+        assistant.transcript = transcript;
+        const call = (assistant.tool_calls || []).find((tool) => tool.id === event.id);
+        if (call) {
+          call.result = event.result;
+          call.images = images;
+        }
+        return;
+      }
     }
   }
-  return null;
+  assistant.tool_calls = [
+    ...(assistant.tool_calls || []),
+    {
+      id: event.id,
+      name: event.name,
+      args: event.args,
+      result: event.result,
+      images,
+      caller: event.caller,
+    },
+  ];
+  transcript.push({
+    kind: "tool",
+    id: event.id,
+    name: event.name,
+    args: event.args,
+    result: event.result,
+    images,
+  });
+  assistant.transcript = transcript;
 }
 
-function toolResultImages(name: string, result: unknown): ToolImage[] {
-  if (!result || typeof result !== "object") return [];
-  const record = result as Record<string, unknown>;
-  const params =
-    record.params && typeof record.params === "object"
-      ? (record.params as Record<string, unknown>)
-      : null;
-  const images: ToolImage[] = [];
-
-  if (name === "scan_ndre" && params && Array.isArray(params.samples)) {
-    params.samples.forEach((sample, index) => {
-      if (!sample || typeof sample !== "object") return;
-      const url = ndrePreviewFromSample(sample as Record<string, unknown>);
-      if (!url) return;
-      const axisPos =
-        (sample as Record<string, unknown>).y ?? (sample as Record<string, unknown>).x;
-      const label =
-        typeof axisPos === "number"
-          ? `NDRE ${index + 1} (${axisPos} mm)`
-          : `NDRE ${index + 1}`;
-      images.push({ label, url });
-    });
-  }
-
-  if (name === "capture_ndre" && params) {
-    const preview = params.ndre_preview;
-    if (typeof preview === "string" && preview) {
-      images.push({ label: "NDRE map", url: preview });
+/** Stream ended: tools that never reported a result were interrupted. */
+function settlePendingTools(assistant: ChatMsg) {
+  for (const item of assistant.transcript ?? []) {
+    if (item.kind === "tool" && item.result === undefined) {
+      item.result = { status: "error", error: "Interrupted before completion" };
     }
   }
-
-  return images;
-}
-
-function mergeToolImages(
-  images: ToolImage[] | undefined,
-  name: string,
-  result: unknown,
-): ToolImage[] {
-  const fromResult = toolResultImages(name, result);
-  if (!images?.length) return fromResult;
-  if (!fromResult.length) return images;
-  const seen = new Set(images.map((item) => item.url));
-  return [...images, ...fromResult.filter((item) => !seen.has(item.url))];
 }
 
 function attachMetaToolImages(
@@ -163,28 +132,6 @@ function attachMetaToolImages(
   }
 }
 
-type ChatMsg = {
-  role: "user" | "assistant";
-  content: string;
-  thinking?: string;
-  tool_calls?: {
-    name: string;
-    args?: any;
-    result?: any;
-    images?: ToolImage[];
-    caller?: { type?: string } | null;
-  }[];
-  programs?: ProgramItem[];
-  proposed_actions?: { kind: string; params?: Record<string, unknown> }[];
-  streaming?: boolean;
-  error?: string;
-  approved?: boolean;
-  rejected?: boolean;
-  executing?: boolean;
-  trace?: { turn?: number; response_id?: string; status?: string; output?: Record<string, unknown>[] }[];
-  transcript?: TranscriptItem[];
-};
-
 export function AssistantPage() {
   const toast = useToast();
   // Bump this when the assistant wire format/provider defaults change so old
@@ -202,10 +149,10 @@ export function AssistantPage() {
   const [busy, setBusy] = useState(false);
   const stopRef = useRef<AbortController | null>(null);
   const threadIdRef = useRef<string | null>(null);
-  const [pendingApprovals, setPendingApprovals] = useState<
-    { id: string; name: string; args?: unknown }[]
-  >([]);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [activeProfileName, setActiveProfileName] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const mic = useMicTranscribe();
 
   const loadModels = useCallback(async () => {
     const profile = getActiveLlmProfile();
@@ -277,10 +224,11 @@ export function AssistantPage() {
     setBusy(true);
     const controller = new AbortController();
     stopRef.current = controller;
-    const request = [...messages, { role: "user" as const, content: value }];
+    const request = [...messages, { role: "user" as const, content: value, ts: Date.now() }];
     const assistant: ChatMsg = {
       role: "assistant",
       content: "",
+      ts: Date.now(),
       tool_calls: [],
       programs: [],
       proposed_actions: [],
@@ -317,18 +265,10 @@ export function AssistantPage() {
           } else if (event.type === "thinking") {
             assistant.thinking = (assistant.thinking || "") + (event.content || "");
             pushTranscript({ kind: "thinking", text: event.content || "" });
+          } else if (event.type === "tool_start") {
+            applyToolStart(assistant, event);
           } else if (event.type === "tool_call") {
-            assistant.tool_calls = [
-              ...(assistant.tool_calls || []),
-              { name: event.name, args: event.args, result: event.result, caller: event.caller },
-            ];
-            pushTranscript({
-              kind: "tool",
-              name: event.name,
-              args: event.args,
-              result: event.result,
-              images: mergeToolImages(event.images, event.name, event.result),
-            });
+            applyToolResult(assistant, event);
             setPendingApprovals([]);
           } else if (event.type === "program") {
             const next = [...(assistant.programs || [])];
@@ -360,6 +300,7 @@ export function AssistantPage() {
         { signal: controller.signal },
       );
       assistant.streaming = false;
+      settlePendingTools(assistant);
       if (controller.signal.aborted) {
         pushTranscript({ kind: "text", text: "\n\n*Stopped by user.*" });
       } else if (!assistant.content && !assistant.error && !awaitingApproval) {
@@ -368,6 +309,7 @@ export function AssistantPage() {
       setMessages([...request, { ...assistant }]);
     } catch (error) {
       assistant.streaming = false;
+      settlePendingTools(assistant);
       assistant.error = error instanceof Error ? error.message : "Assistant request failed";
       setMessages([...request, { ...assistant }]);
       toast({ body: assistant.error, type: "error" });
@@ -414,20 +356,10 @@ export function AssistantPage() {
             assistant.transcript = current;
           } else if (event.type === "thinking") {
             assistant.thinking = (assistant.thinking || "") + (event.content || "");
+          } else if (event.type === "tool_start") {
+            applyToolStart(assistant, event);
           } else if (event.type === "tool_call") {
-            assistant.tool_calls = [
-              ...(assistant.tool_calls || []),
-              { name: event.name, args: event.args, result: event.result, caller: event.caller },
-            ];
-            const current = assistant.transcript ?? [];
-            current.push({
-              kind: "tool",
-              name: event.name,
-              args: event.args,
-              result: event.result,
-              images: mergeToolImages(event.images, event.name, event.result),
-            });
-            assistant.transcript = current;
+            applyToolResult(assistant, event);
             setPendingApprovals([]);
           } else if (event.type === "approval") {
             const incoming = event.pending_approvals || [];
@@ -454,9 +386,11 @@ export function AssistantPage() {
         { signal: controller.signal },
       );
       assistant.streaming = false;
+      settlePendingTools(assistant);
       setMessages([...request.slice(0, -1), { ...assistant }]);
     } catch (error) {
       assistant.streaming = false;
+      settlePendingTools(assistant);
       assistant.error = error instanceof Error ? error.message : "Approval resume failed";
       setMessages([...request.slice(0, -1), { ...assistant }]);
       toast({ body: assistant.error, type: "error" });
@@ -468,7 +402,7 @@ export function AssistantPage() {
 
   return (
     <VStack height="100%" style={{ minHeight: 0, height: "100%" }}>
-      <HStack gap={3} style={{ padding: "12px 20px" }}>
+      <HStack gap={3} vAlign="center" style={{ padding: "12px 20px" }}>
         {activeProfileName ? (
           <Text type="supporting" color="secondary">
             {activeProfileName}
@@ -503,154 +437,84 @@ export function AssistantPage() {
         composer={
           <ChatComposer
             placeholder="Ask about your garden…"
-            onSubmit={(value) => void send(value)}
+            value={draft}
+            onChange={setDraft}
+            onSubmit={(value) => {
+              setDraft("");
+              void send(value);
+            }}
             onStop={() => void stopRun()}
-            isStopShown={busy}
-            isDisabled={pendingApprovals.length > 0}
+            isStopShown={busy || pendingApprovals.length > 0}
+            sendActions={
+              <IconButton
+                label={
+                  mic.busy
+                    ? "Transcribing…"
+                    : mic.recording
+                      ? "Stop recording"
+                      : mic.liveMic
+                        ? "Dictate with MAI Transcribe 2"
+                        : "Transcribe audio from this computer"
+                }
+                icon={
+                  mic.recording ? (
+                    <StopIcon style={{ width: 18, height: 18 }} />
+                  ) : (
+                    <MicrophoneIcon style={{ width: 18, height: 18 }} />
+                  )
+                }
+                variant={mic.recording ? "primary" : "secondary"}
+                isDisabled={busy || mic.busy}
+                onClick={() =>
+                  void mic.toggle(
+                    llmOverridesFromProfile(getActiveLlmProfile()),
+                    (text) =>
+                      setDraft((current) =>
+                        current.trim() ? `${current.trim()} ${text}` : text,
+                      ),
+                    (message) => toast({ body: message, type: "error" }),
+                  )
+                }
+              />
+            }
+            sendButton={
+              <ChatSendButton
+                isStopShown={busy || pendingApprovals.length > 0}
+                isDisabled={false}
+                onStop={() => void stopRun()}
+              />
+            }
           />
         }
       >
         <ChatMessageList isStreaming={busy}>
           {messages.map((message, index) => (
-            <ChatMessage key={index} sender={message.role}>
-              {message.role === "assistant" && message.transcript?.length ? (
-                <VStack gap={2}>
-                  {message.error ? (
-                    <ChatMessageBubble variant="ghost">
-                      <Markdown density="compact">{message.error}</Markdown>
-                    </ChatMessageBubble>
-                  ) : null}
-                  {message.transcript.map((item, itemIndex) => {
-                    if (item.kind === "tool") {
-                      const resultRecord =
-                        typeof item.result === "object" && item.result !== null
-                          ? (item.result as Record<string, unknown>)
-                          : null;
-                      const failed =
-                        resultRecord !== null &&
-                        (resultRecord.status === "error" ||
-                          Boolean(resultRecord.error));
-                      return (
-                        <VStack key={itemIndex} gap={2}>
-                          <ChatToolCalls
-                            calls={[
-                              {
-                                name: item.name,
-                                target: JSON.stringify(item.args ?? {}),
-                                status: failed ? ("error" as const) : ("complete" as const),
-                                errorMessage: failed
-                                  ? String(resultRecord?.error ?? "failed")
-                                  : undefined,
-                                resultDetail: (
-                                  <pre
-                                    style={{
-                                      whiteSpace: "pre-wrap",
-                                      overflowWrap: "anywhere",
-                                      margin: "4px 0",
-                                    }}
-                                  >
-                                    {typeof item.result === "string"
-                                      ? item.result
-                                      : JSON.stringify(item.result, null, 2)}
-                                  </pre>
-                                ),
-                              },
-                            ]}
-                          />
-                          <ToolStillGrid
-                            images={mergeToolImages(item.images, item.name, item.result)}
-                          />
-                        </VStack>
-                      );
-                    }
-                    if (item.kind === "thinking") {
-                      return (
-                        <details key={itemIndex} style={{ fontSize: 13 }}>
-                          <summary style={{ cursor: "pointer" }}>Reasoning</summary>
-                          <pre
-                            style={{
-                              whiteSpace: "pre-wrap",
-                              overflowWrap: "anywhere",
-                            }}
-                          >
-                            {item.text}
-                          </pre>
-                        </details>
-                      );
-                    }
-                    return (
-                      <ChatMessageBubble key={itemIndex} variant="ghost">
-                        <Markdown density="compact">
-                          {resolveChatImages(item.text)}
-                        </Markdown>
-                      </ChatMessageBubble>
-                    );
-                  })}
-                </VStack>
+            <ChatMessage
+              key={index}
+              sender={message.role}
+              metadata={
+                message.role === "assistant" ? (
+                  <MessageMetadata message={message} model={model} />
+                ) : undefined
+              }
+            >
+              {message.role === "user" ? (
+                <ChatMessageBubble
+                  variant="filled"
+                  metadata={<MessageMetadata message={message} />}
+                >
+                  <Markdown density="compact">{resolveChatImages(message.content)}</Markdown>
+                </ChatMessageBubble>
               ) : (
-                <>
-                  {message.tool_calls?.length ? (
-                    <VStack gap={2}>
-                      <ChatToolCalls
-                        calls={message.tool_calls.map((tool) => ({
-                          name: tool.name,
-                          target: `${tool.caller ? "program" : "direct"} · ${JSON.stringify(tool.args || {})}`,
-                          status: "complete" as const,
-                        }))}
-                      />
-                      {message.tool_calls.some(
-                        (tool) =>
-                          mergeToolImages(tool.images, tool.name, tool.result).length > 0,
-                      ) ? (
-                        <ToolStillGrid
-                          images={message.tool_calls.flatMap((tool) =>
-                            mergeToolImages(tool.images, tool.name, tool.result),
-                          )}
-                        />
-                      ) : null}
-                    </VStack>
-                  ) : null}
-                  <ChatMessageBubble variant={message.role === "assistant" ? "ghost" : "filled"}>
-                    <Markdown density="compact">
-                      {resolveChatImages(
-                        message.error || message.content || (message.streaming ? "…" : ""),
-                      )}
-                    </Markdown>
-                  </ChatMessageBubble>
-                </>
+                <AssistantContent message={message} />
               )}
-              {message.trace?.length ? (
-                <details style={{ margin: "8px 12px", fontSize: 13 }}>
-                  <summary style={{ cursor: "pointer" }}>Execution trace ({message.trace.length} turn{message.trace.length === 1 ? "" : "s"})</summary>
-                  <VStack gap={2} style={{ marginTop: 8 }}>
-                    {message.trace.map((turn, traceIndex) => (
-                      <div key={traceIndex}>
-                        <div>Turn {turn.turn || traceIndex + 1} · {turn.status || "completed"}</div>
-                        {turn.output?.map((item, itemIndex) => (
-                          <pre key={itemIndex} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: "4px 0" }}>
-                            {JSON.stringify(item, null, 2)}
-                          </pre>
-                        ))}
-                      </div>
-                    ))}
-                  </VStack>
-                </details>
-              ) : null}
             </ChatMessage>
           ))}
         </ChatMessageList>
-        {pendingApprovals.length ? (
-          <HStack gap={2} style={{ padding: "8px 20px" }}>
-            <Text type="supporting" color="secondary">
-              Approve {pendingApprovals.map((item) => item.name).join(", ")}?
-            </Text>
-            <Button
-              label="Approve"
-              onClick={() => void resumeApprovals(pendingApprovals.map((item) => item.id))}
-            />
-            <Button label="Reject" onClick={() => void resumeApprovals([])} />
-          </HStack>
-        ) : null}
+        <ApprovalBanner
+          approvals={pendingApprovals}
+          onDecision={(ids) => void resumeApprovals(ids)}
+        />
       </ChatLayout>
     </VStack>
   );

@@ -2,19 +2,38 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+import httpx
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from twfarmbot_ui import history
 from twfarmbot_ui.local import add_garden_entity, run_vision
 
 STATIC_DIR = Path(__file__).parent / "static"
+_HOP = frozenset(
+    {
+        "connection",
+        "content-encoding",
+        "content-length",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
+_LOG = logging.getLogger(__name__)
 
 
 class GardenEntityPayload(BaseModel):
@@ -32,6 +51,18 @@ class VisionPayload(BaseModel):
     negative: str = ""
     negatives: str = ""
     n_clusters: int = 6
+
+
+def _api_base() -> str:
+    return os.getenv("TWFB_API_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _http(app: FastAPI) -> httpx.AsyncClient:
+    client = getattr(app.state, "http", None)
+    if client is None:
+        client = httpx.AsyncClient(timeout=None, follow_redirects=False)
+        app.state.http = client
+    return client
 
 
 def create_app() -> FastAPI:
@@ -56,6 +87,37 @@ def create_app() -> FastAPI:
     def sessions() -> dict[str, Any]:
         return {"sessions": history.list_sessions()}
 
+    @app.api_route(
+        "/api/{path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    )
+    async def api_proxy(path: str, request: Request) -> StreamingResponse:
+        url = f"{_api_base()}/{path}"
+        if request.url.query:
+            url = f"{url}?{request.url.query}"
+        headers = {key: value for key, value in request.headers.items() if key.lower() not in _HOP}
+        client = _http(request.app)
+        upstream = await client.send(
+            client.build_request(
+                request.method,
+                url,
+                headers=headers,
+                content=await request.body(),
+            ),
+            stream=True,
+        )
+        out_headers = {
+            key: value
+            for key, value in upstream.headers.items()
+            if key.lower() not in _HOP
+        }
+        return StreamingResponse(
+            upstream.aiter_bytes(),
+            status_code=upstream.status_code,
+            headers=out_headers,
+            background=BackgroundTask(upstream.aclose),
+        )
+
     if STATIC_DIR.is_dir():
         assets = STATIC_DIR / "assets"
         if assets.is_dir():
@@ -77,14 +139,24 @@ def create_app() -> FastAPI:
     return app
 
 
+def _tls_enabled() -> bool:
+    return os.getenv("TWFB_UI_TLS", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def run() -> None:
     import uvicorn
 
     from twfarmbot_core.logging import configure_logging
+    from twfarmbot_ui.tls import ensure_certs
 
     configure_logging()
-    uvicorn.run(
-        create_app(),
-        host=os.getenv("TWFB_UI_HOST", "0.0.0.0"),
-        port=int(os.getenv("TWFB_UI_PORT", "8501")),
-    )
+    kwargs: dict[str, Any] = {
+        "host": os.getenv("TWFB_UI_HOST", "0.0.0.0"),
+        "port": int(os.getenv("TWFB_UI_PORT", "8501")),
+    }
+    if _tls_enabled():
+        cert, key = ensure_certs()
+        kwargs["ssl_certfile"] = str(cert)
+        kwargs["ssl_keyfile"] = str(key)
+        _LOG.info("UI TLS enabled (%s); open https://<this-host>:%s", cert, kwargs["port"])
+    uvicorn.run(create_app(), **kwargs)

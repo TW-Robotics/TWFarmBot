@@ -138,7 +138,10 @@ def stream_chat(
       - ``{"type": "thread", "thread_id": "..."}`` so the UI can resume.
       - ``{"type": "approval", "pending_approvals": [...]}`` when a risky
         action waits for the operator (resume with ``approved_ids``).
-      - ``{"type": "tool_call", ...}`` after a JSON tool call is executed.
+      - ``{"type": "tool_start", "id", "name", "args"}`` when a tool call
+        begins executing (the UI shows a running row).
+      - ``{"type": "tool_call", "id", "name", "args", "result", "images"}``
+        when a tool call finishes.
       - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...]}``.
       - ``{"type": "thinking", "content": "..."}`` for reasoning traces.
       - ``{"type": "delta", "content": "..."}`` for the final answer text.
