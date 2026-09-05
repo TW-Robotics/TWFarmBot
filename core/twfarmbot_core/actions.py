@@ -106,6 +106,12 @@ def _summarize_unlock(params: dict[str, Any]) -> str:
     return "🔓 **unlock**"
 
 
+def _summarize_scan_ndre(params: dict[str, Any]) -> str:
+    count = params.get("count")
+    axis = params.get("axis", "y")
+    return f"🌿 **scan_ndre** {axis} ({count or '?'} stops)"
+
+
 def _summarize_inspect_zone(params: dict[str, Any]) -> str:
     return f"🔍 **inspect_zone** {params.get('zone_id', '—')}"
 
@@ -129,6 +135,7 @@ ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "take_photo": _summarize_take_photo,
     "capture": _summarize_capture,
     "capture_ndre": _summarize_capture_ndre,
+    "scan_ndre": _summarize_scan_ndre,
     "read_pin": _summarize_read_pin,
     "write_pin": _summarize_write_pin,
     "mount_tool": _summarize_mount_tool,

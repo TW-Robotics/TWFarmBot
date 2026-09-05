@@ -186,7 +186,9 @@ def format_tool_catalog(descriptors: Iterable[ToolDescriptor]) -> str:
         "Call the tools below with JSON function/tool calling.",
         "Do not write Python scripts or fenced farm_script blocks.",
         "The runtime executes each call and returns a JSON result.",
-        "Physical ACT tools run immediately when actions are allowed; safety limits still apply.",
+        "Physical ACT tools run immediately when actions are allowed, except "
+        "water, find_home, move_path, and moves farther than 50 mm, which pause "
+        "for operator approval in chat. Safety limits still apply.",
         "",
         "Available tools:",
     ]

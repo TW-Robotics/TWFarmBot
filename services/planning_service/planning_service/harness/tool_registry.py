@@ -12,6 +12,7 @@ from .. import introspection
 from ..tools import (
     CaptureArgs,
     CaptureNdreArgs,
+    ScanNdreArgs,
     FindHomeArgs,
     MountToolArgs,
     MoveArgs,
@@ -28,18 +29,18 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         ToolCategory.ACT,
         requires_approval=False,
         safety_rules=("move",),
-        description="Move the gantry to absolute X/Y/Z mm.",
+        description="Move the gantry to absolute X/Y/Z mm. Jogs under 50 mm run immediately; larger moves pause for approval in chat.",
     ),
     "water": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=False,
+        requires_approval=True,
         safety_rules=("water",),
-        description="Turn the pump on for N seconds.",
+        description="Turn the pump on for N seconds. Pauses for operator approval in chat.",
     ),
     "find_home": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=False,
-        description="Run the end-stop homing sequence.",
+        requires_approval=True,
+        description="Run the end-stop homing sequence. Pauses for operator approval in chat.",
     ),
     "write_pin": ToolPolicy(
         ToolCategory.ACT,
@@ -89,15 +90,25 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
             "You MUST use interpretation.action_hint and advice to decide "
             "what to do next (ok / monitor / consider_water / recheck / "
             "reposition) — do not only list the numbers. "
-            "Move to the target pose first if needed. You cannot see the "
-            "NDRE image; reason from ndre.* and interpretation.*"
+            "Move to the target pose first if needed. The NDRE map is attached "
+            "as an image you can see; also use ndre.* and interpretation.*"
+        ),
+    ),
+    "scan_ndre": ToolPolicy(
+        ToolCategory.ANALYZE,
+        requires_approval=True,
+        safety_rules=("scan_ndre",),
+        description=(
+            "Sweep X or Y in millimetre steps and run capture_ndre at every "
+            "stop. Use this for bed transects (e.g. y=0..300 step 100). "
+            "Do not loop move+capture_ndre yourself. Pauses for approval in chat."
         ),
     ),
     "move_path": ToolPolicy(
         ToolCategory.ACT,
-        requires_approval=False,
+        requires_approval=True,
         safety_rules=("move_path",),
-        description="Move the gantry through a sequence of waypoints, optionally taking photos.",
+        description="Move the gantry through a sequence of waypoints, optionally taking photos. Pauses for operator approval in chat.",
     ),
     "e_stop": ToolPolicy(
         ToolCategory.ACT,
@@ -134,6 +145,7 @@ _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "mount_tool": MountToolArgs,
     "capture": CaptureArgs,
     "capture_ndre": CaptureNdreArgs,
+    "scan_ndre": ScanNdreArgs,
 }
 
 _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {

@@ -91,6 +91,8 @@ export async function streamChat(
     model: string | null;
     allow_actions: boolean;
     llm?: LlmOverrides | null;
+    thread_id?: string | null;
+    approved_ids?: string[] | null;
   },
   onEvent: (event: any) => void,
   options?: { signal?: AbortSignal },

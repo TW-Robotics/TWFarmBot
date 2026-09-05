@@ -9,6 +9,7 @@ from twfarmbot_core.domain import Action
 from watering_service.backends import farmbot
 
 from .move import handle_move
+from .ndre import handle_capture_ndre
 from .path import handle_move_path
 from .watering import handle_water
 
@@ -82,6 +83,84 @@ def handle_inspect_zone(action: Action) -> Action:
         "sensors": _read_named_sensors(),
     }
     return Action(kind="inspect_zone", params={**action.params, "scorecard": scorecard})
+
+
+_MAX_NDRE_STOPS = 12
+
+
+def axis_stops(start: float, end: float, step: float) -> list[float]:
+    """Inclusive millimetre stops from ``start`` to ``end``."""
+    if step <= 0:
+        raise ValueError("step_mm must be positive")
+    step = abs(float(step))
+    if end < start:
+        step = -step
+    stops: list[float] = []
+    pos = float(start)
+    for _ in range(_MAX_NDRE_STOPS):
+        stops.append(round(pos, 3))
+        if abs(pos - end) < 1e-6:
+            return stops
+        nxt = pos + step
+        if (step > 0 and nxt > end + 1e-6) or (step < 0 and nxt < end - 1e-6):
+            if abs(stops[-1] - end) > 1e-3:
+                stops.append(round(float(end), 3))
+            return stops
+        pos = nxt
+    raise ValueError(
+        f"scan_ndre would take more than {_MAX_NDRE_STOPS} stops; increase step_mm"
+    )
+
+
+def handle_scan_ndre(action: Action) -> Action:
+    """Move along one axis and run capture_ndre at every stop."""
+    axis = str(action.params.get("axis") or "y").strip().lower()
+    if axis not in {"x", "y"}:
+        raise ValueError("scan_ndre axis must be 'x' or 'y'")
+    xyz = farmbot.backend.get_xyz()
+    origin = {
+        "x": float(xyz.get("x") or 0),
+        "y": float(xyz.get("y") or 0),
+        "z": float(xyz.get("z") or 0),
+    }
+    start = action.params.get("start_mm")
+    start_mm = origin[axis] if start is None else float(start)
+    end_mm = float(action.params["end_mm"])
+    step_mm = float(action.params.get("step_mm") or 100)
+    z = origin["z"] if action.params.get("z") is None else float(action.params["z"])
+    return_home = bool(action.params.get("return_to_start", True))
+    stops = axis_stops(start_mm, end_mm, step_mm)
+    samples: list[dict[str, Any]] = []
+    for stop in stops:
+        target = {"x": origin["x"], "y": origin["y"], "z": z, axis: stop}
+        handle_move(Action(kind="move", params=target))
+        captured = handle_capture_ndre(
+            Action(kind="capture_ndre", params={"return_to_start": False})
+        )
+        samples.append(
+            {
+                "x": target["x"],
+                "y": target["y"],
+                "z": target["z"],
+                "ndre": captured.params.get("ndre"),
+                "interpretation": captured.params.get("interpretation"),
+                "summary": captured.params.get("summary"),
+                "nir": captured.params.get("nir"),
+                "rededge": captured.params.get("rededge"),
+                "ndre_preview": captured.params.get("ndre_preview"),
+            }
+        )
+    if return_home:
+        handle_move(Action(kind="move", params=origin))
+    return Action(
+        kind="scan_ndre",
+        params={
+            **action.params,
+            "stops": stops,
+            "samples": samples,
+            "count": len(samples),
+        },
+    )
 
 
 def _read_named_sensors() -> dict[str, Any]:

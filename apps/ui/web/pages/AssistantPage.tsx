@@ -73,6 +73,10 @@ export function AssistantPage() {
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
   const stopRef = useRef<AbortController | null>(null);
+  const threadIdRef = useRef<string | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState<
+    { id: string; name: string; args?: unknown }[]
+  >([]);
   const [activeProfileName, setActiveProfileName] = useState<string | null>(null);
 
   const loadModels = useCallback(async () => {
@@ -138,6 +142,7 @@ export function AssistantPage() {
       streaming: true,
     };
     setMessages([...request, assistant]);
+    let awaitingApproval = false;
     const pushTranscript = (item: TranscriptItem) => {
       const current = assistant.transcript ?? [];
       const last = current[current.length - 1];
@@ -180,6 +185,13 @@ export function AssistantPage() {
             if (index >= 0) next[index] = { ...next[index], ...recorded };
             else next.push(recorded);
             assistant.programs = next;
+          } else if (event.type === "thread" && event.thread_id) {
+            threadIdRef.current = event.thread_id;
+          } else if (event.type === "approval") {
+            threadIdRef.current = event.thread_id || threadIdRef.current;
+            setPendingApprovals(event.pending_approvals || []);
+            awaitingApproval = true;
+            assistant.streaming = false;
           } else if (event.type === "meta") {
             assistant.proposed_actions = event.proposed_actions || [];
             assistant.tool_calls = event.tool_calls || assistant.tool_calls;
@@ -193,7 +205,7 @@ export function AssistantPage() {
       assistant.streaming = false;
       if (controller.signal.aborted) {
         pushTranscript({ kind: "text", text: "\n\n*Stopped by user.*" });
-      } else if (!assistant.content && !assistant.error) {
+      } else if (!assistant.content && !assistant.error && !awaitingApproval) {
         assistant.content = "I could not produce a response. Try again with a more specific request.";
       }
       setMessages([...request, { ...assistant }]);
@@ -201,6 +213,70 @@ export function AssistantPage() {
       assistant.streaming = false;
       assistant.error = error instanceof Error ? error.message : "Assistant request failed";
       setMessages([...request, { ...assistant }]);
+      toast({ body: assistant.error, type: "error" });
+    } finally {
+      stopRef.current = null;
+      setBusy(false);
+    }
+  };
+
+  const resumeApprovals = async (ids: string[]) => {
+    const threadId = threadIdRef.current;
+    if (!threadId || busy) return;
+    setPendingApprovals([]);
+    setBusy(true);
+    const controller = new AbortController();
+    stopRef.current = controller;
+    const history = messages.filter((item) => item.role === "user" || item.role === "assistant");
+    const request = history.filter((item) => item.role === "user" || !item.streaming);
+    const assistant: ChatMsg = {
+      ...(history[history.length - 1] || { role: "assistant" as const, content: "" }),
+      role: "assistant",
+      streaming: true,
+      error: undefined,
+    };
+    setMessages([...request.slice(0, -1), assistant]);
+    try {
+      await streamChat(
+        {
+          messages: request.filter((item) => item.role === "user"),
+          model: model || null,
+          allow_actions: true,
+          llm: llmOverridesFromProfile(getActiveLlmProfile()),
+          thread_id: threadId,
+          approved_ids: ids,
+        },
+        (event) => {
+          if (event.type === "delta") {
+            assistant.content = (assistant.content || "") + (event.content || "");
+          } else if (event.type === "thinking") {
+            assistant.thinking = (assistant.thinking || "") + (event.content || "");
+          } else if (event.type === "tool_call") {
+            assistant.tool_calls = [
+              ...(assistant.tool_calls || []),
+              { name: event.name, args: event.args, result: event.result, caller: event.caller },
+            ];
+            const current = assistant.transcript ?? [];
+            current.push({ kind: "tool", name: event.name, args: event.args, result: event.result });
+            assistant.transcript = current;
+          } else if (event.type === "approval") {
+            threadIdRef.current = event.thread_id || threadIdRef.current;
+            setPendingApprovals(event.pending_approvals || []);
+            assistant.streaming = false;
+          } else if (event.type === "meta") {
+            assistant.tool_calls = event.tool_calls || assistant.tool_calls;
+            assistant.proposed_actions = event.proposed_actions || assistant.proposed_actions;
+          } else if (event.type === "error") assistant.error = event.error;
+          setMessages([...request.slice(0, -1), { ...assistant }]);
+        },
+        { signal: controller.signal },
+      );
+      assistant.streaming = false;
+      setMessages([...request.slice(0, -1), { ...assistant }]);
+    } catch (error) {
+      assistant.streaming = false;
+      assistant.error = error instanceof Error ? error.message : "Approval resume failed";
+      setMessages([...request.slice(0, -1), { ...assistant }]);
       toast({ body: assistant.error, type: "error" });
     } finally {
       stopRef.current = null;
@@ -245,7 +321,7 @@ export function AssistantPage() {
             onSubmit={(value) => void send(value)}
             onStop={() => stopRef.current?.abort()}
             isStopShown={busy}
-            isDisabled={busy}
+            isDisabled={busy || pendingApprovals.length > 0}
           />
         }
       >
@@ -266,7 +342,9 @@ export function AssistantPage() {
                           ? (item.result as Record<string, unknown>)
                           : null;
                       const failed =
-                        resultRecord !== null && "error" in resultRecord;
+                        resultRecord !== null &&
+                        (resultRecord.status === "error" ||
+                          Boolean(resultRecord.error));
                       return (
                         <ChatToolCalls
                           key={itemIndex}
@@ -360,6 +438,18 @@ export function AssistantPage() {
             </ChatMessage>
           ))}
         </ChatMessageList>
+        {pendingApprovals.length ? (
+          <HStack gap={2} style={{ padding: "8px 20px" }}>
+            <Text type="supporting" color="secondary">
+              Approve {pendingApprovals.map((item) => item.name).join(", ")}?
+            </Text>
+            <Button
+              label="Approve"
+              onClick={() => void resumeApprovals(pendingApprovals.map((item) => item.id))}
+            />
+            <Button label="Reject" onClick={() => void resumeApprovals([])} />
+          </HStack>
+        ) : null}
       </ChatLayout>
     </VStack>
   );
