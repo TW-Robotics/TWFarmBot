@@ -2,13 +2,23 @@ export type Json = Record<string, unknown> | unknown[] | string | number | boole
 
 import type { LlmOverrides } from "./settings";
 
-const API_STORAGE = "twfarmbot:apiUrl:v2";
+const API_STORAGE = "twfarmbot:apiUrl:v3";
+
+function sameOriginApi(): string {
+  return `${window.location.origin}/api`;
+}
 
 export function apiUrl(): string {
   const stored = localStorage.getItem(API_STORAGE);
-  if (stored) return stored.replace(/\/$/, "");
+  if (stored) {
+    const url = stored.replace(/\/$/, "");
+    if (window.isSecureContext && url.startsWith("http://")) {
+      return sameOriginApi();
+    }
+    return url;
+  }
   return (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "")
-    || `${window.location.protocol}//${window.location.hostname}:8000`;
+    || sameOriginApi();
 }
 
 export function setApiUrl(url: string): void {

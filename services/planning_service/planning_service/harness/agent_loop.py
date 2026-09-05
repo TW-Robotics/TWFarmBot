@@ -269,19 +269,8 @@ class AgentLoop:
                         "pending_approvals": pending["pending_approvals"],
                     }
                     return
-                tools_update = payload.get("tools")
-                if isinstance(tools_update, dict):
-                    for record in tools_update.get("tool_log", []):
-                        name = str(record.get("name") or "")
-                        result = record.get("result")
-                        images = _sse_images(name, result)
-                        yield {
-                            "type": "tool_call",
-                            "name": name,
-                            "args": record.get("args"),
-                            "result": compact_tool_result(result),
-                            "images": images,
-                        }
+                # Tool results stream as custom events from the tools node
+                # (tool_start / tool_call), so there is nothing to replay here.
         snapshot = graph.get_state(config)
         interrupts = getattr(snapshot, "interrupts", ()) or ()
         if interrupts:

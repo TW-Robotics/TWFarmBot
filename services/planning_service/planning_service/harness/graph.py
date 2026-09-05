@@ -28,7 +28,7 @@ from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
 from pydantic import BaseModel
 
-from ..tool_results import compact_tool_result, provider_tool_content
+from ..tool_results import compact_tool_result, provider_tool_content, _sse_images
 from .approval_gate import ApprovalGate
 from .metrics import Metrics
 from .reasoning_controller import ReasoningController, content_text
@@ -407,6 +407,9 @@ def build_graph(deps: RunDeps):
         proposed: list[dict[str, Any]] = []
         tool_messages: list[ToolMessage] = []
         saw_action = False
+        # Stream tool lifecycle events so the UI can show a row the moment a
+        # call starts (often minutes for scans) instead of after the fact.
+        writer = get_stream_writer() if deps.streaming else None
         for call in calls:
             name = str(call["name"])
             args = dict(call["args"])
@@ -427,7 +430,27 @@ def build_graph(deps: RunDeps):
                     "error": "rejected by approver",
                 }
             else:
+                if writer:
+                    writer(
+                        {
+                            "type": "tool_start",
+                            "id": str(call["id"]),
+                            "name": name,
+                            "args": args,
+                        }
+                    )
                 result = _invoke_tool(deps, name, args)
+            if writer:
+                writer(
+                    {
+                        "type": "tool_call",
+                        "id": str(call["id"]),
+                        "name": name,
+                        "args": args,
+                        "result": compact_tool_result(result),
+                        "images": _sse_images(name, result),
+                    }
+                )
             records.append({"name": name, "args": args, "result": result})
             if isinstance(result, dict) and result.get("status") == "proposed":
                 proposed.append(

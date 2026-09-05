@@ -310,6 +310,28 @@ def test_agent_loop_streams_tool_call_and_delta_events() -> None:
     assert meta["programs"] == []
 
 
+def test_agent_loop_streams_tool_start_before_result() -> None:
+    """tool_start fires when execution begins; tool_call lands with the result."""
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("take_photo", {}, "photo_1"),
+            "photo taken",
+        ]
+    )
+    loop = _make_loop(fake, reg)
+    events = list(loop.stream([{"role": "user", "content": "take a photo"}]))
+    starts = [e for e in events if e["type"] == "tool_start"]
+    calls = [e for e in events if e["type"] == "tool_call"]
+    assert [e["id"] for e in starts] == ["photo_1"]
+    assert starts[0]["name"] == "take_photo"
+    assert "result" not in starts[0]
+    assert [e["id"] for e in calls] == ["photo_1"]
+    assert calls[0]["result"]["status"] == "ok"
+    assert events.index(starts[0]) < events.index(calls[0])
+
+
 def test_agent_loop_json_calls_capture() -> None:
     reg = _make_registry()
     fake = _ScriptFake(responses=["unused"])

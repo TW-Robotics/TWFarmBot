@@ -17,6 +17,7 @@ build/
 node_modules/
 
 # Runtime UI session data
+data/ui_tls/
 data/ui_sessions/
 data/run/
 data/logs/
