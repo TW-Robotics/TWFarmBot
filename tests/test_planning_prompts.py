@@ -35,6 +35,15 @@ def test_chat_prompt_lists_execution_tools() -> None:
     assert "Programmatic Tool Calling" not in prompt
 
 
+def test_chat_prompt_explains_ndre_nir_rededge() -> None:
+    prompt = ContextBuilder(ToolRegistry(_make_registry())).chat_system_prompt()
+    assert "NDRE = (NIR − red-edge) / (NIR + red-edge)" in prompt
+    assert "not NDVI" in prompt
+    assert "not thermal" in prompt
+    assert "not the RGB red channel" in prompt
+    assert "segment_image" in prompt
+
+
 def test_user_prompt_includes_world_context() -> None:
     prompt = build_user_prompt(
         "water the tomato",

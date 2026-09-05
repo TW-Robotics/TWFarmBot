@@ -16,8 +16,10 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import { MicrophoneIcon, StopIcon } from "@heroicons/react/24/outline";
-import { api, apiUrl, streamChat } from "../api";
+import { ApiError, api, apiUrl, streamChat } from "../api";
 import { useMicTranscribe } from "../useMicTranscribe";
+import { useRealtimeVoice } from "../useRealtimeVoice";
+import { VoiceOverlay } from "../components/VoiceOverlay";
 import {
   ApprovalBanner,
   AssistantContent,
@@ -132,6 +134,16 @@ function attachMetaToolImages(
   }
 }
 
+function voiceActivity(message?: ChatMsg): string | undefined {
+  const running = message?.transcript?.find(
+    (item) => item.kind === "tool" && item.result === undefined,
+  );
+  if (running && running.kind === "tool") return running.name;
+  const last = message?.tool_calls?.at(-1);
+  if (last && last.result === undefined) return last.name;
+  return undefined;
+}
+
 export function AssistantPage() {
   const toast = useToast();
   // Bump this when the assistant wire format/provider defaults change so old
@@ -153,6 +165,20 @@ export function AssistantPage() {
   const [activeProfileName, setActiveProfileName] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const mic = useMicTranscribe();
+  const voice = useRealtimeVoice();
+  const voiceApiRef = useRef(voice);
+  voiceApiRef.current = voice;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const midRunUsersRef = useRef<ChatMsg[]>([]);
+  const leftoverRef = useRef<string[]>([]);
+  const pendingRef = useRef(pendingApprovals);
+  pendingRef.current = pendingApprovals;
+  const voiceOnRef = useRef(false);
+  voiceOnRef.current = voice.listening;
+  const autoApproveRef = useRef<string[] | null>(null);
 
   const loadModels = useCallback(async () => {
     const profile = getActiveLlmProfile();
@@ -202,6 +228,7 @@ export function AssistantPage() {
   }, [messages, storageKey]);
 
   const stopRun = async () => {
+    voiceApiRef.current.cancelSpeak();
     const threadId = threadIdRef.current;
     stopRef.current?.abort();
     if (threadId) {
@@ -216,15 +243,28 @@ export function AssistantPage() {
     }
     setPendingApprovals([]);
     setBusy(false);
+    leftoverRef.current = [];
+    midRunUsersRef.current = [];
+  };
+
+  const paint = (request: ChatMsg[], assistant: ChatMsg) => {
+    setMessages([...request, ...midRunUsersRef.current, { ...assistant }]);
   };
 
   const send = async (text: string) => {
     const value = text.trim();
-    if (!value || busy) return;
+    if (!value || busyRef.current) return;
     setBusy(true);
+    busyRef.current = true;
     const controller = new AbortController();
     stopRef.current = controller;
-    const request = [...messages, { role: "user" as const, content: value, ts: Date.now() }];
+    midRunUsersRef.current = [];
+    const history = messagesRef.current.filter((item) => item.role === "user" || item.role === "assistant");
+    const lastUser = [...history].reverse().find((item) => item.role === "user");
+    const already = lastUser?.content === value;
+    const request = already
+      ? history
+      : [...history, { role: "user" as const, content: value, ts: Date.now() }];
     const assistant: ChatMsg = {
       role: "assistant",
       content: "",
@@ -234,7 +274,7 @@ export function AssistantPage() {
       proposed_actions: [],
       streaming: true,
     };
-    setMessages([...request, assistant]);
+    paint(request, assistant);
     let awaitingApproval = false;
     const pushTranscript = (item: TranscriptItem) => {
       const current = assistant.transcript ?? [];
@@ -257,11 +297,13 @@ export function AssistantPage() {
           model: model || null,
           allow_actions: true,
           llm: llmOverridesFromProfile(getActiveLlmProfile()),
+          skip_approval: voiceOnRef.current,
         },
         (event) => {
           if (event.type === "delta") {
             assistant.content += event.content || "";
             pushTranscript({ kind: "text", text: event.content || "" });
+            if (voiceOnRef.current) voiceApiRef.current.speakDelta(event.content || "");
           } else if (event.type === "thinking") {
             assistant.thinking = (assistant.thinking || "") + (event.content || "");
             pushTranscript({ kind: "thinking", text: event.content || "" });
@@ -281,7 +323,12 @@ export function AssistantPage() {
             threadIdRef.current = event.thread_id;
           } else if (event.type === "approval") {
             threadIdRef.current = event.thread_id || threadIdRef.current;
-            setPendingApprovals(event.pending_approvals || []);
+            const incoming = event.pending_approvals || [];
+            if (voiceOnRef.current) {
+              autoApproveRef.current = incoming.map((item: { id: string }) => item.id);
+            } else {
+              setPendingApprovals(incoming);
+            }
             awaitingApproval = true;
             assistant.streaming = false;
           } else if (event.type === "meta") {
@@ -295,7 +342,7 @@ export function AssistantPage() {
             assistant.trace = event.trace || assistant.trace;
             setPendingApprovals([]);
           } else if (event.type === "error") assistant.error = event.error;
-          setMessages([...request, { ...assistant }]);
+          paint(request, assistant);
         },
         { signal: controller.signal },
       );
@@ -306,24 +353,92 @@ export function AssistantPage() {
       } else if (!assistant.content && !assistant.error && !awaitingApproval) {
         assistant.content = "I could not produce a response. Try again with a more specific request.";
       }
-      setMessages([...request, { ...assistant }]);
+      paint(request, assistant);
     } catch (error) {
       assistant.streaming = false;
       settlePendingTools(assistant);
       assistant.error = error instanceof Error ? error.message : "Assistant request failed";
-      setMessages([...request, { ...assistant }]);
+      paint(request, assistant);
       toast({ body: assistant.error, type: "error" });
     } finally {
+      if (voiceOnRef.current) voiceApiRef.current.flushSpeak();
       stopRef.current = null;
       setBusy(false);
+      busyRef.current = false;
+      midRunUsersRef.current = [];
+      const autoIds = autoApproveRef.current;
+      autoApproveRef.current = null;
+      if (autoIds?.length) {
+        void resumeApprovals(autoIds);
+        return;
+      }
+      const next = leftoverRef.current.shift();
+      if (next) void send(next);
     }
+  };
+
+  const submitSpoken = async (text: string) => {
+    const value = text.trim();
+    if (!value) return;
+    voiceApiRef.current.cancelSpeak();
+    if (pendingRef.current.length) {
+      leftoverRef.current.push(value);
+      setMessages((current) => [...current, { role: "user", content: value, ts: Date.now() }]);
+      return;
+    }
+    if (busyRef.current && threadIdRef.current) {
+      const userMsg: ChatMsg = { role: "user", content: value, ts: Date.now() };
+      midRunUsersRef.current = [...midRunUsersRef.current, userMsg];
+      setMessages((current) => {
+        const last = current[current.length - 1];
+        if (last?.role === "assistant" && last.streaming) {
+          return [...current.slice(0, -1), userMsg, last];
+        }
+        return [...current, userMsg];
+      });
+      try {
+        await api("/chat/followup", {
+          method: "POST",
+          body: JSON.stringify({ thread_id: threadIdRef.current, text: value }),
+        });
+      } catch (error) {
+        midRunUsersRef.current = midRunUsersRef.current.filter((item) => item !== userMsg);
+        setMessages((current) => current.filter((item) => item !== userMsg));
+        if (error instanceof ApiError && error.status === 409) {
+          leftoverRef.current.push(value);
+          if (!busyRef.current) void send(value);
+          return;
+        }
+        toast({
+          body: error instanceof Error ? error.message : "Could not queue follow-up",
+          type: "error",
+        });
+      }
+      return;
+    }
+    leftoverRef.current = leftoverRef.current.filter((item) => item !== value);
+    void send(value);
+  };
+  const spokenRef = useRef(submitSpoken);
+  spokenRef.current = submitSpoken;
+
+  const toggleVoice = () => {
+    if (voice.listening) {
+      voice.stopVoice();
+      return;
+    }
+    void voice.startVoice(
+      (text) => void spokenRef.current(text),
+      (message) => toast({ body: message, type: "error" }),
+    );
   };
 
   const resumeApprovals = async (ids: string[]) => {
     const threadId = threadIdRef.current;
-    if (!threadId || busy) return;
+    if (!threadId || busyRef.current) return;
     setPendingApprovals([]);
     setBusy(true);
+    busyRef.current = true;
     const controller = new AbortController();
     stopRef.current = controller;
     const history = messages.filter((item) => item.role === "user" || item.role === "assistant");
@@ -344,6 +459,7 @@ export function AssistantPage() {
           llm: llmOverridesFromProfile(getActiveLlmProfile()),
           thread_id: threadId,
           approved_ids: ids,
+          skip_approval: voiceOnRef.current,
         },
         (event) => {
           if (event.type === "delta") {
@@ -354,6 +470,7 @@ export function AssistantPage() {
             if (last?.kind === "text") last.text += piece;
             else current.push({ kind: "text", text: piece });
             assistant.transcript = current;
+            if (voiceOnRef.current) voiceApiRef.current.speakDelta(piece);
           } else if (event.type === "thinking") {
             assistant.thinking = (assistant.thinking || "") + (event.content || "");
           } else if (event.type === "tool_start") {
@@ -387,6 +504,7 @@ export function AssistantPage() {
       );
       assistant.streaming = false;
       settlePendingTools(assistant);
+      if (voiceOnRef.current) voiceApiRef.current.flushSpeak();
       setMessages([...request.slice(0, -1), { ...assistant }]);
     } catch (error) {
       assistant.streaming = false;
@@ -397,6 +515,9 @@ export function AssistantPage() {
     } finally {
       stopRef.current = null;
       setBusy(false);
+      busyRef.current = false;
+      const next = leftoverRef.current.shift();
+      if (next) void send(next);
     }
   };
 
@@ -421,6 +542,11 @@ export function AssistantPage() {
           />
         )}
         <Button label="Clear" onClick={() => setMessages([])} />
+        <Button
+          label={voice.listening ? "Listening" : "Voice"}
+          variant={voice.listening ? "primary" : "secondary"}
+          onClick={() => toggleVoice()}
+        />
         {busy || pendingApprovals.length > 0 ? (
           <Button label="Stop" onClick={() => void stopRun()} />
         ) : null}
@@ -446,36 +572,45 @@ export function AssistantPage() {
             onStop={() => void stopRun()}
             isStopShown={busy || pendingApprovals.length > 0}
             sendActions={
-              <IconButton
-                label={
-                  mic.busy
-                    ? "Transcribing…"
-                    : mic.recording
-                      ? "Stop recording"
-                      : mic.liveMic
-                        ? "Dictate with MAI Transcribe 2"
-                        : "Transcribe audio from this computer"
-                }
-                icon={
-                  mic.recording ? (
-                    <StopIcon style={{ width: 18, height: 18 }} />
-                  ) : (
-                    <MicrophoneIcon style={{ width: 18, height: 18 }} />
-                  )
-                }
-                variant={mic.recording ? "primary" : "secondary"}
-                isDisabled={busy || mic.busy}
-                onClick={() =>
-                  void mic.toggle(
-                    llmOverridesFromProfile(getActiveLlmProfile()),
-                    (text) =>
-                      setDraft((current) =>
-                        current.trim() ? `${current.trim()} ${text}` : text,
-                      ),
-                    (message) => toast({ body: message, type: "error" }),
-                  )
-                }
-              />
+              <HStack gap={2} vAlign="center">
+                {voice.listening || mic.transcribing ? (
+                  <Text type="supporting" color="secondary">
+                    {voice.listening ? "Listening…" : "Transcribing…"}
+                  </Text>
+                ) : null}
+                <IconButton
+                  label={
+                    voice.listening
+                      ? "Voice mode is on"
+                      : mic.busy
+                        ? "Transcribing…"
+                        : mic.recording
+                          ? "Stop recording"
+                          : mic.liveMic
+                            ? "Dictate into the draft"
+                            : "Transcribe audio from this computer"
+                  }
+                  icon={
+                    mic.recording ? (
+                      <StopIcon style={{ width: 18, height: 18 }} />
+                    ) : (
+                      <MicrophoneIcon style={{ width: 18, height: 18 }} />
+                    )
+                  }
+                  variant={mic.recording ? "primary" : "secondary"}
+                  isDisabled={voice.listening || mic.busy}
+                  onClick={() =>
+                    void mic.toggle(
+                      llmOverridesFromProfile(getActiveLlmProfile()),
+                      (text) =>
+                        setDraft((current) =>
+                          current.trim() ? `${current.trim()} ${text}` : text,
+                        ),
+                      (message) => toast({ body: message, type: "error" }),
+                    )
+                  }
+                />
+              </HStack>
             }
             sendButton={
               <ChatSendButton
@@ -511,11 +646,36 @@ export function AssistantPage() {
             </ChatMessage>
           ))}
         </ChatMessageList>
-        <ApprovalBanner
-          approvals={pendingApprovals}
-          onDecision={(ids) => void resumeApprovals(ids)}
-        />
+        {voice.listening ? null : (
+          <ApprovalBanner
+            approvals={pendingApprovals}
+            onDecision={(ids) => void resumeApprovals(ids)}
+          />
+        )}
       </ChatLayout>
+      {voice.listening ? (
+        <VoiceOverlay
+          paused={voice.paused}
+          status={
+            voice.paused
+              ? "On hold"
+              : voice.speaking
+                ? "Speaking…"
+                : busy
+                  ? "Working…"
+                  : "Listening"
+          }
+          you={[...messages].reverse().find((item) => item.role === "user")?.content}
+          reply={
+            [...messages].reverse().find((item) => item.role === "assistant")?.content
+          }
+          activity={voiceActivity(
+            [...messages].reverse().find((item) => item.role === "assistant"),
+          )}
+          onHold={() => (voice.paused ? voice.resumeVoice() : voice.pauseVoice())}
+          onEnd={() => voice.stopVoice()}
+        />
+      ) : null}
     </VStack>
   );
 }

@@ -95,3 +95,8 @@ def test_assistant_empty_plan_surfaces_warning_shape(
     body = r.json()
     assert body["actions"] == []
     assert body["rationale"] == "request is ambiguous"
+
+
+def test_chat_followup_without_run_is_409(client: TestClient) -> None:
+    r = client.post("/chat/followup", json={"text": "then water", "thread_id": "nope"})
+    assert r.status_code == 409

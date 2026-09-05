@@ -98,6 +98,7 @@ class AgentLoop:
         include_reasoning: bool = False,
         max_turns: int = _MAX_TOOL_TURNS,
         max_consecutive_errors: int = 5,
+        skip_approval: bool = False,
     ) -> None:
         self._tool_registry = tool_registry
         self._approval_gate = approval_gate
@@ -109,6 +110,7 @@ class AgentLoop:
         self._include_reasoning = include_reasoning
         self._max_turns = max_turns
         self._max_errors = max_consecutive_errors
+        self._skip_approval = skip_approval
         self._action_tool_names = {
             d.name
             for d in tool_registry.descriptors()
@@ -137,6 +139,7 @@ class AgentLoop:
             streaming=streaming,
             metrics=metrics,
             action_names=set(self._action_tool_names),
+            skip_approval=self._skip_approval,
         )
 
     @staticmethod

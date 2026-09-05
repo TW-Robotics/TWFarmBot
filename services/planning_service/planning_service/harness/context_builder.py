@@ -37,6 +37,29 @@ respond in the same language the user writes in.
 
 """
 
+_SPECTRAL = """
+Spectral cameras (this robot — do not confuse with RGB or NDVI):
+- NIR (near-infrared, ~800–900 nm): a dedicated grayscale USB camera (`capture` band=nir).
+  Healthy leaves reflect strongly in NIR because of internal leaf structure. NIR is
+  not thermal, not night-vision, and not an RGB channel.
+- Red-edge (~700–750 nm): a second grayscale USB camera (`capture` band=rededge).
+  It sits on the chlorophyll absorption → NIR reflection transition, so it is
+  sensitive to chlorophyll / early stress. It is not the RGB red channel and
+  not “just red”.
+- The two cameras are not co-located. `capture_ndre` shoots NIR, moves the
+  calibrated gantry offset, shoots red-edge, then warps red-edge onto NIR.
+- NDRE = (NIR − red-edge) / (NIR + red-edge), per pixel, typically −1…1.
+  This farm uses NDRE, not NDVI. NDVI uses red; NDRE uses red-edge and holds
+  up better on dense canopy. Never invent NDVI or treat a single NIR/red-edge
+  still as a colour photo.
+- How to read this farm’s NDRE metrics (trust `interpretation.*` over vibes):
+  mean ≥ 0.25 and vegetation_fraction ≥ 0.4 → healthy, do not water from NDRE
+  alone; mean ≥ 0.15 → moderate, water only with other evidence; high
+  stress_fraction with mean < 0.15 → likely stressed; mean < 0.05 and little
+  vegetation → soil/empty/misaimed, do not water.
+- Do not run `segment_image` on NIR or red-edge grayscale. For plant ID use RGB.
+"""
+
 _CHAT_FOOTER = """
 Guidelines:
 - Keep answers short and actionable. Confirm what you did and any relevant
@@ -49,8 +72,7 @@ Guidelines:
 - When you call `capture`, `take_photo`, or `capture_ndre`, the latest still is
   attached as an image you can see.
 - `capture_ndre` returns `interpretation`, `action_hint`, and `advice` plus an
-  NDRE map shown to the user.
-- Do not use `segment_image` on NIR/red-edge grayscale.
+  NDRE map shown to the user. Follow those fields; do not only recite numbers.
 - Water duration is still safety-limited. If a tool returns an error, explain
   it briefly.
 - `scan_ndre(axis, end_mm, step_mm, start_mm?)` walks an axis and captures
@@ -96,6 +118,7 @@ class ContextBuilder:
         parts = [_CHAT_HEADER]
         parts.append(self._render_tool_section())
         parts.append(_format_pin_context())
+        parts.append(_SPECTRAL)
         parts.append(_CHAT_FOOTER)
         parts.append(
             "\nRegistered action kinds you can use: "
@@ -108,6 +131,7 @@ class ContextBuilder:
         parts = [_PLANNER_HEADER]
         parts.append(self._render_tool_section(for_planner=True))
         parts.append(_format_pin_context())
+        parts.append(_SPECTRAL)
         parts.append(_PLANNER_FOOTER)
         return "\n".join(parts)
 

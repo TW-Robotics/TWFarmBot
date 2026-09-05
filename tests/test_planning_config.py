@@ -1,8 +1,7 @@
 """Tests for ``planning_service.config.load_config``.
 
-The config has three layers (env > YAML > default) and a separate code
-path for the API key (always env, with optional ``api_key_env``
-indirection from YAML).
+The config has four layers (env > Settings store > YAML > default) and a
+separate code path for the API key (env / ``api_key_env``, then store).
 """
 
 from __future__ import annotations
@@ -18,6 +17,11 @@ from planning_service.config import (
     DEFAULT_TIMEOUT_S,
     load_config,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TWFB_LLM_KEYS_FILE", str(tmp_path / "llm_keys.json"))
 
 
 def test_defaults_when_nothing_set(
