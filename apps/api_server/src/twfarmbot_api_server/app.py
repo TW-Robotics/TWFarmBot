@@ -115,6 +115,14 @@ class ChatPayload(BaseModel):
         default=None,
         description="Optional per-request LLM credentials/settings from the UI.",
     )
+    thread_id: str | None = Field(
+        default=None,
+        description="LangGraph thread to resume after an approval interrupt.",
+    )
+    approved_ids: list[str] | None = Field(
+        default=None,
+        description="Tool-call ids to run after approval. Empty list rejects them.",
+    )
 
 
 class ModelsPayload(BaseModel):
@@ -511,6 +519,8 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                     propose_only=False,
                     config=llm_cfg,
                     model_name=payload.model,
+                    thread_id=payload.thread_id,
+                    approved_ids=payload.approved_ids,
                 ):
                     yield f"data: {json.dumps(event)}\n\n"
             except Exception as err:  # noqa: BLE001

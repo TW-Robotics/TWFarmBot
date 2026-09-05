@@ -117,6 +117,33 @@ class CaptureNdreArgs(BaseModel):
     )
 
 
+class ScanNdreArgs(BaseModel):
+    axis: str = Field(
+        default="y",
+        description="Axis to sweep: 'x' or 'y'.",
+    )
+    end_mm: float = Field(
+        ...,
+        description="Last coordinate on that axis in millimetres (e.g. 300).",
+    )
+    step_mm: float = Field(
+        default=100.0,
+        description="Spacing between NDRE stops in millimetres (50..800).",
+    )
+    start_mm: float | None = Field(
+        default=None,
+        description="First coordinate on that axis. Omit to use the current pose.",
+    )
+    z: float | None = Field(
+        default=None,
+        description="Optional gantry Z in millimetres. Omit to keep the current Z.",
+    )
+    return_to_start: bool = Field(
+        default=True,
+        description="Move back to the pose from before the scan when finished.",
+    )
+
+
 class InspectZoneArgs(BaseModel):
     zone_id: str = Field(..., description="Zone id or loose name, e.g. 'tomato'.")
     step_mm: float = Field(default=200.0, description="Raster spacing in millimetres.")
@@ -223,6 +250,7 @@ def tool_calls_to_actions(
             "take_photo",
             "capture",
             "capture_ndre",
+            "scan_ndre",
             "mount_tool",
             "dismount_tool",
             "e_stop",

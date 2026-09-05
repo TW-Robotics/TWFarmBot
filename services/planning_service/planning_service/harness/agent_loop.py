@@ -14,6 +14,7 @@ from typing import Any, Iterator
 
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
+from langgraph.types import Command
 
 from ..tool_results import append_result_images, compact_tool_result
 from .approval_gate import ApprovalGate
@@ -26,6 +27,7 @@ from .graph import (
     _bind_model_tools,
     _last_ai_text,
     build_graph,
+    interrupt_payload,
 )
 from .metrics import Metrics
 from .reasoning_controller import ReasoningController
@@ -152,6 +154,7 @@ class AgentLoop:
             "tool_log": [],
             "proposed": [],
             "saw_action_call": False,
+            "nudged": False,
         }
 
     def run(self, messages: list[dict[str, Any]]) -> AgentTurnResult:
@@ -187,23 +190,48 @@ class AgentLoop:
             stop_reason=stop_reason,
         )
 
-    def stream(self, messages: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        thread_id: str | None = None,
+        resume: dict[str, Any] | None = None,
+    ) -> Iterator[dict[str, Any]]:
         """Run the loop and yield SSE-style events."""
         total_start = time.perf_counter()
         metrics = Metrics()
-        lc_messages = self._context_builder.chat_messages(
-            messages, include_reasoning=self._include_reasoning
-        )
+        thread_id = thread_id or uuid.uuid4().hex
+        yield {"type": "thread", "thread_id": thread_id}
         graph = build_graph(
             self._deps(metrics, stop_after_propose=False, streaming=True)
         )
-        config = self._config(self._max_turns)
+        config = {
+            "recursion_limit": self._max_turns * 2 + 8,
+            "configurable": {"thread_id": thread_id},
+        }
+        if resume is not None:
+            inputs: Any = Command(resume=resume)
+        else:
+            lc_messages = self._context_builder.chat_messages(
+                messages, include_reasoning=self._include_reasoning
+            )
+            inputs = self._initial_state(lc_messages)
+        paused = False
         for mode, payload in graph.stream(
-            self._initial_state(lc_messages), config, stream_mode=["custom", "updates"]
+            inputs, config, stream_mode=["custom", "updates"]
         ):
             if mode == "custom":
                 yield dict(payload)
             elif mode == "updates":
+                pending = interrupt_payload(payload)
+                if pending:
+                    paused = True
+                    yield {
+                        "type": "approval",
+                        "thread_id": thread_id,
+                        "pending_approvals": pending["pending_approvals"],
+                    }
+                    return
                 tools_update = payload.get("tools")
                 if isinstance(tools_update, dict):
                     for record in tools_update.get("tool_log", []):
@@ -213,7 +241,21 @@ class AgentLoop:
                             "args": record.get("args"),
                             "result": compact_tool_result(record.get("result")),
                         }
-        state = graph.get_state(config).values
+        snapshot = graph.get_state(config)
+        interrupts = getattr(snapshot, "interrupts", ()) or ()
+        if interrupts:
+            value = getattr(interrupts[0], "value", interrupts[0])
+            pending_list = (
+                value.get("pending_approvals") if isinstance(value, dict) else None
+            )
+            if pending_list:
+                yield {
+                    "type": "approval",
+                    "thread_id": thread_id,
+                    "pending_approvals": pending_list,
+                }
+                return
+        state = snapshot.values
         state_messages = list(state.get("messages", []))
         tool_log = list(state.get("tool_log", []))
         proposed = list(state.get("proposed", []))
@@ -229,6 +271,7 @@ class AgentLoop:
         metrics.total_latency_s = time.perf_counter() - total_start
         yield {
             "type": "meta",
+            "thread_id": thread_id,
             "tool_calls": [
                 {
                     "name": call.get("name"),

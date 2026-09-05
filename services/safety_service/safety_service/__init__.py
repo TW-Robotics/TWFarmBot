@@ -252,6 +252,35 @@ def _check_capture_ndre(action: Action, limits: SafetyLimits) -> None:
     )
 
 
+def _check_scan_ndre(action: Action, limits: SafetyLimits) -> None:
+    axis = str(action.params.get("axis") or "y").strip().lower()
+    if axis not in {"x", "y"}:
+        raise UnsafeActionError("scan_ndre axis must be 'x' or 'y'")
+    if action.params.get("end_mm") is None:
+        raise UnsafeActionError("scan_ndre action needs end_mm")
+    try:
+        step = float(action.params.get("step_mm") or 100)
+        end = float(action.params["end_mm"])
+        start = float(action.params["start_mm"]) if action.params.get("start_mm") is not None else 0.0
+        z_value = float(action.params["z"]) if action.params.get("z") is not None else 0.0
+    except (TypeError, ValueError) as err:
+        raise UnsafeActionError(f"scan_ndre params must be numeric: {err}") from err
+    if step < 50 or step > 800:
+        raise UnsafeActionError(f"scan_ndre step_mm must be 50..800, got {step}")
+    stops = abs(end - start) / step + 1
+    if stops > 12:
+        raise UnsafeActionError(
+            "scan_ndre would take too many stops; increase step_mm"
+        )
+    if axis == "y":
+        _check_xyz(0.0, start, z_value, limits)
+        _check_xyz(0.0, end, z_value, limits)
+    else:
+        _check_xyz(start, 0.0, z_value, limits)
+        _check_xyz(end, 0.0, z_value, limits)
+    _check_capture_ndre(Action(kind="capture_ndre", params={}), limits)
+
+
 register("move", _check_move)
 register("move_path", _check_move_path)
 register("water", _check_water)
@@ -260,6 +289,7 @@ register("water_zone", _check_water_zone)
 register("inspect_zone", _check_inspect_zone)
 register("capture", _check_capture)
 register("capture_ndre", _check_capture_ndre)
+register("scan_ndre", _check_scan_ndre)
 
 
 def validate(action: Action, *, limits: SafetyLimits | None = None) -> Action:

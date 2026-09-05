@@ -129,10 +129,15 @@ def stream_chat(
     allow_actions: bool = True,
     propose_only: bool = False,
     model_name: str | None = None,
+    thread_id: str | None = None,
+    approved_ids: list[str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Streaming conversational assistant.
 
     Yields events:
+      - ``{"type": "thread", "thread_id": "..."}`` so the UI can resume.
+      - ``{"type": "approval", "pending_approvals": [...]}`` when a risky
+        action waits for the operator (resume with ``approved_ids``).
       - ``{"type": "tool_call", ...}`` after a JSON tool call is executed.
       - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...]}``.
       - ``{"type": "thinking", "content": "..."}`` for reasoning traces.
@@ -149,4 +154,5 @@ def stream_chat(
         propose_only=propose_only,
         model_name=model_name,
     )
-    yield from loop.stream(messages)
+    resume = None if approved_ids is None else {"approved_ids": list(approved_ids)}
+    yield from loop.stream(messages, thread_id=thread_id, resume=resume)

@@ -121,6 +121,7 @@ def test_action_policies_are_categorized() -> None:
     by_name = tool_registry.by_name()
     assert by_name["move"].policy.category == ToolCategory.ACT
     assert by_name["move"].policy.requires_approval is False
+    assert by_name["water"].policy.requires_approval is True
     assert by_name["take_photo"].policy.category == ToolCategory.READ
     assert by_name["take_photo"].policy.requires_approval is False
     assert by_name["capture"].policy.category == ToolCategory.READ
@@ -283,6 +284,7 @@ def test_agent_loop_executes_move_immediately() -> None:
     result = loop.run([{"role": "user", "content": "move to 100,200"}])
     assert len(result.proposed_actions) == 0
     assert result.tool_calls[0]["result"]["status"] == "ok"
+    assert "error" not in result.tool_calls[0]["result"]
     assert result.response == "moved"
 
 
@@ -500,3 +502,67 @@ def test_block_content_run_returns_clean_text() -> None:
     result = loop.run([{"role": "user", "content": "hello"}])
     assert result.response == "hi there"
     assert "thought_signature" not in result.response
+
+
+def test_stream_pauses_water_for_approval() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("water", {"seconds": 2}, "w1"),
+            "watered",
+        ]
+    )
+    loop = _make_loop(fake, reg, propose_only=False)
+    events = list(loop.stream([{"role": "user", "content": "water 2s"}]))
+    types = [e["type"] for e in events]
+    assert "approval" in types
+    assert "meta" not in types
+    pending = next(e for e in events if e["type"] == "approval")
+    assert pending["pending_approvals"][0]["name"] == "water"
+    thread_id = pending["thread_id"]
+    resumed = list(
+        loop.stream(
+            [],
+            thread_id=thread_id,
+            resume={"approved_ids": [pending["pending_approvals"][0]["id"]]},
+        )
+    )
+    assert any(e.get("name") == "water" for e in resumed if e["type"] == "tool_call")
+    assert any(e["type"] == "meta" for e in resumed)
+
+
+def test_agent_loop_keeps_going_after_get_position_only() -> None:
+    reg = _make_registry()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("get_position", {}, "p1"),
+            "I have the current pose.",
+            _tool_call("move", {"x": 0, "y": 100, "z": 0}, "m1"),
+            "moved",
+        ]
+    )
+    loop = _make_loop(fake, reg, propose_only=False)
+    result = loop.run(
+        [{"role": "user", "content": "move in y 100mm then take a photo"}]
+    )
+    assert [tc["name"] for tc in result.tool_calls] == ["get_position", "move"]
+    assert result.response == "moved"
+
+
+def test_provider_tool_content_attaches_still(tmp_path, monkeypatch) -> None:
+    from planning_service.tool_results import provider_tool_content
+
+    jpeg = tmp_path / "shot-rgb.jpg"
+    jpeg.write_bytes(b"\xff\xd8" + b"\x00" * 32 + b"\xff\xd9")
+    monkeypatch.setattr(
+        "planning_service.tool_results._capture_file_uri",
+        lambda *_args: f"data:image/jpeg;base64,{jpeg.read_bytes().hex()[:8]}",
+    )
+    content = provider_tool_content(
+        "capture",
+        {"status": "ok", "params": {"band": "rgb", "artifact_id": "shot"}},
+    )
+    assert isinstance(content, list)
+    assert content[1]["type"] == "image_url"

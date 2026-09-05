@@ -57,12 +57,18 @@ def capture(band: str) -> str:
     node = _device_node(cfg, key)
     _refuse_raw_video_node(node)
     if not node.exists():
-        raise CaptureError(f"missing camera node {node}")
+        fallback = (
+            _v4l_node_for_band(key) if _is_canonical_camera_node(node, key) else None
+        )
+        if fallback is None:
+            raise CaptureError(f"missing camera node {node}")
+        log.warning("camera symlink %s missing; using %s", node, fallback)
+        node = fallback
 
     artifact_id = uuid.uuid4().hex
     dest = _artifact_dir(cfg) / f"{artifact_id}-{key}.jpg"
     dwell_s = _dwell_s(cfg)
-    _grab_still(node, dest, dwell_s=dwell_s)
+    _grab_still(node, dest, dwell_s=dwell_s, band=key)
     log.info("capture band=%s artifact_id=%s path=%s", key, artifact_id, dest)
     return artifact_id
 
@@ -152,6 +158,66 @@ def _device_node(cfg: dict[str, Any], band: str) -> Path:
     return path
 
 
+def _is_canonical_camera_node(path: Path, band: str) -> bool:
+    return path == Path(f"/dev/camera-{band}")
+
+
+# Keep in sync with configs/udev/99-twfarmbot-cameras.rules (index 0 = capture).
+_BAND_USB = {
+    "rgb": (
+        {"ID_VENDOR_ID": "0408", "ID_MODEL_ID": "a061"},
+        {"ID_VENDOR_ID": "1bcf", "ID_MODEL_ID": "2085"},
+    ),
+    "nir": ({"ID_SERIAL_SHORT": "47520551"},),
+    "rededge": ({"ID_SERIAL_SHORT": "47520552"},),
+}
+
+
+def _v4l_props(device: Path) -> dict[str, str]:
+    import subprocess
+
+    try:
+        raw = subprocess.run(
+            ["udevadm", "info", "--query=property", f"--name={device}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    out: dict[str, str] = {}
+    for line in raw.stdout.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        out[key] = value
+    return out
+
+
+def _v4l_node_for_band(band: str) -> Path | None:
+    """Find the capture node by USB identity when /dev/camera-* is not installed."""
+    wanted = _BAND_USB.get(band)
+    if not wanted:
+        return None
+    for candidate in sorted(Path("/dev").glob("video*")):
+        if not _VIDEO_N.match(candidate.name):
+            continue
+        index = Path(f"/sys/class/video4linux/{candidate.name}/index")
+        try:
+            if index.read_text(encoding="utf-8").strip() != "0":
+                continue
+        except OSError:
+            continue
+        props = _v4l_props(candidate)
+        if not props:
+            continue
+        for match in wanted:
+            if all(props.get(key) == value for key, value in match.items()):
+                return candidate
+    return None
+
+
 def _refuse_raw_video_node(path: Path) -> None:
     if path.parent == Path("/dev") and _VIDEO_N.match(path.name):
         raise CaptureError(
@@ -175,13 +241,13 @@ def _dwell_s(cfg: dict[str, Any]) -> float:
     return max(0.0, value)
 
 
-def _grab_still(device: Path, dest: Path, *, dwell_s: float) -> None:
+def _grab_still(device: Path, dest: Path, *, dwell_s: float, band: str) -> None:
     try:
         mode = device.stat().st_mode
     except OSError as err:
         raise CaptureError(f"cannot stat camera node {device}: {err}") from err
     if stat.S_ISCHR(mode):
-        _grab_uvc(device, dest, dwell_s=dwell_s)
+        _grab_uvc(device, dest, dwell_s=dwell_s, band=band)
         return
     # Sim: the configured node exists but is not a V4L2 character device.
     if dwell_s:
@@ -192,10 +258,10 @@ def _grab_still(device: Path, dest: Path, *, dwell_s: float) -> None:
         raise CaptureError(f"failed to write stub still {dest}: {err}") from err
 
 
-def _grab_uvc(device: Path, dest: Path, *, dwell_s: float) -> None:
+def _grab_uvc(device: Path, dest: Path, *, dwell_s: float, band: str) -> None:
     from farmduino.uvc import grab_uvc_still
 
     try:
-        grab_uvc_still(device, dest, dwell_s=dwell_s)
+        grab_uvc_still(device, dest, dwell_s=dwell_s, band=band)
     except RuntimeError as err:
         raise CaptureError(str(err)) from err
