@@ -1,5 +1,9 @@
+import base64
+
 from planning_service.tool_results import (
+    _MAX_PROVIDER_IMAGE_BYTES,
     _ndre_preview_from_sample,
+    _path_to_data_uri,
     _sse_images,
     append_result_images,
     compact_tool_result,
@@ -186,3 +190,18 @@ def test_sse_images_for_scan_ndre() -> None:
         {"label": "NDRE 1 (0 mm)", "url": "/captures/aaa/ndre"},
         {"label": "NDRE 2 (50 mm)", "url": "/captures/bbb/ndre"},
     ]
+
+
+def test_path_to_data_uri_downscales_large_jpeg(tmp_path) -> None:
+    import cv2
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    img = rng.integers(0, 256, (2400, 2400, 3), dtype=np.uint8)
+    path = tmp_path / "big.jpg"
+    cv2.imwrite(str(path), img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+    assert path.stat().st_size > _MAX_PROVIDER_IMAGE_BYTES
+    uri = _path_to_data_uri(path)
+    assert uri and uri.startswith("data:image/jpeg;base64,")
+    raw = base64.b64decode(uri.split(",", 1)[1])
+    assert len(raw) <= _MAX_PROVIDER_IMAGE_BYTES

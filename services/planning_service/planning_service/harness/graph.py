@@ -28,7 +28,12 @@ from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
 from pydantic import BaseModel
 
-from ..tool_results import compact_tool_result, provider_tool_content, _sse_images
+from ..tool_results import (
+    compact_tool_result,
+    provider_tool_content,
+    provider_vision_message,
+    _sse_images,
+)
 from .approval_gate import ApprovalGate
 from .metrics import Metrics
 from .reasoning_controller import ReasoningController, content_text
@@ -412,6 +417,7 @@ def build_graph(deps: RunDeps):
         records: list[dict[str, Any]] = []
         proposed: list[dict[str, Any]] = []
         tool_messages: list[ToolMessage] = []
+        vision_messages: list[HumanMessage] = []
         saw_action = False
         # Stream tool lifecycle events so the UI can show a row the moment a
         # call starts (often minutes for scans) instead of after the fact.
@@ -479,9 +485,13 @@ def build_graph(deps: RunDeps):
                     name=name,
                 )
             )
+            vision = provider_vision_message(name, result)
+            if vision is not None:
+                vision_messages.append(vision)
         ok = any(_tool_succeeded(r["result"]) for r in records) if records else True
         errors = 0 if ok else state.get("consecutive_errors", 0) + 1
-        outgoing: list[Any] = list(tool_messages)
+        # ToolMessages must stay consecutive; stills follow as user turns.
+        outgoing: list[Any] = [*tool_messages, *vision_messages]
         followup = None if is_cancelled() else drain_followup()
         if is_cancelled():
             drain_followup()

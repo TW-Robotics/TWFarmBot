@@ -445,11 +445,13 @@ def build_introspection_tools(
     def segment_image(
         classes: str, image_url: str | None = None, negative: str = ""
     ) -> dict[str, Any]:
-        """Run zero-shot segmentation on a FarmBot camera image.
+        """Resi pixel segmentation overlay (masks), not ordinary photo inspection.
 
         Provide comma-separated class names like 'plant, weed, soil'.
-        Returns segmentation result images, detected / not-detected class
-        lists, class percentages, and the dominant class.
+        Use this only when you need a class map. You can already see RGB
+        captures as attached images — look at those yourself to describe
+        coverage or plant vs soil.
+        Returns overlay, mask, class scores, and the dominant class.
         """
         try:
             image_url = _resolve_image_url(provider, image_url)

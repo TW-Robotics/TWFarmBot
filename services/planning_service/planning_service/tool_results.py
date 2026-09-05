@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import base64
 import json
-import mimetypes
 import re
 from pathlib import Path
 from typing import Any
 
+from langchain_core.messages import HumanMessage
+
 _IMAGE_DATA_RE = re.compile(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+")
-_MAX_PROVIDER_IMAGE_BYTES = 1_200_000
+_MAX_PROVIDER_IMAGE_BYTES = 800_000
+_MAX_PROVIDER_IMAGE_SIDE = 1280
 
 _CAPTURE_BAND_LABELS = {
     "rgb": "RGB capture",
@@ -55,16 +57,33 @@ def compact_tool_result(value: Any) -> Any:
     return value
 
 
-def provider_tool_content(name: str, result: Any) -> Any:
-    """JSON for the tool message, plus one still when the provider can see it."""
-    text = json.dumps(compact_tool_result(result), default=str)
+def provider_tool_content(name: str, result: Any) -> str:
+    """JSON for the ``role: tool`` message. Stills go in ``provider_vision_message``."""
+    del name
+    return json.dumps(compact_tool_result(result), default=str)
+
+
+def provider_vision_message(name: str, result: Any) -> HumanMessage | None:
+    """User-turn still so Chat Completions actually sees the capture.
+
+    OpenAI ignores ``image_url`` on ``role: tool``. Put the JPEG on a
+    following user message after all tool results for this batch.
+    """
     image = _provider_image_url(name, result)
     if not image:
-        return text
-    return [
-        {"type": "text", "text": text},
-        {"type": "image_url", "image_url": {"url": image}},
-    ]
+        return None
+    return HumanMessage(
+        content=[
+            {
+                "type": "text",
+                "text": (
+                    f"{name} still — inspect this image yourself and answer "
+                    "from what you see. Do not tell the user to look at it."
+                ),
+            },
+            {"type": "image_url", "image_url": {"url": image}},
+        ]
+    )
 
 
 def _provider_image_url(name: str, result: Any) -> str | None:
@@ -120,7 +139,16 @@ def _load_image_ref(value: Any) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     if value.startswith("data:image/"):
-        return value if len(value) <= _MAX_PROVIDER_IMAGE_BYTES * 2 else None
+        if len(value) <= _MAX_PROVIDER_IMAGE_BYTES * 2:
+            return value
+        try:
+            raw = base64.b64decode(value.split(",", 1)[1])
+        except (IndexError, ValueError):
+            return None
+        encoded = _encode_still(raw)
+        if not encoded:
+            return None
+        return f"data:image/jpeg;base64,{base64.b64encode(encoded).decode('ascii')}"
     match = re.fullmatch(r"/captures/([^/]+)/([^/]+)", value)
     if match:
         return _capture_file_uri(match.group(1), match.group(2))
@@ -134,10 +162,42 @@ def _path_to_data_uri(path: Path) -> str | None:
         data = path.read_bytes()
     except OSError:
         return None
-    if not data or len(data) > _MAX_PROVIDER_IMAGE_BYTES:
+    encoded = _encode_still(data)
+    if not encoded:
         return None
-    mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
-    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+    return f"data:image/jpeg;base64,{base64.b64encode(encoded).decode('ascii')}"
+
+
+def _encode_still(data: bytes) -> bytes | None:
+    """JPEG small enough for the chat model; downscale instead of dropping."""
+    if not data:
+        return None
+    if data[:2] == b"\xff\xd8" and len(data) <= _MAX_PROVIDER_IMAGE_BYTES:
+        return data
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None
+    img = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    height, width = img.shape[:2]
+    scale = min(1.0, _MAX_PROVIDER_IMAGE_SIDE / max(height, width))
+    if scale < 1.0:
+        img = cv2.resize(
+            img,
+            (max(1, int(width * scale)), max(1, int(height * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
+    for quality in (80, 55):
+        ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+        if not ok:
+            continue
+        out = buf.tobytes()
+        if len(out) <= _MAX_PROVIDER_IMAGE_BYTES:
+            return out
+    return None
 
 
 def compact_input_text(text: str) -> str:
