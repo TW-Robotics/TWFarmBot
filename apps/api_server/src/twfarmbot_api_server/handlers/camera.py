@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from twfarmbot_core.domain import Action
 from vision_service import capture
-from watering_service.backends import farmbot
+from farmbot_gateway import farmbot
 
 
 def handle_take_photo(action: Action) -> Action:

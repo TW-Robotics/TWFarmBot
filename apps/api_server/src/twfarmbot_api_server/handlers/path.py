@@ -10,7 +10,7 @@ from typing import Any
 from planning_service.harness.cancel import is_cancelled
 from twfarmbot_core.domain import Action
 
-from watering_service.backends import farmbot
+from farmbot_gateway import farmbot
 
 
 # Tolerance for considering the gantry to have reached the target waypoint.

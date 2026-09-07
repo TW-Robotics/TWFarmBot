@@ -20,18 +20,16 @@ import {
   HomeIcon,
   MoonIcon,
   PlayIcon,
-  QueueListIcon,
+  CircleStackIcon,
   SunIcon,
-  WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
 import { api, postAction } from "./api";
 import { useThemeMode } from "./theme";
 import { OverviewPage } from "./pages/OverviewPage";
 import { MotionPage } from "./pages/MotionPage";
 import { CameraPage } from "./pages/CameraPage";
-import { IoPage } from "./pages/IoPage";
 import { AssistantPage } from "./pages/AssistantPage";
-import { HistoryPage } from "./pages/HistoryPage";
+import { MemoryPage } from "./pages/MemoryPage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -39,9 +37,8 @@ export type Tab =
   | "overview"
   | "motion"
   | "camera"
-  | "io"
   | "assistant"
-  | "history"
+  | "memory"
   | "diagnostics"
   | "settings";
 
@@ -49,16 +46,14 @@ const TABS: { id: Tab; label: string; icon: typeof HomeIcon }[] = [
   { id: "overview", label: "Overview", icon: HomeIcon },
   { id: "motion", label: "Motion", icon: PlayIcon },
   { id: "camera", label: "Camera", icon: CameraIcon },
-  { id: "io", label: "I/O", icon: WrenchScrewdriverIcon },
   { id: "assistant", label: "Assistant", icon: ChatBubbleLeftRightIcon },
-  { id: "history", label: "History", icon: QueueListIcon },
+  { id: "memory", label: "Memory", icon: CircleStackIcon },
   { id: "diagnostics", label: "Diagnostics", icon: CubeTransparentIcon },
   { id: "settings", label: "Settings", icon: Cog6ToothIcon },
 ];
 
 function tabFromUrl(): Tab {
   const raw = (new URLSearchParams(window.location.search).get("tab") || "").toLowerCase();
-  if (raw === "sensors" || raw === "operations") return "io";
   if (raw === "garden") return "overview";
   return TABS.some((t) => t.id === raw) ? (raw as Tab) : "overview";
 }
@@ -114,12 +109,10 @@ export function App() {
         return <MotionPage pose={pose} onMoved={() => refreshTelemetry(true)} />;
       case "camera":
         return <CameraPage />;
-      case "io":
-        return <IoPage />;
       case "assistant":
         return <AssistantPage />;
-      case "history":
-        return <HistoryPage />;
+      case "memory":
+        return <MemoryPage />;
       case "diagnostics":
         return <DiagnosticsPage />;
       case "settings":

@@ -35,13 +35,14 @@ def test_post_action_returns_404_for_unknown_kind(client: TestClient) -> None:
     assert "no handler registered" in r.json()["detail"].lower()
 
 
-def test_post_action_returns_400_for_unsafe_action(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def fake_validate(action: Action) -> None:
+def test_post_action_returns_400_for_unsafe_action() -> None:
+    def fake_validate(action: Action) -> Action:
         raise UnsafeActionError("too dangerous")
 
-    monkeypatch.setattr("twfarmbot_core.actions.safety_validate", fake_validate)
+    registry = ActionRegistry(validate=fake_validate)
+    registry.register("noop", lambda a: a)
+    app = create_app(registry=registry)
+    client = TestClient(app)
     r = client.post("/actions", json={"kind": "noop", "params": {}})
     assert r.status_code == 400
     assert "too dangerous" in r.json()["detail"]

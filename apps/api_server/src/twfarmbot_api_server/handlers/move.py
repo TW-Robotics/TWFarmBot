@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from twfarmbot_core.domain import Action
 
-from watering_service.backends import farmbot
+from farmbot_gateway import farmbot
 
 
 def handle_move(action: Action) -> Action:

@@ -64,7 +64,7 @@ start_one() {
   echo $! >"$(pidfile "$name")"
   if [[ -n "$port" ]]; then
     local i=0
-    while (( i < 60 )); do
+    while (( i < 120 )); do
       if port_listening "$port"; then
         echo "$name listening on :$port (pid $(cat "$(pidfile "$name")"))"
         return

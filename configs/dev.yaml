@@ -1,6 +1,14 @@
 env: dev
 log_level: INFO
 
+# Geographic location for solar geometry, meteorology, and daylight cycle.
+# Default: UAS Technikum Wien (Vienna, Austria).
+location:
+  latitude: 48.2394
+  longitude: 16.3776
+  elevation_m: 165.0
+  timezone: Europe/Vienna
+
 # LLM planner configuration. Read by planning_service.load_config().
 # Resolution: PLANNING_LLM_* env → Settings tab store → this block → default.
 # Secrets (api_key) are NEVER stored here — set PLANNING_LLM_API_KEY in
@@ -79,3 +87,12 @@ spatial:
   camera_offset: {x: 0, y: 0, z: 300}
   camera: {yaw_deg: 0, pitch_deg: 90, roll_deg: 0}
   zones: []
+
+# Long-term agentic memory store (SQLite).
+memory:
+  db_path: data/memory.db
+
+# Hardware homing calibration on boot / restart
+homing:
+  home_on_boot: true
+  speed: 100

@@ -294,7 +294,7 @@ def _move_travel_mm(args: dict[str, Any]) -> float:
 
 def _current_xyz() -> list[float] | None:
     try:
-        from watering_service.backends import farmbot
+        from farmbot_gateway import farmbot
 
         xyz = farmbot.backend.get_xyz()
     except Exception:  # noqa: BLE001

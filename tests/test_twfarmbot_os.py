@@ -2,14 +2,92 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from farmduino import Report, parse_command
 from twfarmbot_os.app import create_app
 from twfarmbot_os.camera import Camera
 from twfarmbot_os.controller import FarmduinoController
-from twfarmbot_os.transport import SimulatedTransport
+from twfarmbot_os.transport import BaseTransport
+
+
+class _MockTransport(BaseTransport):
+    def __init__(self) -> None:
+        self.x = 0.0
+        self.y = 0.0
+        self.z = 0.0
+        self.locked = False
+        self.pins: dict[int, float] = {}
+
+    def request(self, gcode: str, timeout_s: float = 120.0) -> list[Report]:
+        cmd = parse_command(gcode)
+        reports = [Report(number=8, raw=f"R08 {gcode}"), Report(number=1, raw="R01")]
+        if self.locked and cmd.code != "F09" and cmd.kind != "E":
+            reports.append(Report(number=87, raw="R87"))
+            return reports
+
+        if cmd.kind == "E":
+            self.locked = True
+            reports.append(Report(number=87, raw="R87"))
+            return reports
+        if cmd.code == "F09":
+            self.locked = False
+            reports.append(Report(number=2, raw="R02"))
+            return reports
+        if cmd.code == "G00":
+            if "X" in cmd.params:
+                self.x = cmd.params["X"]
+            if "Y" in cmd.params:
+                self.y = cmd.params["Y"]
+            if "Z" in cmd.params:
+                self.z = cmd.params["Z"]
+            reports.append(
+                Report(
+                    number=82,
+                    params={"X": self.x, "Y": self.y, "Z": self.z},
+                    raw=f"R82 X{self.x} Y{self.y} Z{self.z}",
+                )
+            )
+        elif cmd.code == "F11":
+            self.x = 0.0
+            reports.extend(
+                [
+                    Report(number=11, raw="R11"),
+                    Report(
+                        number=82,
+                        params={"X": 0.0, "Y": self.y, "Z": self.z},
+                        raw=f"R82 X0.0 Y{self.y} Z{self.z}",
+                    ),
+                ]
+            )
+        elif cmd.code == "G28":
+            self.x = self.y = self.z = 0.0
+            reports.extend(
+                [
+                    Report(number=11, raw="R11"),
+                    Report(number=12, raw="R12"),
+                    Report(number=13, raw="R13"),
+                    Report(
+                        number=82,
+                        params={"X": 0.0, "Y": 0.0, "Z": 0.0},
+                        raw="R82 X0.0 Y0.0 Z0.0",
+                    ),
+                ]
+            )
+        elif cmd.code == "F41":
+            p = int(cmd.params.get("P", 0))
+            v = cmd.params.get("V", 0.0)
+            self.pins[p] = v
+            reports.append(Report(number=41, params={"P": p, "V": v}, raw=f"R41 P{p} V{v}"))
+        elif cmd.code == "F42":
+            p = int(cmd.params.get("P", 0))
+            v = self.pins.get(p, 0.0)
+            reports.append(Report(number=41, params={"P": p, "V": v}, raw=f"R41 P{p} V{v}"))
+
+        reports.append(Report(number=2, raw="R02"))
+        return reports
 
 
 def _client(tmp_path) -> TestClient:
-    bot = FarmduinoController(SimulatedTransport())
+    bot = FarmduinoController(_MockTransport())
     cam = Camera(directory=str(tmp_path / "photos"))
     return TestClient(create_app(bot, cam))
 

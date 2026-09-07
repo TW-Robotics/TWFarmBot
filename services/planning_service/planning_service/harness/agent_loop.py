@@ -16,7 +16,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 from langgraph.types import Command
 
-from ..tool_results import append_result_images, compact_tool_result, _sse_images
+from ..tool_results import compact_tool_result, _sse_images
 from .approval_gate import ApprovalGate
 from .context_builder import ContextBuilder
 from .cancel import STOP_CANCELLED, RunCancelled, begin_run, end_run, is_cancelled
@@ -186,7 +186,6 @@ class AgentLoop:
         if not final_text:
             final_text = _closing_summary(tool_log, stop_reason)
         final_text = self._reasoning.strip_from_text(final_text)
-        final_text = append_result_images(final_text, tool_log)
         metrics.total_latency_s = time.perf_counter() - total_start
         return AgentTurnResult(
             response=final_text,
@@ -303,10 +302,6 @@ class AgentLoop:
         if not text:
             text = _closing_summary(tool_log, stop_reason)
             yield {"type": "delta", "content": text}
-        imaged = append_result_images(text, tool_log)
-        extra = imaged[len(text) :] if imaged.startswith(text) else ""
-        if extra:
-            yield {"type": "delta", "content": extra}
         metrics.total_latency_s = time.perf_counter() - total_start
         yield {
             "type": "meta",

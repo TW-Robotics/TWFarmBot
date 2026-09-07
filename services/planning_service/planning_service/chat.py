@@ -87,6 +87,7 @@ def chat(
     allow_actions: bool = True,
     propose_only: bool = False,
     model_name: str | None = None,
+    skip_approval: bool = False,
 ) -> ChatResult:
     """Run one conversational turn with JSON function/tool calling.
 
@@ -105,6 +106,7 @@ def chat(
         allow_actions=allow_actions,
         propose_only=propose_only,
         model_name=model_name,
+        skip_approval=skip_approval,
     )
     result = loop.run(messages)
     out_messages = list(messages)

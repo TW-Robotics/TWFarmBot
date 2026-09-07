@@ -11,8 +11,6 @@ from queue import Empty, Queue
 
 from farmduino import Report, parse_report
 
-from twfarmbot_os.simulate import SimulatedFarmduino
-
 log = logging.getLogger(__name__)
 
 _DONE_CODES = {2, 3, 9, 20, 86, 87}
@@ -28,16 +26,6 @@ class BaseTransport:
 
     def close(self) -> None:
         return None
-
-
-class SimulatedTransport(BaseTransport):
-    def __init__(self) -> None:
-        self.mcu = SimulatedFarmduino()
-
-    def request(self, gcode: str, timeout_s: float) -> list[Report]:
-        del timeout_s
-        lines = self.mcu.process(gcode)
-        return [r for line in lines if (r := parse_report(line)) is not None]
 
 
 class SerialTransport(BaseTransport):
@@ -173,11 +161,7 @@ def _resolve_serial_path(configured: str) -> str:
     )
 
 
-def build_transport() -> BaseTransport:
-    mode = os.getenv("FARMBOT_TRANSPORT", "sim").strip().lower()
-    if mode in {"sim", "simulate", "simulation"}:
-        log.info("TWFarmbotOS using simulated Farmduino")
-        return SimulatedTransport()
+def build_transport() -> SerialTransport:
     configured = os.getenv("FARMBOT_SERIAL_PATH", "/dev/ttyACM0")
     path = _resolve_serial_path(configured)
     baud = int(os.getenv("FARMBOT_SERIAL_BAUD", "115200"))

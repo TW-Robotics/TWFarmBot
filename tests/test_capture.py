@@ -10,7 +10,7 @@ from safety_service import UnsafeActionError, validate
 from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 from vision_service import CaptureError, capture
-from watering_service.backends import farmbot
+from farmbot_gateway import farmbot
 
 
 def _sim_config(tmp_path: Path, *, devices: dict[str, str] | None = None) -> str:
@@ -148,9 +148,10 @@ def test_take_photo_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_dispatch_runs_safety_then_capture(sim_cameras: Path) -> None:
     del sim_cameras
+    from safety_service import validate as safety_validate
     from twfarmbot_api_server.handlers.camera import handle_capture
 
-    registry = ActionRegistry()
+    registry = ActionRegistry(validate=safety_validate)
     registry.register("capture", handle_capture)
     with pytest.raises(UnsafeActionError, match="needs band"):
         registry.dispatch(Action(kind="capture", params={}))

@@ -10,13 +10,10 @@ import logging
 
 from farmbot_client import FarmBotConnectionError, get_client
 
-log = logging.getLogger(__name__)
+from . import farmbot
+from .farmbot import FarmBotBackend, backend
 
-__all__ = [
-    "FarmBotConnectionError",
-    "FarmBotLink",
-    "get_farmbot",
-]
+log = logging.getLogger(__name__)
 
 
 class FarmBotLink:
@@ -45,3 +42,14 @@ def get_farmbot() -> FarmBotLink:
         _fb_singleton = FarmBotLink()
         log.info("FarmBot local HTTP client ready (%s)", get_client().url)
     return _fb_singleton
+
+
+__all__ = [
+    "FarmBotBackend",
+    "FarmBotConnectionError",
+    "FarmBotLink",
+    "backend",
+    "farmbot",
+    "get_client",
+    "get_farmbot",
+]

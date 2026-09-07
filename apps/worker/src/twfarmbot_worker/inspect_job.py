@@ -128,3 +128,35 @@ def run_once(client: httpx.Client | None = None) -> list[dict[str, Any]]:
     finally:
         if own_client:
             client.close()
+
+
+def run_autonomous_loop(
+    client: httpx.Client | None = None,
+    goal: str | None = None,
+) -> dict[str, Any]:
+    """Execute a See → Reason → Act → Reason closed loop cycle via the API server."""
+    cfg = inspect_config()
+    own_client = client is None
+    client = client or httpx.Client(base_url=cfg["api_url"], timeout=cfg["timeout_s"])
+    try:
+        health = client.get("/health").json()
+        if health.get("farmbot") != "connected":
+            log.warning("skip autonomous cycle; farmbot=%s", health.get("farmbot"))
+            return {"status": "skipped", "reason": f"farmbot {health.get('farmbot')}"}
+
+        payload: dict[str, Any] = {"save_session": True}
+        if goal:
+            payload["goal"] = goal
+        response = client.post("/autonomous/run", json=payload)
+        response.raise_for_status()
+        result = response.json()
+        log.info(
+            "Autonomous cycle finished: status=%s actions=%d summary=%s",
+            result.get("status"),
+            len(result.get("actions", [])),
+            (result.get("summary") or "")[:80],
+        )
+        return result
+    finally:
+        if own_client:
+            client.close()

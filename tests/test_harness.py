@@ -22,6 +22,7 @@ from planning_service.harness import (
     ToolCategory,
     ToolRegistry,
 )
+from planning_service.harness.reasoning_controller import content_text
 from planning_service.introspection import InMemorySystemStateProvider
 from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
@@ -180,6 +181,53 @@ def test_reasoning_controller_extracts_think_tags() -> None:
     )
     assert thinking == "step 1"
     assert rc.strip_from_text("before <think>x</think> after") == "before  after"
+
+
+def test_reasoning_controller_strips_thought_prefix() -> None:
+    rc = ReasoningController()
+    assert (
+        rc.strip_from_text("thought The NIR image shows soil.")
+        == "The NIR image shows soil."
+    )
+    assert rc.strip_from_text("<thought>plan</thought>\nLooks dry.") == "Looks dry."
+
+
+def test_content_text_skips_gemini_thought_blocks() -> None:
+    assert (
+        content_text(
+            [
+                {"thought": True, "text": "inspect the frame"},
+                {"type": "text", "text": "The NIR image shows soil."},
+            ]
+        )
+        == "The NIR image shows soil."
+    )
+    assert (
+        content_text(
+            [
+                {"type": "thought", "thought": "inspect the frame"},
+                {"type": "text", "text": "Looks dry."},
+            ]
+        )
+        == "Looks dry."
+    )
+
+
+def test_reasoning_controller_extracts_gemini_thought_blocks() -> None:
+    rc = ReasoningController()
+    msg = type(
+        "Msg",
+        (),
+        {
+            "content": [
+                {"thought": True, "text": "inspect the frame"},
+                {"type": "text", "text": "The NIR image shows soil."},
+            ],
+            "response_metadata": {},
+            "additional_kwargs": {},
+        },
+    )()
+    assert rc.extract(msg) == "inspect the frame"
 
 
 def test_reasoning_controller_extracts_provider_reasoning() -> None:

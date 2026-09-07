@@ -31,7 +31,6 @@ from farmduino.protocol import PARAM_CONFIG_OK
 from twfarmbot_os.transport import (
     BaseTransport,
     SerialTransport,
-    SimulatedTransport,
     TransportError,
 )
 
@@ -47,12 +46,12 @@ class FarmduinoController:
     def __init__(self, transport: BaseTransport) -> None:
         self.transport = transport
         self._lock = Lock()
-        self._ready = isinstance(transport, SimulatedTransport)
+        self._ready = not isinstance(transport, SerialTransport)
         self.x = 0.0
         self.y = 0.0
         self.z = 0.0
         self.locked = False
-        self.config_ok = isinstance(transport, SimulatedTransport)
+        self.config_ok = not isinstance(transport, SerialTransport)
         self.pins: dict[int, float] = {}
         self.last_reports: list[str] = []
         self.message = "ready"
@@ -197,11 +196,6 @@ class FarmduinoController:
                 self.pins[pin] = report.params.get("V", 0)
             elif report.number == 87:
                 self.locked = True
-        if isinstance(self.transport, SimulatedTransport):
-            self.locked = self.transport.mcu.locked
-            self.x = self.transport.mcu.x
-            self.y = self.transport.mcu.y
-            self.z = self.transport.mcu.z
 
     def _default_move_speed_pct(self) -> float:
         raw = os.getenv("FARMBOT_MOVE_SPEED", "100").strip()

@@ -88,6 +88,7 @@ warn_unused_ignores = true
 packages = ["."]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 filterwarnings = [
     "ignore:The starlette.testclient module:RuntimeWarning",
     "ignore:Using `httpx` with `starlette.testclient`:DeprecationWarning",
