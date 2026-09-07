@@ -54,6 +54,7 @@ class LlmOverrides(BaseModel):
     model: str | None = None
     timeout_s: float | None = None
     temperature: float | None = None
+    reasoning_budget: int | None = Field(default=None, ge=0)
 
 
 class VertexPayload(BaseModel):
@@ -73,6 +74,7 @@ class PlanningPayload(BaseModel):
     model: str | None = None
     timeout_s: float | None = None
     temperature: float | None = None
+    reasoning_budget: int | None = Field(default=None, ge=0)
 
 
 class LlmKeysPayload(BaseModel):
@@ -346,6 +348,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             "model": cfg.model,
             "timeout_s": cfg.timeout_s,
             "temperature": cfg.temperature,
+            "reasoning_budget": cfg.reasoning_budget,
             "api_key_configured": bool(cfg.api_key),
             "keys_configured": stored_keys_configured(),
             "providers": list_provider_names(),
@@ -634,6 +637,12 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             farmbot.backend.e_stop()
         except Exception:  # noqa: BLE001
             log.warning("e_stop after chat cancel failed", exc_info=True)
+        try:
+            import watering_service
+
+            watering_service.stop()
+        except Exception:  # noqa: BLE001
+            log.warning("watering stop after chat cancel failed", exc_info=True)
         return {"status": "ok", "thread_id": thread_id}
 
     @app.post("/chat/followup")
@@ -731,6 +740,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         from planning_service.memory import get_memory_store
 
         store = get_memory_store()
+        store.collapse_auto_entries()
         if query or near_x is not None or near_y is not None:
             mems = store.recall(
                 query=query,

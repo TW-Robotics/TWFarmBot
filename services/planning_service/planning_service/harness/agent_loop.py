@@ -34,6 +34,7 @@ from .metrics import Metrics
 from .reasoning_controller import ReasoningController
 from .tool_policy import ToolCategory
 from .tool_registry import ToolRegistry
+from .tracing import call_url, finish_agent_call, log_span, start_agent_call
 
 # Default cap on model turns per call (API-compatible alias for the old const).
 _MAX_TOOL_TURNS = 100
@@ -66,6 +67,14 @@ def _closing_summary(tool_log: list[dict[str, Any]], stop_reason: str) -> str:
         else:
             lines.append(f"- {name}: done.")
     return "\n".join(lines) if lines else _EMPTY_TEXT
+
+
+def _last_user_text(messages: list[dict[str, Any]]) -> str:
+    for item in reversed(messages):
+        if item.get("role") == "user":
+            content = item.get("content")
+            return content if isinstance(content, str) else str(content or "")
+    return ""
 
 
 @dataclass(frozen=True)
@@ -124,6 +133,7 @@ class AgentLoop:
         *,
         stop_after_propose: bool,
         streaming: bool,
+        weave_call: Any = None,
     ) -> RunDeps:
         return RunDeps(
             model=self._model,
@@ -140,6 +150,7 @@ class AgentLoop:
             metrics=metrics,
             action_names=set(self._action_tool_names),
             skip_approval=self._skip_approval,
+            weave_call=weave_call,
         )
 
     @staticmethod
@@ -160,6 +171,8 @@ class AgentLoop:
             "tool_log": [],
             "proposed": [],
             "saw_action_call": False,
+            "goal": {},
+            "motion_approved": False,
         }
 
     def run(self, messages: list[dict[str, Any]]) -> AgentTurnResult:
@@ -207,27 +220,80 @@ class AgentLoop:
         total_start = time.perf_counter()
         metrics = Metrics()
         thread_id = thread_id or uuid.uuid4().hex
+        prompt = "" if resume is not None else _last_user_text(messages)
+        call = start_agent_call(thread_id=thread_id, prompt=prompt)
+        weave_url = call_url(call)
+        output: dict[str, Any] = {}
         begin_run(thread_id)
         try:
-            yield {"type": "thread", "thread_id": thread_id}
-            yield from self._stream_graph(
-                messages,
-                thread_id=thread_id,
-                resume=resume,
-                metrics=metrics,
-                total_start=total_start,
-            )
-        except RunCancelled:
-            yield {"type": "delta", "content": "Stopped by the operator."}
-            yield {
-                "type": "meta",
-                "thread_id": thread_id,
-                "tool_calls": [],
-                "proposed_actions": [],
-                "programs": [],
-                "metrics": metrics.to_dict(),
-                "stop_reason": STOP_CANCELLED,
-            }
+            yield {"type": "thread", "thread_id": thread_id, "weave_url": weave_url}
+            thinking_parts: list[str] = []
+            response_parts: list[str] = []
+            tool_parts: list[dict[str, Any]] = []
+            try:
+                for event in self._stream_graph(
+                    messages,
+                    thread_id=thread_id,
+                    resume=resume,
+                    metrics=metrics,
+                    total_start=total_start,
+                    weave_call=call,
+                ):
+                    kind = event.get("type")
+                    if kind == "thinking" and event.get("content"):
+                        thinking_parts.append(str(event["content"]))
+                        log_span(
+                            "twfarmbot.thinking",
+                            {},
+                            str(event["content"]),
+                            display_name="thinking",
+                            parent=call,
+                        )
+                    elif kind == "delta" and event.get("content"):
+                        response_parts.append(str(event["content"]))
+                    elif kind == "tool_call":
+                        tool_parts.append(
+                            {
+                                "name": event.get("name"),
+                                "args": event.get("args"),
+                                "result": event.get("result"),
+                            }
+                        )
+                    if kind == "meta":
+                        event = {**event, "weave_url": weave_url}
+                        output = {
+                            "thinking": "".join(thinking_parts).strip(),
+                            "response": "".join(response_parts).strip(),
+                            "tools": tool_parts or event.get("tool_calls") or [],
+                            "stop_reason": event.get("stop_reason"),
+                            "metrics": event.get("metrics"),
+                        }
+                    elif kind == "approval":
+                        output = {
+                            "thinking": "".join(thinking_parts).strip(),
+                            "response": "".join(response_parts).strip(),
+                            "tools": tool_parts,
+                            "stop_reason": "approval",
+                        }
+                    yield event
+            except RunCancelled:
+                output = {"stop_reason": STOP_CANCELLED}
+                yield {"type": "delta", "content": "Stopped by the operator."}
+                yield {
+                    "type": "meta",
+                    "thread_id": thread_id,
+                    "tool_calls": [],
+                    "proposed_actions": [],
+                    "programs": [],
+                    "metrics": metrics.to_dict(),
+                    "stop_reason": STOP_CANCELLED,
+                    "weave_url": weave_url,
+                }
+        except Exception as err:
+            finish_agent_call(call, output=output or None, exception=err)
+            raise
+        else:
+            finish_agent_call(call, output=output or None)
         finally:
             end_run(thread_id)
 
@@ -239,9 +305,15 @@ class AgentLoop:
         resume: dict[str, Any] | None,
         metrics: Metrics,
         total_start: float,
+        weave_call: Any = None,
     ) -> Iterator[dict[str, Any]]:
         graph = build_graph(
-            self._deps(metrics, stop_after_propose=False, streaming=True)
+            self._deps(
+                metrics,
+                stop_after_propose=False,
+                streaming=True,
+                weave_call=weave_call,
+            )
         )
         config = {
             "recursion_limit": self._max_turns * 2 + 8,
@@ -319,6 +391,7 @@ class AgentLoop:
             "programs": [],
             "metrics": metrics.to_dict(),
             "stop_reason": stop_reason,
+            "goal": dict(state.get("goal") or {}),
         }
 
     def plan_request(self, request: str) -> AgentTurnResult:

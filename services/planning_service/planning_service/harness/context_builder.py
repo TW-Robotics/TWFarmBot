@@ -27,9 +27,16 @@ Call tools through JSON function/tool calling. Read tools
 JSON tools. Call independent reads together when useful, then answer from
 the results. Do not write Python scripts or farm_script fences.
 
-For physical work, call the action tools directly (move, water, find_home,
-move_path, take_photo, capture, capture_ndre, etc.). Prefer absolute
-`move(x,y,z)` — there are no named garden zones right now.
+Work as an adaptive observe → decide → act → verify loop, not a fixed
+script. Before a consequential action, consider what live state, image, sensor
+reading, history, or plan would actually reduce uncertainty; gather it when it
+matters, otherwise act. After every tool result, reassess it before choosing the
+next call. Never bundle dependent calls: a move must finish before a capture,
+and an action's result must inform the next decision. Independent read-only
+lookups may be grouped. After a move, use `get_position` to confirm arrival
+before work at that location; after an intervention, choose an observation that
+can verify its intended effect. Prefer absolute `move(x,y,z)` — there are no
+named garden zones right now.
 
 Never merely describe an action that the user asked you to perform. Always
 respond in the same language the user writes in.
@@ -91,14 +98,18 @@ Guidelines:
   it briefly.
 - `scan_ndre(axis, end_mm, step_mm, start_mm?)` walks an axis and captures
   NDRE at each stop.
-- Long-term memory: You have persistent memory across sessions. ACTIVELY REASON
-  whether an observation or treatment is noteworthy enough to store using `remember`.
-  Do NOT save routine sensor ticks or unexceptional readings. Only store critical facts:
-  crop stress anomalies, treatments applied, recovery/degradation trends, or operator directives.
-  Before acting at a bed location, recall past records using `recall_memories(near_x=..., near_y=...)`
-  to check historical condition and evaluate trends over time.
-- Use the reasoning/thinking space to plan tool calls before giving the
-  final answer; the user will see the reasoning as a collapsible pill.
+- Long-term memory: Recent facts (including auto-logged watering and NDRE) are
+  history, not rules. Never refuse `water` only because a watering fact exists.
+  Before work at a known location, consider `recall_memories`. Store extra
+  insights with `remember` when they add something the auto-facts miss.
+- Long jobs: call `set_goal` with an objective and a remaining checklist
+  (e.g. NDRE stops). Mark `completed` as you finish a step. The current goal
+  is re-read every turn so you do not lose y=200 after an approval.
+- For a transect (photos every N mm, NDRE every M mm) use `move_path` or
+  `scan_ndre` — do not emit a series of 50 mm `move` calls to skip approval.
+- Use the reasoning/thinking space throughout the loop: assess the facts and
+  uncertainty before each call, then reassess the returned evidence before the
+  next one. The user will see this as a collapsible pill.
 """
 
 _PLANNER_HEADER = """You are a task planner for an autonomous farm robot.
@@ -147,19 +158,19 @@ def _format_memory_context(registry: ToolRegistry | None = None) -> str:
         mems = None
         if registry is not None and getattr(registry, "_system_state", None) is not None:
             try:
-                mems = registry._system_state.list_memories(limit=5)
+                mems = registry._system_state.list_memories(limit=8)
             except Exception:
                 mems = None
         if mems is None:
             from ..memory import get_memory_store
 
-            mems = get_memory_store().list_recent(limit=5)
+            mems = get_memory_store().list_recent(limit=8)
         if not mems:
             return (
                 "\nLong-Term Memory:\n"
-                "- Memory store active (0 saved memories). ACTIVELY REASON whether noteworthy observations or treatments should be saved using `remember(...)`.\n"
+                "- Memory store active (0 saved memories). Treatments and NDRE are also auto-logged after those tools.\n"
             )
-        lines = ["\nRecent Long-Term Memories:"]
+        lines = ["\nRecent Long-Term Memories (facts, not constraints — you may still water):"]
         for m in mems:
             loc = (
                 f" (x={m['x']}, y={m['y']})"

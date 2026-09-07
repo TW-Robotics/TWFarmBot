@@ -39,7 +39,7 @@ from .metrics import Metrics
 from .reasoning_controller import ReasoningController, content_text
 from .tool_policy import ToolDescriptor
 from .tool_registry import ToolRegistry
-from .tracing import is_enabled, timed_invoke, timed_stream, trace_tool_call
+from .tracing import is_enabled, log_tool_call, timed_invoke, timed_stream
 
 from .cancel import (
     STOP_CANCELLED,
@@ -47,6 +47,8 @@ from .cancel import (
     is_cancelled,
     peek_followup,
 )
+from .facts import record_tool_fact
+from .goal import apply_goal_update, messages_with_goal
 
 STOP_DONE = "done"
 STOP_MAX_TURNS = "max_turns"
@@ -66,6 +68,8 @@ class HarnessState(TypedDict, total=False):
     tool_log: Annotated[list[dict[str, Any]], operator.add]
     proposed: Annotated[list[dict[str, Any]], operator.add]
     saw_action_call: bool
+    goal: dict[str, Any]
+    motion_approved: bool
 
 
 def _llm_friendly_result(result: Any) -> Any:
@@ -206,6 +210,7 @@ class RunDeps:
     metrics: Metrics = field(default_factory=Metrics)
     action_names: set[str] = field(default_factory=set)
     skip_approval: bool = False
+    weave_call: Any = None
 
 
 def _resolve_tool(
@@ -250,7 +255,13 @@ def _invoke_tool(
     result = _normalize_tool_args(result)
     latency = time.perf_counter() - start
     if is_enabled():
-        trace_tool_call(name, args, _llm_friendly_result(result), latency_s=latency)
+        log_tool_call(
+            name,
+            args,
+            _llm_friendly_result(result),
+            latency_s=latency,
+            parent=deps.weave_call,
+        )
     resi_latency = (
         result.get("_resireg_latency_s") if isinstance(result, dict) else None
     )
@@ -259,25 +270,61 @@ def _invoke_tool(
     return result
 
 
+_MOTION_TOOLS = frozenset({"move", "move_axis", "move_path"})
+
+
+def _has_active_goal(goal: dict[str, Any] | None) -> bool:
+    if not goal:
+        return False
+    return bool(
+        str(goal.get("objective") or "").strip()
+        or goal.get("remaining")
+        or goal.get("done")
+    )
+
+
+def _is_new_goal_args(args: dict[str, Any] | None) -> bool:
+    args = args or {}
+    remaining = args.get("remaining")
+    has_remaining = isinstance(remaining, list) and any(
+        str(step).strip() for step in remaining
+    )
+    return bool(str(args.get("objective") or "").strip() or has_remaining)
+
+
 def _needs_approval(
-    deps: RunDeps, name: str, args: dict[str, Any] | None = None
+    deps: RunDeps,
+    name: str,
+    args: dict[str, Any] | None = None,
+    *,
+    goal: dict[str, Any] | None = None,
+    motion_approved: bool = False,
+    force_motion: bool = False,
 ) -> bool:
-    """Interrupt chat for risky acts; jogs and reads run immediately."""
+    """Interrupt chat for risky acts; jogs under 50 mm run immediately."""
     if deps.skip_approval or not deps.streaming:
         return False
     descriptor = deps.registry.by_name().get(name)
     if descriptor is None:
         return False
+    args = args or {}
+    if name == "set_goal":
+        return _is_new_goal_args(args)
+    if motion_approved:
+        return False
+    if name in _MOTION_TOOLS and force_motion:
+        return True
+    if name == "move" and _has_active_goal(goal):
+        return True
     if descriptor.policy.requires_approval:
         return True
-    args = args or {}
     if name == "move_axis":
         try:
-            return abs(float(args.get("distance") or 0)) > JOG_APPROVAL_MM
+            return abs(float(args.get("distance") or 0)) >= JOG_APPROVAL_MM
         except (TypeError, ValueError):
             return True
     if name == "move":
-        return _move_travel_mm(args) > JOG_APPROVAL_MM
+        return _move_travel_mm(args) >= JOG_APPROVAL_MM
     return False
 
 
@@ -329,9 +376,10 @@ def build_graph(deps: RunDeps):
             }
         response = timed_invoke(
             deps.model,
-            state["messages"],
+            messages_with_goal(state.get("messages") or [], state.get("goal")),
             deps.model_name,
             metrics=deps.metrics,
+            parent=deps.weave_call,
         )
         update: dict[str, Any] = {
             "messages": [response],
@@ -356,9 +404,10 @@ def build_graph(deps: RunDeps):
         assembled: Any = None
         for chunk in timed_stream(
             deps.model,
-            state["messages"],
+            messages_with_goal(state.get("messages") or [], state.get("goal")),
             deps.model_name,
             metrics=deps.metrics,
+            parent=deps.weave_call,
         ):
             assembled = chunk if assembled is None else assembled + chunk
             kwargs = getattr(chunk, "additional_kwargs", {}) or {}
@@ -398,8 +447,27 @@ def build_graph(deps: RunDeps):
         calls = (
             _tool_calls_from_message(last) if isinstance(last, AIMessage) else []
         )
+        goal = dict(state.get("goal") or {})
+        new_plan = any(
+            str(c["name"]) == "set_goal" and _is_new_goal_args(dict(c["args"]))
+            for c in calls
+        )
+        motion_approved = bool(state.get("motion_approved")) and not new_plan
+        force_motion = not motion_approved and (
+            new_plan
+            or sum(1 for c in calls if str(c["name"]) in _MOTION_TOOLS) > 1
+        )
         pending = [
-            c for c in calls if _needs_approval(deps, str(c["name"]), dict(c["args"]))
+            c
+            for c in calls
+            if _needs_approval(
+                deps,
+                str(c["name"]),
+                dict(c["args"]),
+                goal=goal,
+                motion_approved=motion_approved,
+                force_motion=force_motion,
+            )
         ]
         pending_ids = {c["id"] for c in pending}
         approved_ids: set[str] = set()
@@ -414,6 +482,8 @@ def build_graph(deps: RunDeps):
             )
             if isinstance(decision, dict):
                 approved_ids = set(decision.get("approved_ids", []))
+            if approved_ids:
+                motion_approved = True
         records: list[dict[str, Any]] = []
         proposed: list[dict[str, Any]] = []
         tool_messages: list[ToolMessage] = []
@@ -422,6 +492,8 @@ def build_graph(deps: RunDeps):
         # Stream tool lifecycle events so the UI can show a row the moment a
         # call starts (often minutes for scans) instead of after the fact.
         writer = get_stream_writer() if deps.streaming else None
+        xyz = _current_xyz()
+        ran_motion = False
         for call in calls:
             name = str(call["name"])
             args = dict(call["args"])
@@ -458,7 +530,22 @@ def build_graph(deps: RunDeps):
                             "args": args,
                         }
                     )
-                result = _invoke_tool(deps, name, args)
+                if name == "set_goal":
+                    goal = apply_goal_update(goal, args)
+                    result = {"status": "ok", "goal": goal}
+                    if writer:
+                        writer({"type": "goal", "goal": goal})
+                else:
+                    result = _invoke_tool(deps, name, args)
+                    record_tool_fact(
+                        name,
+                        args,
+                        result,
+                        xyz=xyz,
+                        store=getattr(deps.registry, "_system_state", None),
+                    )
+                    if name in _MOTION_TOOLS and _tool_succeeded(result):
+                        ran_motion = True
             if writer:
                 writer(
                     {
@@ -506,6 +593,8 @@ def build_graph(deps: RunDeps):
             "tool_calls_made": len(records),
             "consecutive_errors": errors,
             "saw_action_call": saw_action,
+            "goal": goal,
+            "motion_approved": True if ran_motion else motion_approved,
         }
         if is_cancelled():
             update["stop_reason"] = STOP_CANCELLED

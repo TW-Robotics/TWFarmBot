@@ -5512,6 +5512,7 @@ name = "twfarmbot-watering-service"
 version = "0.1.0"
 source = { editable = "services/watering_service" }
 dependencies = [
+    { name = "httpx" },
     { name = "pyyaml" },
     { name = "twfarmbot-core" },
     { name = "twfarmbot-gateway" },
@@ -5520,6 +5521,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "twfarmbot-core", editable = "core" },
     { name = "twfarmbot-gateway", editable = "services/farmbot_gateway" },

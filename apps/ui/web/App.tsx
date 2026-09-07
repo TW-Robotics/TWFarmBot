@@ -6,30 +6,35 @@ import {
   SideNavHeading,
   SideNavItem,
   SideNavSection,
+  useSideNavCollapse,
 } from "@astryxdesign/core/SideNav";
 import { Button } from "@astryxdesign/core/Button";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/Stack";
 import { useToast } from "@astryxdesign/core/Toast";
-import { CubeIcon } from "@heroicons/react/24/outline";
 import {
+  BeakerIcon,
   CameraIcon,
   ChatBubbleLeftRightIcon,
+  CircleStackIcon,
   Cog6ToothIcon,
+  CubeIcon,
   CubeTransparentIcon,
   HomeIcon,
   MoonIcon,
   PlayIcon,
-  CircleStackIcon,
+  StopCircleIcon,
   SunIcon,
 } from "@heroicons/react/24/outline";
 import { api, postAction } from "./api";
-import { useThemeMode } from "./theme";
+import { useThemeMode, type ColorMode } from "./theme";
 import { OverviewPage } from "./pages/OverviewPage";
 import { MotionPage } from "./pages/MotionPage";
 import { CameraPage } from "./pages/CameraPage";
 import { AssistantPage } from "./pages/AssistantPage";
 import { MemoryPage } from "./pages/MemoryPage";
+import { IoPage } from "./pages/IoPage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -38,15 +43,78 @@ export type Tab =
   | "motion"
   | "camera"
   | "assistant"
+  | "io"
   | "memory"
   | "diagnostics"
   | "settings";
+
+const NAV_ICON = { width: 16, height: 16 };
+
+function SideNavFooter({
+  farmbot,
+  mode,
+  onToggleTheme,
+  onEstop,
+}: {
+  farmbot: string;
+  mode: ColorMode;
+  onToggleTheme: () => void;
+  onEstop: () => void;
+}) {
+  const { isCollapsed } = useSideNavCollapse();
+  if (isCollapsed) return null;
+  return (
+    <VStack gap={2}>
+      <Text type="supporting" color="secondary">
+        FarmBot · {farmbot}
+      </Text>
+      <Button
+        label={mode === "dark" ? "Light mode" : "Dark mode"}
+        icon={mode === "dark" ? <SunIcon /> : <MoonIcon />}
+        variant="secondary"
+        width="100%"
+        onClick={onToggleTheme}
+      />
+      <Button label="ESTOP" variant="primary" width="100%" onClick={onEstop} />
+    </VStack>
+  );
+}
+
+function SideNavFooterIcons({
+  mode,
+  onToggleTheme,
+  onEstop,
+}: {
+  mode: ColorMode;
+  onToggleTheme: () => void;
+  onEstop: () => void;
+}) {
+  const { isCollapsed } = useSideNavCollapse();
+  if (!isCollapsed) return null;
+  return (
+    <>
+      <IconButton
+        label={mode === "dark" ? "Light mode" : "Dark mode"}
+        icon={mode === "dark" ? <SunIcon style={NAV_ICON} /> : <MoonIcon style={NAV_ICON} />}
+        variant="secondary"
+        onClick={onToggleTheme}
+      />
+      <IconButton
+        label="ESTOP"
+        icon={<StopCircleIcon style={NAV_ICON} />}
+        variant="primary"
+        onClick={onEstop}
+      />
+    </>
+  );
+}
 
 const TABS: { id: Tab; label: string; icon: typeof HomeIcon }[] = [
   { id: "overview", label: "Overview", icon: HomeIcon },
   { id: "motion", label: "Motion", icon: PlayIcon },
   { id: "camera", label: "Camera", icon: CameraIcon },
   { id: "assistant", label: "Assistant", icon: ChatBubbleLeftRightIcon },
+  { id: "io", label: "I/O", icon: BeakerIcon },
   { id: "memory", label: "Memory", icon: CircleStackIcon },
   { id: "diagnostics", label: "Diagnostics", icon: CubeTransparentIcon },
   { id: "settings", label: "Settings", icon: Cog6ToothIcon },
@@ -111,6 +179,8 @@ export function App() {
         return <CameraPage />;
       case "assistant":
         return <AssistantPage />;
+      case "io":
+        return <IoPage />;
       case "memory":
         return <MemoryPage />;
       case "diagnostics":
@@ -136,19 +206,15 @@ export function App() {
             />
           }
           footer={
-            <VStack gap={2}>
-              <Text type="supporting" color="secondary">
-                FarmBot · {farmbot}
-              </Text>
-              <Button
-                label={mode === "dark" ? "Light mode" : "Dark mode"}
-                icon={mode === "dark" ? <SunIcon /> : <MoonIcon />}
-                variant="secondary"
-                width="100%"
-                onClick={toggle}
-              />
-              <Button label="ESTOP" variant="primary" width="100%" onClick={() => void estop()} />
-            </VStack>
+            <SideNavFooter
+              farmbot={farmbot}
+              mode={mode}
+              onToggleTheme={toggle}
+              onEstop={() => void estop()}
+            />
+          }
+          footerIcons={
+            <SideNavFooterIcons mode={mode} onToggleTheme={toggle} onEstop={() => void estop()} />
           }
         >
           <SideNavSection title="Field robotics" isHeaderHidden>

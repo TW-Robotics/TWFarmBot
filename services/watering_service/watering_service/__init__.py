@@ -1,12 +1,8 @@
-"""watering_service — orchestrates a manual watering action.
+"""watering_service — start the bed pump through safety + a backend.
 
-Flow: build Action → safety_service.validate → backend.water.
-The backend is ``services/watering_service/watering_service/backends/farmbot.py``
-— the only place that translates our vocabulary into local HTTP calls.
-
-Config is loaded from ``configs/dev.yaml`` (path overridable via
-``TWFB_CONFIG``). Env vars override file values so ops can override
-without editing YAML — e.g. ``FARMBOT_PUMP_PIN=8``.
+Default backend is the Shelly plug (one pump, all sprayers). The plug's own
+1-minute auto-off is the duration. ``WATERING_BACKEND=farmbot`` still drives
+a GPIO pin for the old solenoid path.
 """
 
 from __future__ import annotations
@@ -29,15 +25,26 @@ def _load_yaml_config() -> dict:
     return load_yaml_config()
 
 
+def _watering_cfg() -> dict[str, Any]:
+    return _load_yaml_config().get("watering", {}) or {}
+
+
 def _pump_pin() -> int:
     """Return the pump pin from config, with an optional env override."""
-    cfg = _load_yaml_config().get("watering", {}) or {}
-    return int(os.getenv("FARMBOT_PUMP_PIN", cfg.get("pump_pin", 7)))
+    return int(os.getenv("FARMBOT_PUMP_PIN", _watering_cfg().get("pump_pin", 7)))
+
+
+def _cycle_seconds() -> float:
+    """Duration used only by the FarmBot pin backend."""
+    return float(os.getenv("FARMBOT_WATER_SECONDS", _watering_cfg().get("cycle_seconds", 60)))
+
+
+def _backend_name() -> str:
+    return (os.getenv("WATERING_BACKEND") or str(_watering_cfg().get("backend") or "farmbot")).lower()
 
 
 def _load_backend() -> Any:
-    name = os.getenv("WATERING_BACKEND", "farmbot")
-    module = import_module(f"watering_service.backends.{name}")
+    module = import_module(f"watering_service.backends.{_backend_name()}")
     return module.backend
 
 
@@ -52,11 +59,18 @@ def get_backend() -> Any:
     return _backend
 
 
-def water(seconds: float) -> Action:
-    """Validate then execute a watering action. Returns the executed Action."""
+def water(seconds: float | None = None) -> Action:
+    """Validate then start a watering cycle. Returns the executed Action.
+
+    The Shelly plug already cuts the pump after 1 minute. ``seconds`` is only
+    used by the FarmBot pin backend.
+    """
     from twfarmbot_core.domain.action import Action
 
-    action = Action(kind="water", params={"seconds": seconds})
+    params: dict[str, Any] = {}
+    if seconds is not None:
+        params["seconds"] = seconds
+    action = Action(kind="water", params=params)
     try:
         safety_validate(action)
     except UnsafeActionError:
@@ -64,13 +78,47 @@ def water(seconds: float) -> Action:
         raise
 
     backend = get_backend()
-    log.info("watering: pump seconds=%s", seconds)
-    backend.water(seconds)
+    duration = _cycle_seconds() if seconds is None else float(seconds)
+    log.info("watering: backend=%s duration=%s", type(backend).__name__, duration)
+    backend.water(duration)
     return action
+
+
+def stop() -> None:
+    """Cut the pump immediately (ESTOP). No-op if the backend has no stop."""
+    off = getattr(get_backend(), "stop", None)
+    if callable(off):
+        off()
+
+
+def pump_status() -> dict[str, Any]:
+    backend = get_backend()
+    out: dict[str, Any] = {"backend": type(backend).__name__}
+    getter = getattr(backend, "status", None)
+    if callable(getter):
+        out.update(getter())
+    return out
+
+
+def set_pump(on: bool) -> dict[str, Any]:
+    """Manual on/off for the I/O tab. On stays on until off or ESTOP."""
+    backend = get_backend()
+    if on:
+        turn_on = getattr(backend, "turn_on", None)
+        if callable(turn_on):
+            turn_on()
+        else:
+            backend.water(_cycle_seconds())
+    else:
+        stop()
+    return pump_status()
 
 
 __all__ = [
     "_pump_pin",
     "get_backend",
+    "pump_status",
+    "set_pump",
+    "stop",
     "water",
 ]

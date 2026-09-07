@@ -7,10 +7,18 @@ objects ready to dispatch through the existing
 
 ## Backends
 
-The planner uses OpenAI-compatible `/chat/completions` JSON function/tool
-calling. The model emits `function_call` / `tool_calls`; the runtime
-executes them. Physical FarmBot actions remain approval-gated and never
-talk to motors or serial from the model.
+The planner uses JSON function/tool calling. Native OpenAI GPT-5 uses the
+Responses API so it can reason while using tools; OpenRouter and local models
+use OpenAI-compatible `/chat/completions`. The model receives every tool
+result in the next turn, then decides what information to gather or action to
+take next. Physical FarmBot actions remain approval-gated and never talk to
+motors or serial from the model.
+
+`reasoning_budget` defaults to 8192 and is adjustable in **Settings → Chat
+assistant** (or per browser model profile in **Advanced**). Vertex receives it
+as Gemini's `thinking_budget`; OpenRouter receives `reasoning.max_tokens`;
+GPT-5 maps it to low (≤2048), medium (≤8192), or high effort. Set it to `0`
+to omit the explicit reasoning request.
 
 Any backend that speaks `/chat/completions` works:
 

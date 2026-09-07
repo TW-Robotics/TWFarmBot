@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel
 
 from farmbot_client.client import base_url
 
@@ -213,3 +214,40 @@ def get_memory(
     else:
         memories = store.list_recent(limit=cap, category=category)
     return {"memories": memories, "count": len(memories)}
+
+
+@router.get("/meteorology")
+def get_meteorology_snapshot() -> dict[str, Any]:
+    """Sun position, live weather, and agronomic capture/watering advice."""
+    from planning_service.meteorology import get_meteorology
+
+    try:
+        return get_meteorology()
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"meteorology failed: {err}"
+        ) from err
+
+
+class WateringPayload(BaseModel):
+    on: bool
+
+
+@router.get("/watering")
+def get_watering() -> dict[str, Any]:
+    import watering_service
+
+    try:
+        return watering_service.pump_status()
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"watering status failed: {err}") from err
+
+
+@router.post("/watering")
+def post_watering(payload: WateringPayload) -> dict[str, Any]:
+    import watering_service
+
+    try:
+        return watering_service.set_pump(payload.on)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"watering control failed: {err}") from err

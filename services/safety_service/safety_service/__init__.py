@@ -27,7 +27,7 @@ class UnsafeActionError(ValueError):
 
 @dataclass(frozen=True)
 class SafetyLimits:
-    max_water_seconds: float = 300.0
+    max_water_seconds: float = 60.0
     # When False (default), axis magnitude is not gated — operator is present.
     enforce_workspace: bool = False
     max_axis_mm: dict[str, float] = field(
@@ -41,7 +41,7 @@ def _env_flag(name: str, default: str = "0") -> bool:
 
 def load_limits() -> SafetyLimits:
     return SafetyLimits(
-        max_water_seconds=float(os.getenv("FARMBOT_MAX_WATER_SECONDS", "300")),
+        max_water_seconds=float(os.getenv("FARMBOT_MAX_WATER_SECONDS", "60")),
         enforce_workspace=_env_flag("FARMBOT_ENFORCE_WORKSPACE", "0"),
         max_axis_mm={
             "x": float(os.getenv("FARMBOT_MAX_AXIS_X", "650")),
@@ -85,6 +85,8 @@ def _check_move(action: Action, limits: SafetyLimits) -> None:
 
 
 def _check_water(action: Action, limits: SafetyLimits) -> None:
+    if action.params.get("seconds") is None:
+        return
     seconds = float(action.params.get("seconds", 0.0))
     if seconds <= 0:
         raise UnsafeActionError(f"water action needs positive seconds, got {seconds}")
@@ -164,10 +166,10 @@ def _check_water_zone(action: Action, limits: SafetyLimits) -> None:
     except (TypeError, ValueError) as err:
         raise UnsafeActionError(f"water_zone z must be numeric, got {z!r}") from err
     _check_xyz(float(target["x"]), float(target["y"]), z_value, limits)
-    _check_water(
-        Action(kind="water", params={"seconds": action.params.get("seconds", 0)}),
-        limits,
-    )
+    water_params: dict = {}
+    if action.params.get("seconds") is not None:
+        water_params["seconds"] = action.params["seconds"]
+    _check_water(Action(kind="water", params=water_params), limits)
 
 
 _CAPTURE_BANDS = frozenset({"rgb", "nir", "rededge", "thermal", "swir"})

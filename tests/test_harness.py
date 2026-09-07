@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 
 from planning_service.harness import (
     AgentLoop,
@@ -265,6 +265,8 @@ def test_context_builder_lists_tools_in_prompt() -> None:
     assert "Available tools" in prompt
     assert "take_photo" in prompt
     assert "move" in prompt
+    assert "observe → decide → act → verify" in prompt
+    assert "After a move, use `get_position` to confirm arrival" in prompt
 
 
 # ────────────────────────────────── AgentLoop ────────────────────────────────
@@ -628,6 +630,146 @@ def test_stream_skips_approval_when_requested() -> None:
     assert any(e["type"] == "meta" for e in events)
 
 
+def test_stream_includes_weave_url_when_traced(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Call:
+        ui_url = "https://wandb.ai/org/proj/r/call/abc"
+
+    monkeypatch.setattr(
+        "planning_service.harness.agent_loop.start_agent_call",
+        lambda **_: _Call(),
+    )
+    monkeypatch.setattr(
+        "planning_service.harness.agent_loop.call_url",
+        lambda call: getattr(call, "ui_url", None),
+    )
+    monkeypatch.setattr(
+        "planning_service.harness.agent_loop.finish_agent_call",
+        lambda *_, **__: None,
+    )
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(["hello"])
+    loop = _make_loop(fake, _make_registry(), skip_approval=True)
+    events = list(loop.stream([{"role": "user", "content": "hi"}]))
+    thread = next(e for e in events if e["type"] == "thread")
+    meta = next(e for e in events if e["type"] == "meta")
+    assert thread["weave_url"] == _Call.ui_url
+    assert meta["weave_url"] == _Call.ui_url
+
+
+def test_stream_weave_output_includes_tools_and_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class _Call:
+        ui_url = "https://wandb.ai/org/proj/r/call/abc"
+
+    monkeypatch.setattr(
+        "planning_service.harness.agent_loop.start_agent_call",
+        lambda **_: _Call(),
+    )
+    monkeypatch.setattr(
+        "planning_service.harness.agent_loop.call_url",
+        lambda call: getattr(call, "ui_url", None),
+    )
+    monkeypatch.setattr(
+        "planning_service.harness.agent_loop.finish_agent_call",
+        lambda _call, output=None, exception=None: captured.update({"output": output}),
+    )
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("take_photo", {}, "p1"),
+            "Here is a photo.",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), skip_approval=True)
+    list(loop.stream([{"role": "user", "content": "where am I"}]))
+    output = captured["output"]
+    assert output["response"] == "Here is a photo."
+    assert output["tools"][0]["name"] == "take_photo"
+
+
+def test_tracing_helpers_noop_when_disabled() -> None:
+    from planning_service.harness.tracing import (
+        call_url,
+        finish_agent_call,
+        start_agent_call,
+    )
+
+    assert start_agent_call(thread_id="t", prompt="hi") is None
+    assert call_url(None) is None
+    finish_agent_call(None)
+
+
+def test_stream_pauses_stepped_moves_for_approval() -> None:
+    """A 50 mm photo grid is not a jog — the batch must pause."""
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "move",
+                        "args": {"x": x, "y": 0, "z": 0},
+                        "id": f"m{x}",
+                        "type": "tool_call",
+                    }
+                    for x in (0, 50, 100, 150, 200)
+                ],
+            ),
+            "moved",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), propose_only=False)
+    events = list(loop.stream([{"role": "user", "content": "photo every 50 mm"}]))
+    pending = next(e for e in events if e["type"] == "approval")
+    names = [item["name"] for item in pending["pending_approvals"]]
+    assert names == ["move"] * 5
+    assert "tool_call" not in [e["type"] for e in events]
+
+
+def test_stream_set_goal_with_moves_pauses_the_moves() -> None:
+    state = InMemorySystemStateProvider()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "set_goal",
+                        "args": {
+                            "objective": "photos every 50 mm",
+                            "remaining": ["x=50", "x=100"],
+                        },
+                        "id": "g1",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "move",
+                        "args": {"x": 50, "y": 0, "z": 0},
+                        "id": "m1",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "move",
+                        "args": {"x": 100, "y": 0, "z": 0},
+                        "id": "m2",
+                        "type": "tool_call",
+                    },
+                ],
+            ),
+            "ok",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state, propose_only=False)
+    events = list(loop.stream([{"role": "user", "content": "grid"}]))
+    pending = next(e for e in events if e["type"] == "approval")
+    names = [item["name"] for item in pending["pending_approvals"]]
+    assert names == ["set_goal", "move", "move"]
+    assert "tool_call" not in [e["type"] for e in events]
+
+
 def test_stream_scan_ndre_emits_images() -> None:
     reg = _make_registry()
     reg.register(
@@ -914,3 +1056,249 @@ def test_cancel_discards_followup_and_stops() -> None:
     assert not any(e["type"] == "followup" for e in events)
     meta = next(e for e in events if e["type"] == "meta")
     assert meta["stop_reason"] == "cancelled"
+
+
+def test_goal_update_is_reinjected_without_persisting_in_messages() -> None:
+    from planning_service.harness.goal import GOAL_MARKER, apply_goal_update, messages_with_goal
+
+    goal = apply_goal_update(
+        None, {"objective": "survey the bed", "remaining": ["y=200", "y=300"]}
+    )
+    goal = apply_goal_update(goal, {"completed": "y=200"})
+    assert goal["remaining"] == ["y=300"]
+    assert goal["done"] == ["y=200"]
+    injected = messages_with_goal(
+        [SystemMessage(content="sys"), HumanMessage(content="go")], goal
+    )
+    assert injected[1].content.startswith(GOAL_MARKER)
+    assert "y=300" in injected[1].content
+    assert not any(
+        isinstance(m, SystemMessage) and str(m.content).startswith(GOAL_MARKER)
+        for m in [SystemMessage(content="sys"), HumanMessage(content="go")]
+    )
+
+
+def test_record_tool_fact_stores_water_and_ndre_observations() -> None:
+    from planning_service.harness.facts import record_tool_fact
+    from planning_service.memory import MemoryStore
+
+    store = MemoryStore(":memory:")
+    record_tool_fact("water", {}, {"status": "ok"}, xyz=[10.0, 20.0, 0.0], store=store)
+    record_tool_fact(
+        "capture_ndre",
+        {},
+        {
+            "status": "ok",
+            "params": {
+                "interpretation": {"action_hint": "Canopy looks healthy"},
+                "ndre": {"mean": 0.31},
+                "gantry_mm": {"x": 11, "y": 22, "z": 0},
+            },
+        },
+        store=store,
+    )
+    record_tool_fact("water", {}, {"status": "proposed"}, xyz=[1, 2, 0], store=store)
+    recents = store.list_recent(limit=8)
+    texts = " ".join(m["content"] for m in recents)
+    assert "Pump ran" in texts and "~60s" in texts
+    assert "Canopy looks healthy" in texts and "mean=0.31" in texts
+    assert all("auto" in (m.get("tags") or []) for m in recents)
+
+
+def test_agent_loop_set_goal_then_continues() -> None:
+    state = InMemorySystemStateProvider(position={"x": 1, "y": 2, "z": 3})
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call(
+                "set_goal",
+                {
+                    "objective": "NDRE then decide",
+                    "remaining": ["y=200", "y=300"],
+                },
+                "g1",
+            ),
+            _tool_call("get_position", {}, "p1"),
+            "survey next",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state, skip_approval=True)
+    result = loop.run([{"role": "user", "content": "survey the bed"}])
+    assert result.tool_calls[0]["name"] == "set_goal"
+    assert result.tool_calls[0]["result"]["goal"]["remaining"] == ["y=200", "y=300"]
+    assert result.tool_calls[1]["name"] == "get_position"
+    assert result.response == "survey next"
+
+
+def test_agent_loop_streams_goal_like_approvals() -> None:
+    state = InMemorySystemStateProvider()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call(
+                "set_goal",
+                {"objective": "survey the bed", "remaining": ["y=200", "y=300"]},
+                "g1",
+            ),
+            "ok",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state, skip_approval=True)
+    events = list(loop.stream([{"role": "user", "content": "survey"}]))
+    goals = [e for e in events if e["type"] == "goal"]
+    assert goals
+    assert goals[0]["goal"]["objective"] == "survey the bed"
+    assert goals[0]["goal"]["remaining"] == ["y=200", "y=300"]
+    meta = next(e for e in events if e["type"] == "meta")
+    assert meta["goal"]["remaining"] == ["y=200", "y=300"]
+
+
+def test_stream_pauses_new_goal_for_approval() -> None:
+    state = InMemorySystemStateProvider()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call(
+                "set_goal",
+                {"objective": "survey", "remaining": ["y=200", "y=300"]},
+                "g1",
+            ),
+            "surveying",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state)
+    events = list(loop.stream([{"role": "user", "content": "survey"}]))
+    pending = next(e for e in events if e["type"] == "approval")
+    assert pending["pending_approvals"][0]["name"] == "set_goal"
+    resumed = list(
+        loop.stream(
+            [],
+            thread_id=pending["thread_id"],
+            resume={"approved_ids": [pending["pending_approvals"][0]["id"]]},
+        )
+    )
+    assert any(e["type"] == "goal" for e in resumed)
+    assert any(e.get("name") == "set_goal" for e in resumed if e["type"] == "tool_call")
+
+
+def test_stream_goal_completed_does_not_pause() -> None:
+    state = InMemorySystemStateProvider()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call(
+                "set_goal",
+                {"objective": "survey", "remaining": ["y=200", "y=300"]},
+                "g1",
+            ),
+            _tool_call("set_goal", {"completed": "y=200"}, "g2"),
+            "still y=300",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state)
+    first = list(loop.stream([{"role": "user", "content": "survey"}]))
+    pending = next(e for e in first if e["type"] == "approval")
+    resumed = list(
+        loop.stream(
+            [],
+            thread_id=pending["thread_id"],
+            resume={"approved_ids": [pending["pending_approvals"][0]["id"]]},
+        )
+    )
+    assert "approval" not in [e["type"] for e in resumed]
+    completed = [e for e in resumed if e["type"] == "tool_call" and e.get("id") == "g2"]
+    assert completed
+    assert completed[0]["result"]["goal"]["remaining"] == ["y=300"]
+
+
+def test_stream_approved_plan_runs_later_moves_without_reprompt() -> None:
+    state = InMemorySystemStateProvider()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call(
+                "set_goal",
+                {
+                    "objective": "photos every 50 mm",
+                    "remaining": ["x=50", "x=100"],
+                },
+                "g1",
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "move",
+                        "args": {"x": 50, "y": 0, "z": 0},
+                        "id": "m1",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "move",
+                        "args": {"x": 100, "y": 0, "z": 0},
+                        "id": "m2",
+                        "type": "tool_call",
+                    },
+                ],
+            ),
+            "done",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state, propose_only=False)
+    first = list(loop.stream([{"role": "user", "content": "grid"}]))
+    pending = next(e for e in first if e["type"] == "approval")
+    resumed = list(
+        loop.stream(
+            [],
+            thread_id=pending["thread_id"],
+            resume={"approved_ids": [pending["pending_approvals"][0]["id"]]},
+        )
+    )
+    assert "approval" not in [e["type"] for e in resumed]
+    assert [e["name"] for e in resumed if e["type"] == "tool_call"] == [
+        "set_goal",
+        "move",
+        "move",
+    ]
+
+
+def test_agent_loop_set_goal_merges_completed_steps() -> None:
+    state = InMemorySystemStateProvider()
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call(
+                "set_goal",
+                {"objective": "survey", "remaining": ["y=200", "y=300"]},
+                "g1",
+            ),
+            _tool_call("set_goal", {"completed": "y=200"}, "g2"),
+            "still y=300",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state, skip_approval=True)
+    result = loop.run([{"role": "user", "content": "keep going"}])
+    assert result.tool_calls[1]["result"]["goal"]["remaining"] == ["y=300"]
+    assert result.tool_calls[1]["result"]["goal"]["done"] == ["y=200"]
+
+
+def test_water_runs_even_when_a_watering_fact_exists() -> None:
+    from planning_service.memory import MemoryStore
+
+    store = MemoryStore(":memory:")
+    store.remember("Pump ran for the whole bed (~60s).", category="treatment", tags=["auto", "water"])
+    state = InMemorySystemStateProvider(memory_store=store)
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses([_tool_call("water", {}, "w1"), "watered again"])
+    loop = _make_loop(
+        fake,
+        _make_registry(),
+        propose_only=False,
+        system_state=state,
+        skip_approval=True,
+    )
+    result = loop.run([{"role": "user", "content": "water the bed"}])
+    assert result.tool_calls[0]["name"] == "water"
+    assert result.tool_calls[0]["result"]["status"] == "ok"
+    texts = " ".join(m["content"] for m in store.list_recent(limit=8))
+    assert texts.count("Pump ran") >= 2

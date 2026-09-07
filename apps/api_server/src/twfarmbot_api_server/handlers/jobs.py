@@ -36,7 +36,10 @@ def handle_water_zone(action: Action) -> Action:
     handle_move(
         Action(kind="move", params={"x": target["x"], "y": target["y"], "z": z})
     )
-    handle_water(Action(kind="water", params={"seconds": action.params["seconds"]}))
+    water_params: dict = {}
+    if action.params.get("seconds") is not None:
+        water_params["seconds"] = action.params["seconds"]
+    handle_water(Action(kind="water", params=water_params))
     return Action(kind="water_zone", params={**action.params, "resolved": target})
 
 

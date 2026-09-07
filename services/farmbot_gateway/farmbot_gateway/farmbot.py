@@ -83,6 +83,15 @@ class FarmBotBackend:
         time.sleep(float(seconds))
         self._bot().water_off()
 
+    def stop(self) -> None:
+        self._bot().water_off()
+
+    def turn_on(self) -> None:
+        self._bot().water_on()
+
+    def status(self) -> dict[str, Any]:
+        return {"on": None, "backend": "farmbot"}
+
     def move(self, x: float, y: float, z: float, speed: float | None = None) -> None:
         self.ensure_homed()
         log.info("farmbot: move x=%s y=%s z=%s speed=%s", x, y, z, speed)

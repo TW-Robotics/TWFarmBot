@@ -63,24 +63,46 @@ def _patch_langchain_openai_reasoning() -> None:
 _patch_langchain_openai_reasoning()
 
 
-def _tool_calling_reasoning_override(model: str, overrides: dict[str, Any]) -> None:
-    """GPT-5 chat-completions models reject tools unless reasoning is off."""
-    name = model.lower()
-    if not name.startswith("gpt-5") or "chat" in name:
-        return
-    if overrides.get("reasoning_effort") is not None:
-        return
-    reasoning = overrides.get("reasoning")
-    if isinstance(reasoning, dict) and reasoning.get("effort") is not None:
-        return
-    extra_body = overrides.get("extra_body")
-    if isinstance(extra_body, dict):
-        if extra_body.get("reasoning_effort") is not None:
-            return
-        nested = extra_body.get("reasoning")
-        if isinstance(nested, dict) and nested.get("effort") is not None:
-            return
-    overrides["reasoning_effort"] = "none"
+from .reasoning import effort_from_budget, model_uses_reasoning, openai_effort
+
+
+def _enable_reasoning(
+    model: str, base_url: str, reasoning_budget: int, overrides: dict[str, Any]
+) -> None:
+    """Apply the selected effort through each OpenAI-compatible API.
+
+    GPT-5 uses Responses because Chat Completions cannot combine its reasoning
+    with tools. OpenRouter takes an effort level, not a token count.
+    """
+    effort = effort_from_budget(reasoning_budget)
+    native_openai = (
+        base_url.rstrip("/") == "https://api.openai.com/v1"
+        and "gpt-5" in model.lower()
+        and "chat" not in model.lower()
+    )
+    if native_openai:
+        extra_body = overrides.get("extra_body")
+        has_reasoning_override = isinstance(extra_body, Mapping) and bool(
+            extra_body.get("reasoning") or extra_body.get("reasoning_effort")
+        )
+        if (
+            overrides.get("reasoning_effort") is None
+            and not overrides.get("reasoning")
+            and not has_reasoning_override
+        ):
+            applied = openai_effort(model, effort)
+            overrides["reasoning"] = (
+                {"effort": "none"}
+                if applied == "none"
+                else {"effort": applied, "summary": "auto"}
+            )
+        overrides.setdefault("use_responses_api", True)
+    elif "openrouter.ai" in base_url:
+        extra_body = dict(overrides.get("extra_body") or {})
+        if "reasoning" not in extra_body and model_uses_reasoning(model):
+            extra_body["reasoning"] = {"effort": openai_effort(model, effort)}
+        if extra_body:
+            overrides["extra_body"] = extra_body
 
 
 def build_chat_model(
@@ -89,6 +111,7 @@ def build_chat_model(
     model: str,
     api_key: str | None = None,
     timeout_s: float = 30.0,
+    reasoning_budget: int = 8192,
     **overrides: Any,
 ) -> BaseChatModel:
     """Return a LangChain chat model pointed at an OpenAI-compatible API.
@@ -110,5 +133,5 @@ def build_chat_model(
     # (Ollama/vLLM) that need none — substitute a harmless placeholder.
     kwargs["api_key"] = api_key or "not-required"
     kwargs.update(overrides)
-    _tool_calling_reasoning_override(model, kwargs)
+    _enable_reasoning(model, base_url, reasoning_budget, kwargs)
     return ChatOpenAI(**kwargs)

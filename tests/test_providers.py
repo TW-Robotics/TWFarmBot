@@ -42,7 +42,22 @@ def test_providers_build_chat_completions_models() -> None:
     openai_model = openai.build_chat_model("gpt-5.6", openai_cfg)
     assert openai_model is not None
     assert openai_model.model_name == "gpt-5.6"  # type: ignore[attr-defined]
-    assert openai_model.reasoning_effort == "none"  # type: ignore[attr-defined]
+    assert openai_model.reasoning == {"effort": "medium", "summary": "auto"}  # type: ignore[attr-defined]
+    assert openai_model.use_responses_api is True  # type: ignore[attr-defined]
+
+    silent = OpenAIProvider().build_chat_model(
+        "gpt-5.6",
+        PlannerConfig(
+            provider="openai",
+            base_url="https://api.openai.com/v1",
+            model="gpt-5.6",
+            api_key="dummy-key",
+            timeout_s=30.0,
+            temperature=0.0,
+            reasoning_budget=0,
+        ),
+    )
+    assert silent.reasoning == {"effort": "none"}  # type: ignore[attr-defined]
     assert hasattr(openai_model, "bind_tools")
     assert not hasattr(openai_model, "configure_tools")
 
@@ -58,6 +73,10 @@ def test_providers_build_chat_completions_models() -> None:
     model = openrouter.build_chat_model("openai/gpt-4o", cfg)
     assert model is not None
     assert model.model_name == "openai/gpt-4o"  # type: ignore[attr-defined]
+    assert not (getattr(model, "extra_body", None) or {}).get("reasoning")
+
+    glm = openrouter.build_chat_model("z-ai/glm-5.3-flash", cfg)
+    assert glm.extra_body == {"reasoning": {"effort": "medium"}}  # type: ignore[attr-defined]
 
     local_cfg = PlannerConfig(
         provider="local",
@@ -71,6 +90,48 @@ def test_providers_build_chat_completions_models() -> None:
     local_model = local.build_chat_model("qwen2.5", local_cfg)
     assert local_model is not None
     assert local_model.model_name == "qwen2.5"  # type: ignore[attr-defined]
+
+
+def test_openrouter_lists_only_reasoning_tool_models(monkeypatch) -> None:
+    from planning_service import providers as providers_mod
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "data": [
+                    {"id": "openai/gpt-4o", "supported_parameters": ["tools"]},
+                    {
+                        "id": "z-ai/glm-5.3-flash",
+                        "supported_parameters": ["tools", "reasoning"],
+                    },
+                    {
+                        "id": "openai/gpt-5.6:batch",
+                        "supported_parameters": ["tools", "reasoning"],
+                    },
+                    {"id": "openai/gpt-5.6", "supported_parameters": ["tools", "reasoning"]},
+                ]
+            }
+
+    monkeypatch.setattr(
+        providers_mod.requests,
+        "get",
+        lambda *args, **kwargs: _Resp(),
+    )
+    cfg = PlannerConfig(
+        provider="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        model="openai/gpt-5.6",
+        api_key="dummy-key",
+        timeout_s=30.0,
+        temperature=0.0,
+    )
+    assert OpenRouterProvider().list_models(cfg) == [
+        "openai/gpt-5.6",
+        "z-ai/glm-5.3-flash",
+    ]
 
 
 def test_providers_endpoints() -> None:
@@ -120,6 +181,8 @@ def test_vertex_builds_native_model(monkeypatch, tmp_path) -> None:
     assert model.model_name == "gemini-3.8-flash"  # type: ignore[attr-defined]
     assert getattr(model, "project", None) == "demo-project"
     assert getattr(model, "location", None) == "europe-west3"
+    assert getattr(model, "thinking_budget", None) == 8192
+    assert getattr(model, "include_thoughts", None) is True
 
 
 def test_vertex_strips_google_prefix(monkeypatch, tmp_path) -> None:

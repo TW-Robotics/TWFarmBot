@@ -7,6 +7,7 @@ export type LlmProfile = {
   model: string;
   timeoutS: number;
   temperature: number;
+  reasoningBudget: number;
 };
 
 export type LlmOverrides = {
@@ -16,6 +17,7 @@ export type LlmOverrides = {
   model?: string;
   timeout_s?: number;
   temperature?: number;
+  reasoning_budget?: number;
 };
 
 export type AppSettings = {
@@ -52,7 +54,9 @@ export function loadSettings(): AppSettings {
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
     return {
       activeLlmProfileId: parsed.activeLlmProfileId ?? null,
-      llmProfiles: Array.isArray(parsed.llmProfiles) ? parsed.llmProfiles : [],
+      llmProfiles: Array.isArray(parsed.llmProfiles)
+        ? parsed.llmProfiles.map((profile) => ({ ...profile, reasoningBudget: profile.reasoningBudget ?? 8192 }))
+        : [],
     };
   } catch {
     return { ...DEFAULT_SETTINGS, llmProfiles: [] };
@@ -77,6 +81,7 @@ export function llmOverridesFromProfile(profile: LlmProfile | null): LlmOverride
     model: profile.model,
     timeout_s: profile.timeoutS,
     temperature: profile.temperature,
+    reasoning_budget: profile.reasoningBudget,
   };
   if (profile.apiKey.trim()) overrides.api_key = profile.apiKey.trim();
   return overrides;
@@ -97,6 +102,7 @@ export function createEmptyProfile(name = "New profile"): LlmProfile {
     model: defaults.model,
     timeoutS: 120,
     temperature: 0,
+    reasoningBudget: 8192,
   };
 }
 

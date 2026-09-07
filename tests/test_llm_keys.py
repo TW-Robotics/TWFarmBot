@@ -106,7 +106,9 @@ def test_vertex_settings_round_trip(keys_file: Path) -> None:
     assert planning_config.read_stored_keys() == {"openai": "sk-x"}
 
 
-def test_vertex_settings_env_wins(keys_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vertex_settings_env_wins(
+    keys_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     planning_config.write_vertex_settings(project="stored-proj")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "env-proj")
     assert planning_config.resolve_vertex_settings() == {
@@ -121,12 +123,16 @@ def test_empty_api_key_env_falls_through_to_store(
     monkeypatch.delenv("PLANNING_LLM_API_KEY", raising=False)
     planning_config.write_stored_keys({"openai": "sk-from-ui"})
     cfg = planning_config.load_config(
-        yaml_data={"planning": {"provider": "openai", "api_key_env": "PLANNING_LLM_API_KEY"}}
+        yaml_data={
+            "planning": {"provider": "openai", "api_key_env": "PLANNING_LLM_API_KEY"}
+        }
     )
     assert cfg.api_key == "sk-from-ui"
 
 
-def test_stored_planning_beats_yaml(keys_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stored_planning_beats_yaml(
+    keys_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("PLANNING_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("PLANNING_LLM_MODEL", raising=False)
     planning_config.write_stored_planning(provider="openrouter", model="ui-model")
@@ -137,7 +143,17 @@ def test_stored_planning_beats_yaml(keys_file: Path, monkeypatch: pytest.MonkeyP
     assert cfg.model == "ui-model"
 
 
-def test_env_beats_stored_planning(keys_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reasoning_budget_is_saved_and_can_be_disabled(keys_file: Path) -> None:
+    planning_config.write_stored_planning(model="ui-model", reasoning_budget=0)
+    cfg = planning_config.load_config(
+        yaml_data={"planning": {"reasoning_budget": 4096}}
+    )
+    assert cfg.reasoning_budget == 0
+
+
+def test_env_beats_stored_planning(
+    keys_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     planning_config.write_stored_planning(model="ui-model")
     monkeypatch.setenv("PLANNING_LLM_MODEL", "env-model")
     cfg = planning_config.load_config(yaml_data={"planning": {"model": "yaml-model"}})
@@ -155,7 +171,11 @@ def test_settings_planning_never_leaks_keys(
         "/settings/llm",
         json={
             "keys": {"openai": "sk-chat-secret"},
-            "planning": {"provider": "openai", "model": "gpt-test"},
+            "planning": {
+                "provider": "openai",
+                "model": "gpt-test",
+                "reasoning_budget": 16384,
+            },
         },
     )
     assert put.status_code == 200
@@ -163,6 +183,7 @@ def test_settings_planning_never_leaks_keys(
     assert "sk-chat-secret" not in dumped
     assert put.json()["voice"]["realtime"] is True
     assert put.json()["model"] == "gpt-test"
+    assert put.json()["reasoning_budget"] == 16384
 
     get = client.get("/settings/llm")
     assert get.status_code == 200
@@ -170,6 +191,7 @@ def test_settings_planning_never_leaks_keys(
     assert "sk-chat-secret" not in json.dumps(body)
     assert body["voice"]["configured"] is True
     assert body["model"] == "gpt-test"
+    assert body["reasoning_budget"] == 16384
     stored = json.loads(keys_file.read_text(encoding="utf-8"))
     assert stored["planning"]["model"] == "gpt-test"
 

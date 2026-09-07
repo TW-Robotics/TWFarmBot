@@ -18,18 +18,19 @@ import {
   type ChatToolCallStatus,
 } from "@astryxdesign/core/Chat";
 import { Markdown } from "@astryxdesign/core/Markdown";
-import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Lightbox } from "@astryxdesign/core/Lightbox";
+import { Link } from "@astryxdesign/core/Link";
+import { Link } from "@astryxdesign/core/Link";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Thumbnail } from "@astryxdesign/core/Thumbnail";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { SparklesIcon } from "@heroicons/react/24/outline";
+import { InformationCircleIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { apiUrl } from "../api";
 
 // ---------------------------------------------------------------------------
@@ -81,16 +82,49 @@ export type ChatMsg = {
   approved?: boolean;
   rejected?: boolean;
   executing?: boolean;
-  trace?: {
-    turn?: number;
-    response_id?: string;
-    status?: string;
-    output?: Record<string, unknown>[];
-  }[];
+  weave_url?: string;
+  metrics?: {
+    total_latency_s?: number;
+    llm_latency_s?: number;
+    ttft_s?: number;
+    tokens_per_s?: number | null;
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    total_tokens?: number | null;
+    turn_count?: number;
+  };
   transcript?: TranscriptItem[];
 };
 
 export type PendingApproval = { id: string; name: string; args?: unknown };
+
+export type RunGoal = {
+  objective?: string;
+  remaining?: string[];
+  done?: string[];
+};
+
+export function isActiveGoal(goal: RunGoal | null | undefined): boolean {
+  if (!goal) return false;
+  return Boolean(
+    goal.objective?.trim() || (goal.remaining && goal.remaining.length) || (goal.done && goal.done.length),
+  );
+}
+
+export function normalizeGoal(value: unknown): RunGoal | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const inner =
+    record.goal && typeof record.goal === "object"
+      ? (record.goal as Record<string, unknown>)
+      : record;
+  const goal: RunGoal = {
+    objective: typeof inner.objective === "string" ? inner.objective : "",
+    remaining: Array.isArray(inner.remaining) ? inner.remaining.map(String) : [],
+    done: Array.isArray(inner.done) ? inner.done.map(String) : [],
+  };
+  return isActiveGoal(goal) ? goal : null;
+}
 
 // ---------------------------------------------------------------------------
 // Image helpers
@@ -486,22 +520,40 @@ function ThinkingDisclosure({ text }: { text: string }) {
   );
 }
 
-function TraceDisclosure({ trace }: { trace: NonNullable<ChatMsg["trace"]> }) {
+function formatRunStats(metrics: ChatMsg["metrics"]): string {
+  if (!metrics) return "";
+  const parts: string[] = [];
+  const latency = metrics.total_latency_s;
+  if (typeof latency === "number" && latency > 0) {
+    parts.push(`${latency < 10 ? latency.toFixed(1) : Math.round(latency)}s`);
+  }
+  if (metrics.total_tokens) parts.push(`${metrics.total_tokens} tok`);
+  if (metrics.tokens_per_s) parts.push(`${metrics.tokens_per_s} tok/s`);
+  return parts.join(" · ");
+}
+
+function WeaveTraceRow({
+  url,
+  metrics,
+}: {
+  url?: string;
+  metrics?: ChatMsg["metrics"];
+}) {
+  const stats = formatRunStats(metrics);
+  if (!url && !stats) return null;
   return (
-    <MutedDisclosure
-      label={`Execution trace · ${trace.length} turn${trace.length === 1 ? "" : "s"}`}
-    >
-      <CodeBlock
-        code={JSON.stringify(trace, null, 2)}
-        language="json"
-        size="sm"
-        container="section"
-        width="100%"
-        isCollapsible
-        maxHeight={320}
-        hasCopyButton
-      />
-    </MutedDisclosure>
+    <HStack gap={2} vAlign="center" wrap="wrap">
+      {url ? (
+        <Link href={url} isExternalLink type="supporting" color="secondary">
+          W&B trace
+        </Link>
+      ) : null}
+      {stats ? (
+        <Text type="supporting" color="secondary">
+          {stats}
+        </Text>
+      ) : null}
+    </HStack>
   );
 }
 
@@ -609,7 +661,7 @@ export function AssistantContent({ message }: { message: ChatMsg }) {
         );
       })}
       {isWorking ? <WorkingIndicator /> : null}
-      {message.trace?.length ? <TraceDisclosure trace={message.trace} /> : null}
+      <WeaveTraceRow url={message.weave_url} metrics={message.metrics} />
     </VStack>
   );
 }
@@ -629,46 +681,95 @@ export function MessageMetadata({ message, model }: { message: ChatMsg; model?: 
 // Approval prompt above the composer
 // ---------------------------------------------------------------------------
 
-export function ApprovalBanner({
+function approvalChip(item: PendingApproval): string {
+  const detail = describeToolCall(item.name, item.args);
+  return detail ? `${item.name} · ${detail}` : item.name;
+}
+
+// ---------------------------------------------------------------------------
+// Goal card above the composer (same bubble language as the input)
+// ---------------------------------------------------------------------------
+
+export function GoalBubble({
+  goal,
   approvals,
-  onDecision,
+  collapsed,
+  onToggle,
+  onApprove,
+  onReject,
 }: {
+  goal: RunGoal | null;
   approvals: PendingApproval[];
-  onDecision: (approvedIds: string[]) => void;
+  collapsed: boolean;
+  onToggle: () => void;
+  onApprove: () => void;
+  onReject: () => void;
 }) {
-  if (!approvals.length) return null;
+  const pendingGoal = approvals.find((item) => item.name === "set_goal");
+  const actionApprovals = approvals.filter((item) => item.name !== "set_goal");
+  const shown = pendingGoal ? normalizeGoal(pendingGoal.args) : goal;
+  const needsApproval = approvals.length > 0;
+  if (!isActiveGoal(shown) && !needsApproval) return null;
+  const remaining = shown?.remaining || [];
+  const done = shown?.done || [];
+  const title = shown?.objective?.trim() || (needsApproval ? "Approval required" : "Current goal");
+  const countLabel = [
+    remaining.length ? `${remaining.length} remaining` : done.length ? "Checklist complete" : "",
+    needsApproval ? "Approval required" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const expanded = needsApproval || !collapsed;
+
   return (
-    <div style={{ padding: "8px 20px" }}>
-      <Banner
-        status="warning"
-        title="Approval required"
-        description="The assistant wants to run:"
-        collapsible={false}
-        endContent={
-          <HStack gap={2}>
-            <Button label="Reject" variant="secondary" onClick={() => onDecision([])} />
-            <Button
-              label="Approve"
-              variant="primary"
-              onClick={() => onDecision(approvals.map((item) => item.id))}
+    <div style={{ padding: "0 4px 8px" }}>
+      <div className={needsApproval ? "twfb-goal-bubble twfb-goal-bubble-pending" : "twfb-goal-bubble"}>
+        <HStack gap={3} vAlign="start" style={{ width: "100%", justifyContent: "space-between" }}>
+          <div
+            style={{ minWidth: 0, flex: 1, cursor: needsApproval ? "default" : "pointer" }}
+            onClick={needsApproval ? undefined : onToggle}
+          >
+            <HStack gap={3} vAlign="start">
+            <InformationCircleIcon
+              style={{ width: 18, height: 18, flexShrink: 0, marginTop: 2, opacity: 0.7 }}
             />
-          </HStack>
-        }
-      >
-        <HStack gap={1} wrap="wrap">
-          {approvals.map((item) => (
-            <Badge
-              key={item.id}
-              variant="neutral"
-              label={
-                describeToolCall(item.name, item.args)
-                  ? `${item.name} · ${describeToolCall(item.name, item.args)}`
-                  : item.name
-              }
-            />
-          ))}
+            <VStack gap={1} style={{ minWidth: 0 }}>
+              <Text>{title}</Text>
+              {countLabel ? (
+                <Text type="supporting" color="secondary">
+                  {countLabel}
+                </Text>
+              ) : null}
+            </VStack>
+            </HStack>
+          </div>
+          {needsApproval ? (
+            <HStack gap={2}>
+              <Button label="Reject" variant="secondary" onClick={onReject} />
+              <Button label="Approve" variant="primary" onClick={onApprove} />
+            </HStack>
+          ) : null}
         </HStack>
-      </Banner>
+        {expanded ? (
+          <HStack gap={1} wrap="wrap">
+            {actionApprovals.map((item) => (
+              <span key={item.id} className="twfb-goal-chip twfb-goal-chip-action">
+                {approvalChip(item)}
+              </span>
+            ))}
+            {remaining.map((step, index) => (
+              <span key={`r-${index}-${step}`} className="twfb-goal-chip">
+                {step}
+              </span>
+            ))}
+            {done.map((step, index) => (
+              <span key={`d-${index}-${step}`} className="twfb-goal-chip twfb-goal-chip-done">
+                {step}
+              </span>
+            ))}
+          </HStack>
+        ) : null}
+      </div>
     </div>
   );
 }

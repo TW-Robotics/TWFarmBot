@@ -9,28 +9,31 @@ import {
 } from "@astryxdesign/core/Chat";
 import { Markdown } from "@astryxdesign/core/Markdown";
 import { Button } from "@astryxdesign/core/Button";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Selector } from "@astryxdesign/core/Selector";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
-import { MicrophoneIcon, StopIcon } from "@heroicons/react/24/outline";
+import { MicrophoneIcon, SpeakerWaveIcon, StopIcon } from "@heroicons/react/24/outline";
 import { ApiError, api, apiUrl, streamChat } from "../api";
 import { useMicTranscribe } from "../useMicTranscribe";
 import { useRealtimeVoice } from "../useRealtimeVoice";
 import { VoiceOverlay } from "../components/VoiceOverlay";
 import {
-  ApprovalBanner,
+  GoalBubble,
   AssistantContent,
   MessageMetadata,
   mergeToolImages,
+  normalizeGoal,
   resolveChatImages,
   type ChatMsg,
   type PendingApproval,
+  type RunGoal,
   type ToolImage,
   type TranscriptItem,
 } from "../components/chat";
+import { ReasoningEffortMenu } from "../components/ReasoningEffortControl";
 import {
   SETTINGS_CHANGED_EVENT,
   getActiveLlmProfile,
@@ -38,7 +41,28 @@ import {
   profileLabel,
 } from "../settings";
 
-/** A tool began executing: append a row that renders as "running". */
+function applyTrace(assistant: ChatMsg, event: { weave_url?: string; metrics?: ChatMsg["metrics"] }) {
+  if (typeof event.weave_url === "string" && event.weave_url) {
+    assistant.weave_url = event.weave_url;
+  }
+  if (event.metrics && typeof event.metrics === "object") {
+    assistant.metrics = event.metrics;
+  }
+}
+
+function applyRunGoal(event: { type?: string; name?: string; goal?: unknown; result?: unknown }, setGoal: (goal: ReturnType<typeof normalizeGoal>) => void) {
+  if (event.type === "goal") {
+    setGoal(normalizeGoal(event.goal));
+    return;
+  }
+  if (event.type === "tool_call" && event.name === "set_goal") {
+    setGoal(normalizeGoal(event.result));
+    return;
+  }
+  if (event.type === "meta" && event.goal !== undefined) {
+    setGoal(normalizeGoal(event.goal));
+  }
+}
 function applyToolStart(
   assistant: ChatMsg,
   event: { id?: string; name: string; args?: unknown },
@@ -144,6 +168,11 @@ function voiceActivity(message?: ChatMsg): string | undefined {
   return undefined;
 }
 
+function shortModelName(id: string): string {
+  const slash = id.lastIndexOf("/");
+  return slash >= 0 ? id.slice(slash + 1) : id;
+}
+
 export function AssistantPage() {
   const toast = useToast();
   // Bump this when the assistant wire format/provider defaults change so old
@@ -158,10 +187,16 @@ export function AssistantPage() {
   });
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
+  const [reasoningBudget, setReasoningBudget] = useState(() => {
+    const stored = Number(localStorage.getItem(`twfarmbot:assistant:v6:${apiUrl()}:reasoningBudget`));
+    return Number.isFinite(stored) ? stored : getActiveLlmProfile()?.reasoningBudget ?? 8192;
+  });
   const [busy, setBusy] = useState(false);
   const stopRef = useRef<AbortController | null>(null);
   const threadIdRef = useRef<string | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+  const [goal, setGoal] = useState<RunGoal | null>(null);
+  const [goalCollapsed, setGoalCollapsed] = useState(false);
   const [activeProfileName, setActiveProfileName] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const mic = useMicTranscribe();
@@ -212,6 +247,25 @@ export function AssistantPage() {
       });
     }
   }, [storageKey, toast]);
+
+  const chatLlm = useCallback(() => {
+    const profile = llmOverridesFromProfile(getActiveLlmProfile()) || {};
+    return {
+      ...profile,
+      model: model || profile.model,
+      reasoning_budget: reasoningBudget,
+    };
+  }, [model, reasoningBudget]);
+
+  const chooseModel = (value: string) => {
+    setModel(value);
+    localStorage.setItem(`${storageKey}:model`, value);
+  };
+
+  const chooseBudget = (value: number) => {
+    setReasoningBudget(value);
+    localStorage.setItem(`${storageKey}:reasoningBudget`, String(value));
+  };
 
   useEffect(() => {
     void loadModels();
@@ -274,6 +328,8 @@ export function AssistantPage() {
       proposed_actions: [],
       streaming: true,
     };
+    setGoal(null);
+    setGoalCollapsed(false);
     paint(request, assistant);
     let awaitingApproval = false;
     const pushTranscript = (item: TranscriptItem) => {
@@ -296,10 +352,17 @@ export function AssistantPage() {
           messages: request,
           model: model || null,
           allow_actions: true,
-          llm: llmOverridesFromProfile(getActiveLlmProfile()),
+          llm: chatLlm(),
           skip_approval: voiceOnRef.current,
         },
         (event) => {
+          applyRunGoal(event, setGoal);
+          if (
+            (event.type === "goal" || (event.type === "tool_call" && event.name === "set_goal")) &&
+            voiceOnRef.current
+          ) {
+            setGoalCollapsed(true);
+          }
           if (event.type === "delta") {
             assistant.content += event.content || "";
             pushTranscript({ kind: "text", text: event.content || "" });
@@ -321,6 +384,7 @@ export function AssistantPage() {
             assistant.programs = next;
           } else if (event.type === "thread" && event.thread_id) {
             threadIdRef.current = event.thread_id;
+            applyTrace(assistant, event);
           } else if (event.type === "approval") {
             threadIdRef.current = event.thread_id || threadIdRef.current;
             const incoming = event.pending_approvals || [];
@@ -331,6 +395,9 @@ export function AssistantPage() {
             }
             awaitingApproval = true;
             assistant.streaming = false;
+            if (incoming.length) {
+              setGoalCollapsed(false);
+            }
           } else if (event.type === "meta") {
             assistant.proposed_actions = event.proposed_actions || [];
             if (event.tool_calls?.length) {
@@ -339,7 +406,7 @@ export function AssistantPage() {
               assistant.tool_calls = event.tool_calls || assistant.tool_calls;
             }
             assistant.programs = event.programs || assistant.programs;
-            assistant.trace = event.trace || assistant.trace;
+            applyTrace(assistant, event);
             setPendingApprovals([]);
           } else if (event.type === "error") assistant.error = event.error;
           paint(request, assistant);
@@ -456,12 +523,13 @@ export function AssistantPage() {
           messages: request.filter((item) => item.role === "user"),
           model: model || null,
           allow_actions: true,
-          llm: llmOverridesFromProfile(getActiveLlmProfile()),
+          llm: chatLlm(),
           thread_id: threadId,
           approved_ids: ids,
           skip_approval: voiceOnRef.current,
         },
         (event) => {
+          applyRunGoal(event, setGoal);
           if (event.type === "delta") {
             assistant.content = (assistant.content || "") + (event.content || "");
             const current = assistant.transcript ?? [];
@@ -478,6 +546,9 @@ export function AssistantPage() {
           } else if (event.type === "tool_call") {
             applyToolResult(assistant, event);
             setPendingApprovals([]);
+          } else if (event.type === "thread" && event.thread_id) {
+            threadIdRef.current = event.thread_id;
+            applyTrace(assistant, event);
           } else if (event.type === "approval") {
             const incoming = event.pending_approvals || [];
             const replay =
@@ -496,6 +567,7 @@ export function AssistantPage() {
               assistant.tool_calls = event.tool_calls || assistant.tool_calls;
             }
             assistant.proposed_actions = event.proposed_actions || assistant.proposed_actions;
+            applyTrace(assistant, event);
             setPendingApprovals([]);
           } else if (event.type === "error") assistant.error = event.error;
           setMessages([...request.slice(0, -1), { ...assistant }]);
@@ -529,24 +601,7 @@ export function AssistantPage() {
             {activeProfileName}
           </Text>
         ) : null}
-        {models.length > 0 && (
-          <Selector
-            label="Model"
-            isLabelHidden
-            options={models}
-            value={model}
-            onChange={(value) => {
-              setModel(value);
-              localStorage.setItem(`${storageKey}:model`, value);
-            }}
-          />
-        )}
-        <Button label="Clear" onClick={() => setMessages([])} />
-        <Button
-          label={voice.listening ? "Listening" : "Voice"}
-          variant={voice.listening ? "primary" : "secondary"}
-          onClick={() => toggleVoice()}
-        />
+        <Button label="Clear" onClick={() => { setMessages([]); setGoal(null); setGoalCollapsed(false); setPendingApprovals([]); }} />
         {busy || pendingApprovals.length > 0 ? (
           <Button label="Stop" onClick={() => void stopRun()} />
         ) : null}
@@ -561,7 +616,28 @@ export function AssistantPage() {
           />
         }
         composer={
-          <ChatComposer
+          <VStack gap={2} style={{ width: "100%" }}>
+            {voice.listening ? null : (
+              <GoalBubble
+                goal={goal}
+                approvals={pendingApprovals}
+                collapsed={goalCollapsed}
+                onToggle={() => setGoalCollapsed((value) => !value)}
+                onApprove={() => {
+                  if (!pendingApprovals.length) return;
+                  setGoalCollapsed(true);
+                  void resumeApprovals(pendingApprovals.map((item) => item.id));
+                }}
+                onReject={() => {
+                  if (pendingApprovals.every((item) => item.name === "set_goal")) {
+                    setGoal(null);
+                  }
+                  setGoalCollapsed(true);
+                  void resumeApprovals([]);
+                }}
+              />
+            )}
+            <ChatComposer
             placeholder="Ask about your garden…"
             value={draft}
             onChange={setDraft}
@@ -571,13 +647,46 @@ export function AssistantPage() {
             }}
             onStop={() => void stopRun()}
             isStopShown={busy || pendingApprovals.length > 0}
+            footerActions={
+              <HStack gap={3} vAlign="center" wrap="wrap">
+                {models.length > 0 ? (
+                  <DropdownMenu
+                    hasChevron
+                    placement="above"
+                    menuWidth={320}
+                    button={{
+                      label: shortModelName(model) || "Model",
+                      variant: "ghost",
+                      size: "sm",
+                    }}
+                    items={models.map((id) => ({
+                      id,
+                      label: id,
+                      onClick: () => chooseModel(id),
+                    }))}
+                  />
+                ) : null}
+                <ReasoningEffortMenu
+                  model={model}
+                  budget={reasoningBudget}
+                  onChange={chooseBudget}
+                />
+              </HStack>
+            }
             sendActions={
-              <HStack gap={2} vAlign="center">
+              <>
                 {voice.listening || mic.busy ? (
                   <Text type="supporting" color="secondary">
                     {voice.listening ? "Listening…" : "Transcribing…"}
                   </Text>
                 ) : null}
+                <IconButton
+                  label={voice.listening ? "Stop voice mode" : "Voice mode"}
+                  icon={<SpeakerWaveIcon style={{ width: 18, height: 18 }} />}
+                  size="md"
+                  variant={voice.listening ? "primary" : "secondary"}
+                  onClick={() => toggleVoice()}
+                />
                 <IconButton
                   label={
                     voice.listening
@@ -597,6 +706,7 @@ export function AssistantPage() {
                       <MicrophoneIcon style={{ width: 18, height: 18 }} />
                     )
                   }
+                  size="md"
                   variant={mic.recording ? "primary" : "secondary"}
                   isDisabled={voice.listening || mic.busy}
                   onClick={() =>
@@ -610,7 +720,7 @@ export function AssistantPage() {
                     )
                   }
                 />
-              </HStack>
+              </>
             }
             sendButton={
               <ChatSendButton
@@ -620,6 +730,7 @@ export function AssistantPage() {
               />
             }
           />
+          </VStack>
         }
       >
         <ChatMessageList isStreaming={busy}>
@@ -646,12 +757,6 @@ export function AssistantPage() {
             </ChatMessage>
           ))}
         </ChatMessageList>
-        {voice.listening ? null : (
-          <ApprovalBanner
-            approvals={pendingApprovals}
-            onDecision={(ids) => void resumeApprovals(ids)}
-          />
-        )}
       </ChatLayout>
       {voice.listening ? (
         <VoiceOverlay
