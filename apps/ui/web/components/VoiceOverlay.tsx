@@ -138,7 +138,6 @@ function VoiceButton({
         background: "none",
         border: 0,
         color: "#2a2a2a",
-        cursor: "pointer",
       }}
     >
       <span

@@ -10,6 +10,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import { api, apiUrl, setApiUrl } from "../api";
+import { ReasoningEffortSelector } from "../components/ReasoningEffortControl";
 import { PageHeader } from "../components/PageHeader";
 import {
   AppSettings,
@@ -29,6 +30,7 @@ type ServerLlmSettings = {
   model?: string;
   timeout_s?: number;
   temperature?: number;
+  reasoning_budget?: number;
   api_key_configured?: boolean;
   keys_configured?: Record<string, boolean>;
   vertex?: { project?: string | null; location?: string | null };
@@ -41,6 +43,7 @@ type ServerLlmSettings = {
     api_key?: boolean;
     timeout_s?: boolean;
     temperature?: boolean;
+    reasoning_budget?: boolean;
   };
 };
 
@@ -50,6 +53,7 @@ type ChatDraft = {
   model: string;
   timeoutS: number;
   temperature: number;
+  reasoningBudget: number;
   apiKey: string;
 };
 
@@ -67,6 +71,7 @@ const ENV_LOCK_LABEL: Record<string, string> = {
   api_key: "PLANNING_LLM_API_KEY",
   timeout_s: "PLANNING_LLM_TIMEOUT_S",
   temperature: "PLANNING_LLM_TEMPERATURE",
+  reasoning_budget: "PLANNING_LLM_REASONING_BUDGET",
 };
 
 function providerLabel(id: string): string {
@@ -87,6 +92,7 @@ function profileToPayload(profile: LlmProfile) {
       model: profile.model,
       timeout_s: profile.timeoutS,
       temperature: profile.temperature,
+      reasoning_budget: profile.reasoningBudget,
     },
   };
 }
@@ -138,6 +144,7 @@ export function SettingsPage({
     model: PROVIDER_DEFAULTS.openai.model,
     timeoutS: 120,
     temperature: 0,
+    reasoningBudget: 8192,
     apiKey: "",
   });
   const [vertexDraft, setVertexDraft] = useState({ project: "", location: "" });
@@ -164,6 +171,7 @@ export function SettingsPage({
       model: result.model || current.model,
       timeoutS: result.timeout_s ?? current.timeoutS,
       temperature: result.temperature ?? current.temperature,
+      reasoningBudget: result.reasoning_budget ?? current.reasoningBudget,
       apiKey: "",
     }));
     setVertexDraft({
@@ -225,6 +233,7 @@ export function SettingsPage({
               model: chatDraft.model,
               timeout_s: chatDraft.timeoutS,
               temperature: chatDraft.temperature,
+              reasoning_budget: chatDraft.reasoningBudget,
             },
           }),
         }),
@@ -307,6 +316,7 @@ export function SettingsPage({
                   model: chatDraft.model,
                   timeout_s: chatDraft.timeoutS,
                   temperature: chatDraft.temperature,
+                  reasoning_budget: chatDraft.reasoningBudget,
                 },
               }),
             },
@@ -454,6 +464,7 @@ export function SettingsPage({
       >
         <Text type="supporting" color="secondary">
           The model that plans and talks on the Assistant tab. Saved for everyone using this robot.
+          Reasoning is none / low / medium / high / extra high when the selected model supports it.
         </Text>
         {lockedNames.length ? (
           <Banner
@@ -530,6 +541,12 @@ export function SettingsPage({
             isDisabled={Boolean(locked.temperature)}
           />
         </HStack>
+        <ReasoningEffortSelector
+          model={chatDraft.model}
+          budget={chatDraft.reasoningBudget}
+          isDisabled={Boolean(locked.reasoning_budget)}
+          onChange={(reasoningBudget) => updateChat({ reasoningBudget })}
+        />
         <HStack gap={2} wrap="wrap">
           <Button
             label={savingChat ? "Saving…" : "Save assistant"}
@@ -674,6 +691,11 @@ export function SettingsPage({
                   }
                 />
               </HStack>
+              <ReasoningEffortSelector
+                model={draft.model}
+                budget={draft.reasoningBudget}
+                onChange={(reasoningBudget) => updateDraft({ reasoningBudget })}
+              />
             </VStack>
           ) : (
             <Text color="secondary">

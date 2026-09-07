@@ -143,6 +143,7 @@ def test_handler_e_stop_calls_backend(monkeypatch):
             called.append(True)
 
     monkeypatch.setattr(farmbot, "backend", _StubBackend())
+    monkeypatch.setattr("watering_service.stop", lambda: None)
 
     h.handle_e_stop(Action(kind="e_stop", params={}))
     assert called == [True]

@@ -15,6 +15,7 @@ from langchain_core.language_models import BaseChatModel
 
 from .client import build_chat_model
 from .config import DEFAULT_MODEL, PlannerConfig, resolve_vertex_settings
+from .reasoning import budget_from_effort, effort_from_budget
 
 
 class LLMProvider(ABC):
@@ -30,6 +31,7 @@ class LLMProvider(ABC):
             api_key=config.api_key,
             timeout_s=config.timeout_s,
             temperature=config.temperature,
+            reasoning_budget=config.reasoning_budget,
             extra_body=config.extra_body,
         )
 
@@ -38,25 +40,13 @@ class LLMProvider(ABC):
         return []
 
 
-# Curated OpenRouter models known to support tool/function calling. Used as a
-# fallback when the live /models endpoint cannot be reached.
-_OPENROUTER_TOOL_MODELS = [
-    "anthropic/claude-3.5-sonnet",
-    "anthropic/claude-3.5-haiku",
-    "anthropic/claude-3-opus",
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "openai/gpt-4-turbo",
-    "google/gemini-flash-1.5",
-    "google/gemini-pro-1.5",
+# Fallback when OpenRouter /models cannot be reached: reasoning + tools.
+_OPENROUTER_REASONING_TOOL_MODELS = [
+    "openai/gpt-5.6",
+    "google/gemini-2.5-flash",
+    "z-ai/glm-5.3-flash",
     "deepseek/deepseek-v4-flash",
-    "deepseek/deepseek-v3",
-    "mistralai/mistral-nemo",
-    "mistralai/mistral-large",
-    "meta-llama/llama-3.1-70b-instruct",
-    "meta-llama/llama-3.1-405b-instruct",
-    "meta-llama/llama-3.3-70b-instruct",
-    "nousresearch/hermes-3-llama-3.1-405b",
+    "anthropic/claude-sonnet-4",
 ]
 
 
@@ -69,23 +59,19 @@ class OpenRouterProvider(LLMProvider):
         try:
             r = requests.get(
                 f"{config.base_url}/models",
+                params={"supported_parameters": "tools,reasoning"},
                 headers={"Authorization": f"Bearer {config.api_key}"}
                 if config.api_key
                 else {},
                 timeout=15,
             )
             r.raise_for_status()
-            data = r.json()
-            models = data.get("data", [])
-            ids = sorted(
-                {m.get("id") for m in models if m.get("id")},
-                key=lambda s: s.lower(),
-            )
+            ids = _openrouter_reasoning_tool_ids(r.json().get("data", []))
             if ids:
                 return ids
         except Exception:  # noqa: BLE001
             pass
-        return list(_OPENROUTER_TOOL_MODELS)
+        return list(_OPENROUTER_REASONING_TOOL_MODELS)
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -160,11 +146,14 @@ class VertexProvider(LLMProvider):
             native_model = _VERTEX_DEFAULT_MODEL
         elif "/" in native_model:
             native_model = native_model.rsplit("/", 1)[-1]
+        effort = effort_from_budget(config.reasoning_budget)
         return ChatVertexAI(
             model_name=native_model,
             project=str(settings["project"]),
             location=str(settings["location"]),
             temperature=config.temperature,
+            thinking_budget=budget_from_effort(effort),
+            include_thoughts=effort != "none",
         )
 
     def list_models(self, config: PlannerConfig) -> list[str]:
@@ -195,8 +184,21 @@ _PROVIDER_REGISTRY: dict[str, type[LLMProvider]] = {
     VertexProvider.name: VertexProvider,
 }
 
-
 DEFAULT_PROVIDER = OpenAIProvider.name
+
+
+def _openrouter_reasoning_tool_ids(models: list) -> list[str]:
+    ids: set[str] = set()
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if not model_id or ":batch" in str(model_id):
+            continue
+        params = {str(p) for p in (item.get("supported_parameters") or [])}
+        if "tools" in params and "reasoning" in params:
+            ids.add(str(model_id))
+    return sorted(ids, key=str.lower)
 
 
 def get_provider(name: str | None = None, *, permissive: bool = False) -> LLMProvider:

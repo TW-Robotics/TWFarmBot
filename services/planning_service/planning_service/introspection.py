@@ -29,7 +29,7 @@ from twfarmbot_ml_utils import (
 )
 
 from . import path_planning
-from .tools import ForgetMemoryArgs, RecallMemoriesArgs, RememberArgs
+from .tools import ForgetMemoryArgs, RecallMemoriesArgs, RememberArgs, SetGoalArgs
 
 _T = TypeVar("_T")
 
@@ -721,6 +721,28 @@ def build_introspection_tools(
             log.warning("recall_memories failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
 
+    @tool(args_schema=SetGoalArgs)
+    def set_goal(
+        objective: str | None = None,
+        remaining: list[str] | None = None,
+        completed: str | None = None,
+    ) -> dict[str, Any]:
+        """Set or update the run goal checklist for a long job.
+
+        Call this at the start of a multi-step task (survey, several NDRE
+        stops, then decide). Update remaining or pass completed as you go.
+        The current goal is re-injected every turn; it does not survive as
+        a watering rule. The operator must approve the checklist before
+        the rest of the job continues.
+        """
+        from .harness.goal import apply_goal_update
+
+        return {"status": "ok", "goal": apply_goal_update(None, {
+            "objective": objective,
+            "remaining": remaining,
+            "completed": completed,
+        })}
+
     @tool(args_schema=ForgetMemoryArgs)
     def forget_memory(memory_id: int) -> dict[str, Any]:
         """Remove or mark obsolete a memory entry by ID when resolved or superseded."""
@@ -752,6 +774,7 @@ def build_introspection_tools(
         remember,
         recall_memories,
         forget_memory,
+        set_goal,
     ]
 
 
@@ -783,6 +806,7 @@ class HttpSystemStateProvider(SystemStateProvider):
             {"method": "GET", "path": "/positions", "summary": "Named gantry presets"},
             {"method": "GET", "path": "/garden", "summary": "World model snapshot"},
             {"method": "GET", "path": "/memory", "summary": "Long-term agent memories"},
+            {"method": "GET", "path": "/meteorology", "summary": "Sun, weather, agronomic advice"},
             {"method": "POST", "path": "/actions", "summary": "Dispatch an Action"},
             {
                 "method": "POST",

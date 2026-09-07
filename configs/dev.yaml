@@ -15,15 +15,18 @@ location:
 # the environment, or reference a different env var via api_key_env.
 planning:
   provider: openai
-  base_url: https://api.openai.com/v1   # OpenAI-compatible /chat/completions JSON tools
+  base_url: https://api.openai.com/v1   # OpenAI uses Responses API for GPT-5 reasoning + JSON tools
   model: gpt-5.6
   api_key_env: PLANNING_LLM_API_KEY  # name of the env var that holds the secret
   timeout_s: 120                       # raise this for slower models
   temperature: 0.0
-  # Provider-specific request body extensions. Only needed for reasoning models.
+  # Native reasoning-token budget: Vertex uses it directly, OpenRouter forwards it
+  # to reasoning-capable models, and GPT-5 maps it to low/medium/high effort.
+  reasoning_budget: 8192
+  # Provider-specific request body extensions. Only needed to override model defaults.
+  # Native OpenAI GPT-5 uses the Responses API with medium reasoning automatically.
   # For DeepSeek V4 on OpenRouter use: extra_body: {reasoning: {effort: low}}
   # For native DeepSeek use: extra_body: {thinking: {type: enabled}}
-  # GPT-5 chat-completions tool calling sets reasoning_effort=none automatically.
   extra_body: {}
   # Optional W&B Weave project for tracing. Set WEAVE_PROJECT or this field
   # to enable model/tool-call/token tracing.
@@ -55,11 +58,15 @@ cameras:
 # Safety: water duration only by default. Workspace axis caps are off unless
 # FARMBOT_ENFORCE_WORKSPACE=1 (then FARMBOT_MAX_AXIS_{X,Y,Z} apply).
 safety:
-  max_water_seconds: 300
+  max_water_seconds: 60
 
-# Single pump configuration. The water action turns this pin on for N seconds.
+# One pump for every bed sprayer. The Shelly plug already auto-offs after 1 min.
 watering:
-  pump_pin: 7
+  backend: shelly
+  cycle_seconds: 60
+  shelly:
+    host: ""
+    switch_id: 0
 
 # Named pins for the UI: label → {pin, mode, kind, group, presets}.
 #   kind: "valve" | "servo" | "sensor" | "io"

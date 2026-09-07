@@ -45,6 +45,7 @@ class PlannerConfig:
     api_key: str | None
     timeout_s: float
     temperature: float
+    reasoning_budget: int = 8192
     extra_body: dict[str, Any] | None = None
     weave_project: str | None = None
     permissive_provider: bool = False
@@ -110,6 +111,16 @@ def load_config(
         else DEFAULT_TEMPERATURE
     )
     temperature = float(str(raw_temperature))
+    raw_reasoning_budget = (
+        os.getenv("PLANNING_LLM_REASONING_BUDGET")
+        if os.getenv("PLANNING_LLM_REASONING_BUDGET") is not None
+        else stored.get("reasoning_budget")
+        if stored.get("reasoning_budget") is not None
+        else planning.get("reasoning_budget")
+        if planning.get("reasoning_budget") is not None
+        else 8192
+    )
+    reasoning_budget = max(0, int(raw_reasoning_budget))
     extra_body = planning.get("extra_body")
     if extra_body is not None and not isinstance(extra_body, dict):
         extra_body = None
@@ -121,6 +132,7 @@ def load_config(
         api_key=api_key,
         timeout_s=timeout_s,
         temperature=temperature,
+        reasoning_budget=reasoning_budget,
         extra_body=extra_body,
         weave_project=weave_project,
     )
@@ -147,6 +159,8 @@ def apply_overrides(cfg: PlannerConfig, **overrides: Any) -> PlannerConfig:
             updates[key] = str(value).rstrip("/")
         elif key in {"timeout_s", "temperature"}:
             updates[key] = float(value)
+        elif key == "reasoning_budget":
+            updates[key] = max(0, int(value))
         elif key == "provider":
             updates[key] = str(value).lower()
             updates["permissive_provider"] = True
@@ -296,6 +310,7 @@ def planning_env_overrides() -> dict[str, bool]:
         "api_key": bool(os.getenv("PLANNING_LLM_API_KEY")),
         "timeout_s": bool(os.getenv("PLANNING_LLM_TIMEOUT_S")),
         "temperature": os.getenv("PLANNING_LLM_TEMPERATURE") is not None,
+        "reasoning_budget": bool(os.getenv("PLANNING_LLM_REASONING_BUDGET")),
     }
 
 
@@ -323,7 +338,7 @@ def read_stored_planning() -> dict[str, Any]:
         value = raw.get(field)
         if isinstance(value, str) and value.strip():
             out[field] = value.strip()
-    for field in ("timeout_s", "temperature"):
+    for field in ("timeout_s", "temperature", "reasoning_budget"):
         value = raw.get(field)
         if value is None or value == "":
             continue
@@ -340,6 +355,7 @@ def write_stored_planning(
     model: str | None = None,
     timeout_s: float | None = None,
     temperature: float | None = None,
+    reasoning_budget: int | None = None,
 ) -> dict[str, Any]:
     """Merge planner defaults. ``None`` = unchanged, blank string = cleared."""
     doc = _read_store()
@@ -361,6 +377,8 @@ def write_stored_planning(
         if value is None:
             continue
         current[field] = float(value)
+    if reasoning_budget is not None:
+        current["reasoning_budget"] = max(0, int(reasoning_budget))
     if current:
         doc["planning"] = current
     else:

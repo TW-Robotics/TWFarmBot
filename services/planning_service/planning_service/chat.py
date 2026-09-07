@@ -140,14 +140,14 @@ def stream_chat(
     """Streaming conversational assistant.
 
     Yields events:
-      - ``{"type": "thread", "thread_id": "..."}`` so the UI can resume.
+      - ``{"type": "thread", "thread_id": "...", "weave_url": "..."}`` so the UI can resume and open the W&B trace.
       - ``{"type": "approval", "pending_approvals": [...]}`` when a risky
         action waits for the operator (resume with ``approved_ids``).
       - ``{"type": "tool_start", "id", "name", "args"}`` when a tool call
         begins executing (the UI shows a running row).
       - ``{"type": "tool_call", "id", "name", "args", "result", "images"}``
         when a tool call finishes.
-      - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...]}``.
+      - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...], "weave_url": "..."}``.
       - ``{"type": "thinking", "content": "..."}`` for reasoning traces.
       - ``{"type": "delta", "content": "..."}`` for the final answer text.
     """

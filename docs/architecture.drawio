@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-09-07T10:30:00.000Z" agent="TWFarmBot" version="22.1.16" type="device">
+  <diagram id="arch" name="Full architecture">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1980" pageHeight="980" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="TWFarmBot runtime map" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=18;fontStyle=1;fontColor=#1f2937;" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="380" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="Left = AI · Right = robot. Full route list is page &lt;b&gt;AI + APIs fan-in&lt;/b&gt;. Yellow = internet · blue = our process · green = in-process lib · red = hardware · purple = files." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=11;fontColor=#4b5563;" vertex="1" parent="1">
+          <mxGeometry x="420" y="12" width="1520" height="22" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="g-top" value="Operator and HTTP processes" style="swimlane;html=1;rounded=1;startSize=24;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;fontSize=12;fontColor=#475569;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="1900" height="128" as="geometry"/>
+        </mxCell>
+        <mxCell id="browser" value="&lt;b&gt;Browser&lt;/b&gt;&lt;br&gt;https://host:8501&lt;br&gt;mic needs TLS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="g-top">
+          <mxGeometry x="16" y="36" width="150" height="76" as="geometry"/>
+        </mxCell>
+        <mxCell id="ui" value="&lt;b&gt;apps/ui :8501&lt;/b&gt;&lt;br&gt;SPA · proxies /api/* → :8000" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=8;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-top">
+          <mxGeometry x="200" y="36" width="230" height="76" as="geometry"/>
+        </mxCell>
+        <mxCell id="api" value="&lt;b&gt;apps/api_server :8000&lt;/b&gt;&lt;br&gt;single HTTP front door — LLM routes drop left, robot routes drop right" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6c8ebf;fontColor=#ffffff;strokeColor=#1a5fb4;align=left;spacingLeft=10;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-top">
+          <mxGeometry x="464" y="36" width="700" height="76" as="geometry"/>
+        </mxCell>
+        <mxCell id="worker" value="&lt;b&gt;apps/worker&lt;/b&gt;&lt;br&gt;inspect_zone → POST /actions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=8;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-top">
+          <mxGeometry x="1196" y="36" width="250" height="76" as="geometry"/>
+        </mxCell>
+        <mxCell id="top-note" value="Shortcuts: browser WebRTC → OpenAI after /voice/session; UI Vision tab → ReSiReg. Pi OS is drawn in the robot column." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#64748b;whiteSpace=wrap;" vertex="1" parent="g-top">
+          <mxGeometry x="1464" y="40" width="416" height="68" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="g-ai" value="AI stack  (planning_service is in-process; ReSiReg is its own process)" style="swimlane;html=1;rounded=1;startSize=24;fillColor=#f0fdf4;strokeColor=#86efac;fontStyle=1;fontSize=11;fontColor=#166534;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="184" width="940" height="540" as="geometry"/>
+        </mxCell>
+        <mxCell id="plan" value="&lt;b&gt;planning_service&lt;/b&gt; — AgentLoop · providers · realtime mint · transcribe" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-ai">
+          <mxGeometry x="16" y="36" width="908" height="44" as="geometry"/>
+        </mxCell>
+        <mxCell id="g-llm" value="Chat completions — exactly one of these" style="swimlane;html=1;rounded=1;startSize=22;fillColor=#fffbeb;strokeColor=#fcd34d;fontStyle=1;fontSize=11;fontColor=#92400e;whiteSpace=wrap;" vertex="1" parent="g-ai">
+          <mxGeometry x="16" y="96" width="620" height="280" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext-or" value="&lt;b&gt;OpenRouter&lt;/b&gt;&lt;br&gt;chat + GET /models&lt;br&gt;PLANNING_LLM_PROVIDER=openrouter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;verticalAlign=middle;" vertex="1" parent="g-llm">
+          <mxGeometry x="12" y="32" width="596" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext-oai" value="&lt;b&gt;OpenAI&lt;/b&gt;&lt;br&gt;chat · Realtime · STT — native OPENAI_API_KEY required for voice even if chat is OpenRouter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;verticalAlign=middle;" vertex="1" parent="g-llm">
+          <mxGeometry x="12" y="92" width="596" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext-vtx" value="&lt;b&gt;Vertex AI&lt;/b&gt;&lt;br&gt;Gemini via ChatVertexAI — GOOGLE_CLOUD_PROJECT + Vertex AI User" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;verticalAlign=middle;" vertex="1" parent="g-llm">
+          <mxGeometry x="12" y="152" width="596" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext-local-llm" value="&lt;b&gt;Local LLM&lt;/b&gt;&lt;br&gt;Ollama / vLLM / llama.cpp — provider=local + base_url" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;verticalAlign=middle;" vertex="1" parent="g-llm">
+          <mxGeometry x="12" y="212" width="596" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext-meteo" value="&lt;b&gt;Open-Meteo&lt;/b&gt;&lt;br&gt;forecast for agronomy&lt;br&gt;HTTPS · 15 min cache" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="g-ai">
+          <mxGeometry x="652" y="96" width="272" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext-weave" value="&lt;b&gt;W&amp;amp;B Weave&lt;/b&gt;&lt;br&gt;optional LLM traces&lt;br&gt;WEAVE_PROJECT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="g-ai">
+          <mxGeometry x="652" y="168" width="272" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="sqlite" value="&lt;b&gt;SQLite memory.db&lt;/b&gt;&lt;br&gt;facts / treatments&lt;br&gt;FARMBOT_MEMORY_DB" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="g-ai">
+          <mxGeometry x="652" y="240" width="272" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="disk" value="&lt;b&gt;Local disk&lt;/b&gt;&lt;br&gt;photos · ui_sessions · YAML" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="g-ai">
+          <mxGeometry x="652" y="312" width="272" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="resireg" value="&lt;b&gt;apps/resireg_server :8080&lt;/b&gt;&lt;br&gt;segment / PCA / traversability / embeddings&lt;br&gt;called by planning tools and by UI POST /local/vision" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=8;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-ai">
+          <mxGeometry x="16" y="396" width="620" height="72" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext-hf" value="&lt;b&gt;Hugging Face&lt;/b&gt;&lt;br&gt;resireg_mini weights&lt;br&gt;pulled once, then local" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="g-ai">
+          <mxGeometry x="652" y="396" width="272" height="72" as="geometry"/>
+        </mxCell>
+        <mxCell id="ai-foot" value="Dashed red from the browser is the only UI→cloud shortcut. Voice token is still minted by planning_service." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#166534;" vertex="1" parent="g-ai">
+          <mxGeometry x="16" y="480" width="908" height="28" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="g-bot" value="Robot stack  (in-process libs → Pi OS process → hardware)" style="swimlane;html=1;rounded=1;startSize=24;fillColor=#eff6ff;strokeColor=#93c5fd;fontStyle=1;fontSize=11;fontColor=#1e40af;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="184" width="940" height="540" as="geometry"/>
+        </mxCell>
+        <mxCell id="core" value="&lt;b&gt;core ActionRegistry&lt;/b&gt;&lt;br&gt;dispatch(kind)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=8;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-bot">
+          <mxGeometry x="16" y="36" width="448" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="safety" value="&lt;b&gt;safety_service&lt;/b&gt;&lt;br&gt;validate() before every dispatch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=8;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-bot">
+          <mxGeometry x="480" y="36" width="444" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="water" value="&lt;b&gt;watering_service&lt;/b&gt;&lt;br&gt;Shelly LAN or FarmBot GPIO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=8;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-bot">
+          <mxGeometry x="16" y="100" width="292" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="vision" value="&lt;b&gt;vision_service&lt;/b&gt;&lt;br&gt;USB stills + NDRE pairs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=8;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-bot">
+          <mxGeometry x="324" y="100" width="292" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="spatial" value="&lt;b&gt;spatial_service&lt;/b&gt;&lt;br&gt;garden YAML · named points" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=8;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-bot">
+          <mxGeometry x="632" y="100" width="292" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="gw" value="&lt;b&gt;farmbot_gateway&lt;/b&gt; — only module allowed to call the Pi HTTP API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-bot">
+          <mxGeometry x="16" y="172" width="908" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="os" value="&lt;b&gt;apps/twfarmbot_os :3001&lt;/b&gt; — /move /command /photo /water /pins /state /stop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=10;fontSize=11;verticalAlign=middle;" vertex="1" parent="g-bot">
+          <mxGeometry x="16" y="228" width="908" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="g-hw" value="Field hardware / LAN" style="swimlane;html=1;rounded=1;startSize=22;fillColor=#fef2f2;strokeColor=#fca5a5;fontStyle=1;fontSize=11;fontColor=#991b1b;whiteSpace=wrap;" vertex="1" parent="g-bot">
+          <mxGeometry x="16" y="284" width="908" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="duino" value="&lt;b&gt;Farmduino&lt;/b&gt;&lt;br&gt;UART /dev/ttyACM0&lt;br&gt;G/E/F + pins&lt;br&gt;&lt;font color='#666'&gt;via twfarmbot_os serial&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="g-hw">
+          <mxGeometry x="12" y="32" width="168" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="gantry" value="&lt;b&gt;FarmBot gantry&lt;/b&gt;&lt;br&gt;XYZ + solenoid&lt;br&gt;&lt;font color='#666'&gt;via OS, if&lt;br&gt;WATERING_BACKEND=farmbot&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="g-hw">
+          <mxGeometry x="192" y="32" width="168" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rgb-os" value="&lt;b&gt;RGB still (OS)&lt;/b&gt;&lt;br&gt;POST /photo&lt;br&gt;&lt;font color='#666'&gt;via twfarmbot_os&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="g-hw">
+          <mxGeometry x="372" y="32" width="168" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="usb" value="&lt;b&gt;USB payload cams&lt;/b&gt;&lt;br&gt;RGB · NIR · red-edge&lt;br&gt;&lt;font color='#666'&gt;opened by vision_service&lt;br&gt;not by twfarmbot_os&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="g-hw">
+          <mxGeometry x="552" y="32" width="168" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="shelly" value="&lt;b&gt;Shelly Plug S Gen3&lt;/b&gt;&lt;br&gt;LAN RPC pumps&lt;br&gt;&lt;font color='#666'&gt;watering_service&lt;br&gt;auto-off ~60s&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="g-hw">
+          <mxGeometry x="732" y="32" width="160" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="hw-foot" value="Who owns the wire: OS→Farmduino/gantry/OS-RGB · vision_service→USB · watering_service→Shelly (or GPIO via gateway)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#991b1b;" vertex="1" parent="g-hw">
+          <mxGeometry x="12" y="140" width="880" height="28" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-br-ui" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#1a5fb4;fontSize=10;fontColor=#1a5fb4;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="browser" target="ui">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-ui-api" value="/api/*" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#1a5fb4;fontSize=10;fontColor=#1a5fb4;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="ui" target="api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-wk-api" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.4;strokeColor=#1a5fb4;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="worker" target="api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-br-oai" value="WebRTC Realtime" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;dashPattern=6 6;endArrow=block;endFill=1;strokeWidth=1.3;strokeColor=#b85450;fontSize=10;fontColor=#b85450;labelBackgroundColor=#ffffff;exitX=0;exitY=0;entryX=0;entryY=0.5;" edge="1" parent="1" source="browser" target="ext-oai">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="24" y="32"/>
+              <mxPoint x="24" y="360"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-api-plan" value="LLM / voice / meteo / memory" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;strokeColor=#166534;fontSize=10;fontColor=#166534;labelBackgroundColor=#ffffff;exitX=0.2;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="api" target="plan">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-api-core" value="POST /actions · GETs · /watering" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;strokeColor=#1e40af;fontSize=10;fontColor=#1e40af;labelBackgroundColor=#ffffff;exitX=0.85;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="api" target="core">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-plan-llm" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#166534;exitX=0.35;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="plan" target="g-llm">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-plan-meteo" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.3;strokeColor=#166534;exitX=0.85;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="plan" target="ext-meteo">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-hf-resi" value="once" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;dashPattern=6 6;endArrow=block;endFill=1;strokeWidth=1.2;fontSize=9;labelBackgroundColor=#f0fdf4;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="ext-hf" target="resireg">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-core-safe" value="always" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.4;fontSize=9;labelBackgroundColor=#eff6ff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="core" target="safety">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-core-w" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.3;exitX=0.18;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="core" target="water">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-core-v" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.3;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="core" target="vision">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-core-sp" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.3;exitX=0.82;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="core" target="spatial">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-mid-gw" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.4;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="vision" target="gw">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-gw-os" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#1a5fb4;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gw" target="os">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-os-hw" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.4;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="os" target="g-hw">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="ai-fanin" name="AI + APIs fan-in">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2000" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="p2-title" value="HTTP routes → planning_service → one chat backend" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=16;fontStyle=1;fontColor=#1f2937;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="720" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-g1" value="UI surfaces that hit api_server" style="swimlane;html=1;rounded=1;startSize=26;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;fontSize=12;fontColor=#475569;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="52" width="1920" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-chat" value="&lt;b&gt;Assistant&lt;/b&gt;&lt;br&gt;/chat/stream · /chat&lt;br&gt;/cancel · /followup" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="16" y="38" width="196" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-plan" value="&lt;b&gt;Planner&lt;/b&gt;&lt;br&gt;POST /plan" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="228" y="38" width="130" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-auto" value="&lt;b&gt;Autonomous&lt;/b&gt;&lt;br&gt;/autonomous/run" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="374" y="38" width="170" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-set" value="&lt;b&gt;Settings&lt;/b&gt;&lt;br&gt;/settings/llm · /models" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="560" y="38" width="200" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-voice" value="&lt;b&gt;Voice&lt;/b&gt;&lt;br&gt;/voice/session → OpenAI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="776" y="38" width="200" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-dict" value="&lt;b&gt;Dictate&lt;/b&gt;&lt;br&gt;/chat/transcribe" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="992" y="38" width="150" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-met" value="&lt;b&gt;Weather&lt;/b&gt;&lt;br&gt;GET /meteorology" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="1158" y="38" width="160" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-mem" value="&lt;b&gt;Memory&lt;/b&gt;&lt;br&gt;/memory CRUD" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="1334" y="38" width="150" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-act" value="&lt;b&gt;Robot I/O&lt;/b&gt;&lt;br&gt;/actions · /watering · GETs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#6366f1;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g1">
+          <mxGeometry x="1500" y="38" width="400" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-g1b" value="Blue → planning_service. Indigo Robot I/O → ActionRegistry (page 1, right)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#475569;" vertex="1" parent="p2-g1">
+          <mxGeometry x="16" y="116" width="1880" height="22" as="geometry"/>
+        </mxCell>
+        <mxCell id="hub" value="&lt;b&gt;apps/api_server :8000&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6c8ebf;fontColor=#ffffff;strokeColor=#1a5fb4;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="760" y="236" width="280" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="hubp" value="&lt;b&gt;planning_service&lt;/b&gt;  (in-process)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="300" width="400" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-g2" value="Externals — chat uses exactly one provider; voice + dictate always need native OpenAI" style="swimlane;html=1;rounded=1;startSize=26;fillColor=#fffbeb;strokeColor=#fcd34d;fontStyle=1;fontSize=12;fontColor=#92400e;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="364" width="1920" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="b-or" value="&lt;b&gt;OpenRouter&lt;/b&gt;&lt;br&gt;cloud chat + /models" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p2-g2">
+          <mxGeometry x="16" y="40" width="280" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="b-oai" value="&lt;b&gt;OpenAI&lt;/b&gt;&lt;br&gt;chat and/or Realtime + STT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p2-g2">
+          <mxGeometry x="312" y="40" width="280" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="b-vtx" value="&lt;b&gt;Vertex AI&lt;/b&gt;&lt;br&gt;Gemini · GCP credits" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p2-g2">
+          <mxGeometry x="608" y="40" width="230" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="b-loc" value="&lt;b&gt;Local LLM&lt;/b&gt;&lt;br&gt;Ollama / vLLM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p2-g2">
+          <mxGeometry x="854" y="40" width="200" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="b-we" value="&lt;b&gt;Weave&lt;/b&gt;&lt;br&gt;optional traces" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p2-g2">
+          <mxGeometry x="1070" y="40" width="180" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="b-om" value="&lt;b&gt;Open-Meteo&lt;/b&gt;&lt;br&gt;forecast in prompt + tool" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p2-g2">
+          <mxGeometry x="1266" y="40" width="240" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-note" value="GET /models: OpenRouter /models · local {base_url}/models · openai hardcoded list." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#92400e;" vertex="1" parent="p2-g2">
+          <mxGeometry x="16" y="104" width="1880" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-g3" value="ReSiReg has two clients (UI Vision tab does not go through planning)" style="swimlane;html=1;rounded=1;startSize=26;fillColor=#eff6ff;strokeColor=#93c5fd;fontStyle=1;fontSize=12;fontColor=#1e40af;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="528" width="1920" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="r-ui" value="&lt;b&gt;UI /local/vision&lt;/b&gt;&lt;br&gt;Vision tab" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g3">
+          <mxGeometry x="16" y="40" width="220" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="r-plan" value="&lt;b&gt;planning tools&lt;/b&gt;&lt;br&gt;analyze · segment · inspect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=6;verticalAlign=middle;" vertex="1" parent="p2-g3">
+          <mxGeometry x="256" y="40" width="250" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="r-rs" value="&lt;b&gt;ReSiReg :8080&lt;/b&gt;&lt;br&gt;TWFB_RESIREG_URL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=8;verticalAlign=middle;" vertex="1" parent="p2-g3">
+          <mxGeometry x="526" y="40" width="220" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="r-hf" value="&lt;b&gt;Hugging Face&lt;/b&gt;&lt;br&gt;weights on first start" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p2-g3">
+          <mxGeometry x="766" y="40" width="220" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-e-hub" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#1a5fb4;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="p2-g1" target="hub">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-hp" value="LLM + meteo + memory + voice mint" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.4;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="hub" target="hubp">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-or" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.4;strokeColor=#1a5fb4;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="hubp" target="p2-g2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-rui" value="httpx" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.3;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="r-ui" target="r-rs">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-rp" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="r-plan" target="r-rs">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2-rhf" value="download" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;dashPattern=6 6;html=1;endArrow=block;endFill=1;strokeWidth=1.2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="r-hf" target="r-rs">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

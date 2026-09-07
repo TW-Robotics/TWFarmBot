@@ -158,3 +158,34 @@ def test_get_memory(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert body["memories"][0]["id"] == stored["id"]
     assert body["memories"][0]["content"] == "NDRE stress at bed A"
     assert body["memories"][0]["x"] == 120.0
+
+
+def test_get_meteorology(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from planning_service import meteorology as meteo_mod
+
+    snapshot = {
+        "timestamp": "2026-09-07T08:00:00+00:00",
+        "location": {
+            "latitude": 48.2394,
+            "longitude": 16.3776,
+            "elevation_m": 165.0,
+            "timezone": "Europe/Vienna",
+        },
+        "sun": {
+            "altitude_deg": 32.1,
+            "azimuth_deg": 140.0,
+            "sun_phase": "day",
+            "is_daylight": True,
+            "clear_sky_irradiance_w_m2": 612.0,
+        },
+        "weather": {"temperature_c": 18.4, "source": "open-meteo"},
+        "agronomic_advice": {
+            "camera_lighting_quality": "acceptable",
+            "watering_suitability": "favorable",
+        },
+    }
+    monkeypatch.setattr(meteo_mod, "get_meteorology", lambda: snapshot)
+    r = client.get("/meteorology")
+    assert r.status_code == 200
+    assert r.json()["sun"]["sun_phase"] == "day"
+    assert r.json()["weather"]["temperature_c"] == 18.4

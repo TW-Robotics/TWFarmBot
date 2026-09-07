@@ -28,7 +28,13 @@ class MoveArgs(BaseModel):
 
 
 class WaterArgs(BaseModel):
-    seconds: float = Field(..., description="How long to keep the pump on (1..300).")
+    seconds: float | None = Field(
+        default=None,
+        description=(
+            "Do not set this. Fixed bed sprayers share one pump on a Shelly plug; "
+            "the plug already stops after 1 minute. Calling water starts that cycle."
+        ),
+    )
 
 
 class FindHomeArgs(BaseModel):
@@ -156,7 +162,10 @@ class InspectZoneArgs(BaseModel):
 
 class WaterZoneArgs(BaseModel):
     zone_id: str = Field(..., description="Zone id or loose name to water.")
-    seconds: float = Field(..., description="How long to keep the pump on (1..300).")
+    seconds: float | None = Field(
+        default=None,
+        description="Optional. Omit — the Shelly plug already stops the pump after 1 minute.",
+    )
     z: float = Field(
         default=0.0, description="Gantry Z at the zone centre, in millimetres."
     )
@@ -242,6 +251,21 @@ class ForgetMemoryArgs(BaseModel):
     memory_id: int = Field(
         ...,
         description="The integer ID of the memory to remove or mark obsolete.",
+    )
+
+
+class SetGoalArgs(BaseModel):
+    objective: str | None = Field(
+        default=None,
+        description="One-sentence user task, e.g. 'survey the bed then decide whether to water'.",
+    )
+    remaining: list[str] | None = Field(
+        default=None,
+        description="Replace the unfinished checklist (short steps, e.g. 'NDRE at y=200').",
+    )
+    completed: str | None = Field(
+        default=None,
+        description="One step just finished; it is moved from remaining to done.",
     )
 
 

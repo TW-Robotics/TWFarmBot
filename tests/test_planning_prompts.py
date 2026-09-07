@@ -46,6 +46,8 @@ def test_chat_prompt_explains_ndre_nir_rededge() -> None:
     assert "analyze_image" not in prompt
     assert "interpretation.advice" in prompt
     assert "not each stop" in prompt
+    assert "Never refuse `water` only because a watering fact exists" in prompt
+    assert "set_goal" in prompt
     assert "Voice mode" not in prompt
 
 

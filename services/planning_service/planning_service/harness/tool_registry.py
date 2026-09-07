@@ -35,7 +35,7 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         ToolCategory.ACT,
         requires_approval=True,
         safety_rules=("water",),
-        description="Turn the pump on for N seconds. Pauses for operator approval in chat.",
+        description="Start the bed sprayers (one pump for all nozzles). The Shelly plug already stops after 1 minute. Pauses for operator approval in chat.",
     ),
     "find_home": ToolPolicy(
         ToolCategory.ACT,
@@ -178,7 +178,10 @@ _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {
     "remember": ToolCategory.ANALYZE,
     "recall_memories": ToolCategory.READ,
     "forget_memory": ToolCategory.ANALYZE,
+    "set_goal": ToolCategory.ANALYZE,
 }
+
+_INTROSPECTION_NEEDS_APPROVAL = frozenset({"set_goal"})
 
 
 class ToolRegistry:
@@ -271,7 +274,7 @@ class ToolRegistry:
             category = _INTROSPECTION_CATEGORIES.get(name, ToolCategory.READ)
             policy = ToolPolicy(
                 category,
-                requires_approval=False,
+                requires_approval=name in _INTROSPECTION_NEEDS_APPROVAL,
                 description=lc_tool.description or "",
             )
             out.append(

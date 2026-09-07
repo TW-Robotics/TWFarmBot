@@ -191,6 +191,39 @@ def test_context_builder_injects_memories(mem_store: MemoryStore) -> None:
     assert "ACTIVELY REASON" in prompt
 
 
+def test_collapse_auto_entries_keeps_one_water_and_one_ndre_cell() -> None:
+    store = MemoryStore(db_path=":memory:")
+    store.remember("manual note", tags=["operator"])
+    store.remember("2026-09-07 11:00Z Pump ran for the whole bed (~60s) at x=0, y=0.", tags=["auto", "water"])
+    store.remember("2026-09-07 11:56Z Pump ran for the whole bed (~60s) at x=250, y=0.", tags=["auto", "water"])
+    store.remember(
+        "2026-09-07 11:45Z consider_water, mean=-0.02 at x=0, y=0.",
+        x=0,
+        y=0,
+        tags=["auto", "ndre"],
+    )
+    store.remember(
+        "2026-09-07 11:46Z consider_water, mean=-0.02 at x=50, y=0.",
+        x=50,
+        y=0,
+        tags=["auto", "ndre"],
+    )
+    store.remember(
+        "2026-09-07 11:50Z consider_water, mean=-0.01 at x=500, y=0.",
+        x=500,
+        y=0,
+        tags=["auto", "ndre"],
+    )
+    forgotten = store.collapse_auto_entries()
+    assert forgotten >= 2
+    leftover = store.list_recent(limit=20)
+    assert any("manual note" in item["content"] for item in leftover)
+    waters = [item for item in leftover if "water" in item["tags"] and "auto" in item["tags"]]
+    assert len(waters) == 1
+    ndres = [item for item in leftover if "ndre" in item["tags"]]
+    assert len(ndres) == 2
+
+
 def test_api_server_memory_endpoints(tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
     db_file = tmp_path / "test_api_memory.db"
     monkeypatch.setenv("FARMBOT_MEMORY_DB", str(db_file))

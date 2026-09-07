@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,10 +21,26 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 _DEFAULT_DB_REL = Path("data") / "memory.db"
+_AUTO_TS = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}Z\s*")
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _auto_fact_key(row: dict[str, Any]) -> str | None:
+    tags = {str(tag).lower() for tag in (row.get("tags") or [])}
+    if "auto" not in tags:
+        return None
+    if "water" in tags:
+        return "water"
+    body = _AUTO_TS.sub("", str(row.get("content") or ""))
+    body = re.sub(r"\s+at x=.*", "", body, flags=re.IGNORECASE).strip().lower()
+    if "ndre" in tags:
+        cell_x = None if row.get("x") is None else int(round(float(row["x"]) / 250.0) * 250)
+        cell_y = None if row.get("y") is None else int(round(float(row["y"]) / 250.0) * 250)
+        return f"ndre:{cell_x}:{cell_y}:{body}"
+    return f"auto:{row.get('category')}:{body}"
 
 
 class MemoryStore:
@@ -273,6 +290,25 @@ class MemoryStore:
                 }
             )
         return out
+
+    def collapse_auto_entries(self) -> int:
+        """Keep one auto-water fact and one auto-NDRE fact per 250 mm cell."""
+        rows = self.list_recent(limit=2000)
+        keep: set[int] = set()
+        seen: set[str] = set()
+        forgotten = 0
+        for row in rows:
+            key = _auto_fact_key(row)
+            if key is None:
+                continue
+            if key in seen:
+                if self.forget(int(row["id"])):
+                    forgotten += 1
+                continue
+            seen.add(key)
+            keep.add(int(row["id"]))
+        del keep
+        return forgotten
 
     def get(self, memory_id: int) -> dict[str, Any] | None:
         """Fetch a single active memory by ID."""
