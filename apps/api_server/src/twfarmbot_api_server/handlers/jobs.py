@@ -6,7 +6,7 @@ from typing import Any
 
 from twfarmbot_core.config import load_yaml_config
 from twfarmbot_core.domain import Action
-from watering_service.backends import farmbot
+from farmbot_gateway import farmbot
 from planning_service.harness.cancel import is_cancelled
 
 from .move import handle_move

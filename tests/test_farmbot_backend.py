@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from twfarmbot_core.domain import Action
-from watering_service.backends import farmbot
+from farmbot_gateway import farmbot
 
 
 class _FakeBot:
@@ -48,6 +48,8 @@ def test_backend_water_opens_then_closes(fake_bot, monkeypatch):
 
 def test_backend_move(fake_bot, monkeypatch):
     backend = _new_backend(monkeypatch)
+    backend.find_home("all")
+    fake_bot.calls.clear()
     backend.move(100.0, 200.0, 50.0)
     method, kwargs = fake_bot.calls[0]
     assert method == "move"

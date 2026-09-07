@@ -10,7 +10,42 @@ from __future__ import annotations
 import re
 from typing import Any, Iterator
 
-THINK_TAG_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+THINK_TAG_RE = re.compile(
+    r"<(think|thought|thinking)>(.*?)</\1>", re.DOTALL | re.IGNORECASE
+)
+LEAD_THOUGHT_RE = re.compile(r"^(?:thought|thinking)\s+(?=[A-Z])", re.IGNORECASE)
+_THOUGHT_TYPES = {"thought", "thinking", "reasoning", "reasoning_content"}
+
+
+def _block_type(block: dict[str, Any]) -> str:
+    return str(block.get("type") or "").lower()
+
+
+def _is_thought_block(block: dict[str, Any]) -> bool:
+    if block.get("thought") is True:
+        return True
+    return _block_type(block) in _THOUGHT_TYPES
+
+
+def _block_text(block: dict[str, Any]) -> str:
+    for key in ("text", "thinking", "reasoning", "reasoning_content"):
+        value = block.get(key)
+        if isinstance(value, str) and value:
+            return value
+    thought = block.get("thought")
+    return thought if isinstance(thought, str) and thought else ""
+
+
+def _thought_from_content(content: Any) -> str:
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, dict) and _is_thought_block(block):
+            text = _block_text(block)
+            if text:
+                parts.append(text)
+    return "\n".join(parts)
 
 
 def content_text(content: Any) -> str:
@@ -18,7 +53,8 @@ def content_text(content: Any) -> str:
 
     OpenAI returns a string; Gemini returns content blocks
     (``[{'type': 'text', 'text': ...}]``). Internal fields such as
-    ``thought_signature`` must never leak into the chat.
+    ``thought_signature`` and thought/reasoning parts must never leak
+    into the chat.
     """
     if content is None:
         return ""
@@ -28,9 +64,15 @@ def content_text(content: Any) -> str:
         parts: list[str] = []
         for block in content:
             if isinstance(block, str):
+                if block.strip().lower() in _THOUGHT_TYPES:
+                    continue
                 parts.append(block)
-            elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                parts.append(block["text"])
+            elif isinstance(block, dict):
+                if _is_thought_block(block):
+                    continue
+                text = block.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
         return "".join(parts)
     return str(content)
 
@@ -41,10 +83,14 @@ class ReasoningController:
     @staticmethod
     def extract(message: Any) -> str | None:
         """Extract thinking from a complete LangChain message."""
-        content = content_text(getattr(message, "content", ""))
+        raw = getattr(message, "content", "")
+        from_blocks = _thought_from_content(raw)
+        if from_blocks:
+            return from_blocks.strip() or None
+        content = content_text(raw)
         match = THINK_TAG_RE.search(content)
         if match:
-            thinking = match.group(1).strip()
+            thinking = match.group(2).strip()
             return thinking if thinking else None
 
         for key in ("reasoning_content", "thinking", "reasoning"):
@@ -57,8 +103,10 @@ class ReasoningController:
 
     @staticmethod
     def strip_from_text(text: str) -> str:
-        """Remove ``<think>...</think>`` blocks from visible text."""
-        return THINK_TAG_RE.sub("", text).strip()
+        """Remove thought tags and a leaked ``thought`` prefix from visible text."""
+        cleaned = THINK_TAG_RE.sub("", text)
+        cleaned = LEAD_THOUGHT_RE.sub("", cleaned)
+        return cleaned.strip()
 
     @classmethod
     def stream_chunks(
@@ -78,6 +126,9 @@ class ReasoningController:
         if reasoning:
             accumulated_reasoning.append(str(reasoning))
         content = getattr(chunk, "content", None)
+        from_blocks = _thought_from_content(content)
+        if from_blocks:
+            accumulated_reasoning.append(from_blocks)
         if content and accumulated_reasoning and not emitted:
             yield {"type": "thinking", "content": "".join(accumulated_reasoning)}
 

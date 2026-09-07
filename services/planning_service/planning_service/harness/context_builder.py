@@ -91,6 +91,12 @@ Guidelines:
   it briefly.
 - `scan_ndre(axis, end_mm, step_mm, start_mm?)` walks an axis and captures
   NDRE at each stop.
+- Long-term memory: You have persistent memory across sessions. ACTIVELY REASON
+  whether an observation or treatment is noteworthy enough to store using `remember`.
+  Do NOT save routine sensor ticks or unexceptional readings. Only store critical facts:
+  crop stress anomalies, treatments applied, recovery/degradation trends, or operator directives.
+  Before acting at a bed location, recall past records using `recall_memories(near_x=..., near_y=...)`
+  to check historical condition and evaluate trends over time.
 - Use the reasoning/thinking space to plan tool calls before giving the
   final answer; the user will see the reasoning as a collapsible pill.
 """
@@ -117,6 +123,60 @@ Grounding coordinates:
 """
 
 
+def _format_meteorology_context() -> str:
+    try:
+        from ..meteorology import get_meteorology
+
+        m = get_meteorology()
+        sun = m.get("sun", {})
+        w = m.get("weather", {})
+        adv = m.get("agronomic_advice", {})
+        loc = m.get("location", {})
+        return (
+            f"\nEnvironment & Solar Context ({loc.get('timezone', 'local')}):\n"
+            f"- Sun: altitude {sun.get('altitude_deg')}°, azimuth {sun.get('azimuth_deg')}°, phase: {sun.get('sun_phase')} (daylight={sun.get('is_daylight')}), clear-sky irradiance ~{sun.get('clear_sky_irradiance_w_m2')} W/m²\n"
+            f"- Weather: {w.get('temperature_c')}°C, humidity {w.get('relative_humidity_pct')}%, clouds {w.get('cloud_cover_pct')}%, rain {w.get('precipitation_mm')}mm, total solar radiation {w.get('total_radiation_w_m2')} W/m² (UV {w.get('uv_index')})\n"
+            f"- Agronomic Advice: Camera lighting={adv.get('camera_lighting_quality')} ({adv.get('camera_lighting_advice')}); Watering={adv.get('watering_suitability')} ({adv.get('watering_advice')})\n"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _format_memory_context(registry: ToolRegistry | None = None) -> str:
+    try:
+        mems = None
+        if registry is not None and getattr(registry, "_system_state", None) is not None:
+            try:
+                mems = registry._system_state.list_memories(limit=5)
+            except Exception:
+                mems = None
+        if mems is None:
+            from ..memory import get_memory_store
+
+            mems = get_memory_store().list_recent(limit=5)
+        if not mems:
+            return (
+                "\nLong-Term Memory:\n"
+                "- Memory store active (0 saved memories). ACTIVELY REASON whether noteworthy observations or treatments should be saved using `remember(...)`.\n"
+            )
+        lines = ["\nRecent Long-Term Memories:"]
+        for m in mems:
+            loc = (
+                f" (x={m['x']}, y={m['y']})"
+                if m.get("x") is not None and m.get("y") is not None
+                else ""
+            )
+            cat = f" [{m['category']}]" if m.get("category") else ""
+            lines.append(f"- [ID {m['id']}]{loc}{cat}: {m['content']}")
+        lines.append(
+            "(Use `recall_memories` to query past records by coordinates or keywords, "
+            "`remember` to commit new significant insights, `forget_memory` when obsolete)"
+        )
+        return "\n".join(lines) + "\n"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 class ContextBuilder:
     """Build prompts and LangChain message lists."""
 
@@ -133,6 +193,8 @@ class ContextBuilder:
         parts.append(self._render_tool_section())
         parts.append(_format_pin_context())
         parts.append(_SPECTRAL)
+        parts.append(_format_meteorology_context())
+        parts.append(_format_memory_context(self._registry))
         parts.append(_CHAT_FOOTER)
         if voice:
             parts.append(_VOICE_STYLE)
@@ -148,6 +210,8 @@ class ContextBuilder:
         parts.append(self._render_tool_section(for_planner=True))
         parts.append(_format_pin_context())
         parts.append(_SPECTRAL)
+        parts.append(_format_meteorology_context())
+        parts.append(_format_memory_context(self._registry))
         parts.append(_PLANNER_FOOTER)
         return "\n".join(parts)
 

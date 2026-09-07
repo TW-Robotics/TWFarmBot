@@ -220,7 +220,7 @@ def _check_capture_ndre(action: Action, limits: SafetyLimits) -> None:
         SpectralAnalysisError,
         band_separation_mm,
     )
-    from watering_service.backends import farmbot
+    from farmbot_gateway import farmbot
 
     try:
         separation = band_separation_mm()

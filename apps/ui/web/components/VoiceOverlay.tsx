@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Markdown } from "@astryxdesign/core/Markdown";
 import { PauseIcon, PlayIcon, XMarkIcon } from "@heroicons/react/24/solid";
-import { resolveChatImages } from "./chat";
+import { resolveChatImages, stripMarkdownImages, stripThoughtPrefix } from "./chat";
 
 type VoiceOverlayProps = {
   paused: boolean;
@@ -86,7 +86,7 @@ export function VoiceOverlay({
         {reply ? (
           <div className="twfb-voice-reply" style={{ fontSize: 16, lineHeight: 1.55, color: "#161616" }}>
             <Markdown density="compact" isStreaming={status === "Working…"}>
-              {resolveChatImages(reply)}
+              {resolveChatImages(stripThoughtPrefix(stripMarkdownImages(reply)))}
             </Markdown>
           </div>
         ) : null}

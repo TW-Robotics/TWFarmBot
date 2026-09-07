@@ -2,7 +2,7 @@
  * Rendering building blocks for the agent chat (Assistant page).
  *
  * Visual hierarchy, most → least prominent:
- *   1. Assistant prose (Markdown in ghost bubbles)
+ *   1. Assistant prose (Markdown, flush with tool rows / thumbnails)
  *   2. Tool activity (grouped ChatToolCalls rows + thumbnail grid)
  *   3. Reasoning / execution trace (muted Collapsibles, closed by default)
  *   4. Message metadata (small secondary timestamp · model row)
@@ -12,7 +12,6 @@
  */
 import { useState } from "react";
 import {
-  ChatMessageBubble,
   ChatMessageMetadata,
   ChatToolCalls,
   type ChatToolCallItem,
@@ -111,6 +110,39 @@ export function resolveChatImages(text: string): string {
     /!\[([^\]]*)\]\((\/(?:captures|photos)\/[^)]+)\)/g,
     (_match, label: string, path: string) => `![${label}](${base}${path})`,
   );
+}
+
+const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+
+function imageUrlKey(url: string): string {
+  const captures = url.indexOf("/captures/");
+  if (captures >= 0) return url.slice(captures);
+  const photos = url.indexOf("/photos/");
+  if (photos >= 0) return url.slice(photos);
+  return url;
+}
+
+export function extractMarkdownImages(text: string): ToolImage[] {
+  return [...text.matchAll(MARKDOWN_IMAGE_RE)]
+    .map((match) => ({ label: match[1] || "Image", url: match[2].trim() }))
+    .filter((image) => image.url);
+}
+
+/** Chat shows tool thumbnails instead of inline markdown images. */
+export function stripMarkdownImages(text: string): string {
+  return text
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Drop leaked Gemini/OpenRouter thought labels from visible assistant prose. */
+export function stripThoughtPrefix(text: string): string {
+  return text
+    .replace(/<(think|thought|thinking)>[\s\S]*?<\/\1>/gi, "")
+    .replace(/^(?:thought|thinking)\s+(?=[A-Z])/i, "")
+    .trim();
 }
 
 function ndrePreviewFromSample(sample: Record<string, unknown>): string | null {
@@ -344,13 +376,16 @@ function toCallItem(item: ToolTranscriptItem, index: number): ChatToolCallItem {
   };
 }
 
+function toolGroupImages(items: ToolTranscriptItem[]): ToolImage[] {
+  return items.flatMap((item) => mergeToolImages(item.images, item.name, item.result));
+}
+
 /** Consecutive tool calls render as one grouped, collapsible ChatToolCalls. */
 function ToolCallsGroup({ items }: { items: ToolTranscriptItem[] }) {
-  const images = items.flatMap((item) => mergeToolImages(item.images, item.name, item.result));
   return (
     <VStack gap={2} style={{ minWidth: 0 }}>
       <ChatToolCalls calls={items.map(toCallItem)} />
-      <ToolImageGrid images={images} />
+      <ToolImageGrid images={toolGroupImages(items)} />
     </VStack>
   );
 }
@@ -529,6 +564,13 @@ export function AssistantContent({ message }: { message: ChatMsg }) {
   // A running tool row already shows a spinner — don't double up.
   const lastToolRunning = lastItem?.kind === "tool" && lastItem.result === undefined;
   const isWorking = Boolean(message.streaming) && lastItem?.kind !== "text" && !lastToolRunning;
+  const toolUrls = new Set(
+    groups.flatMap((group) =>
+      group.kind === "tools"
+        ? toolGroupImages(group.items).map((image) => imageUrlKey(image.url))
+        : [],
+    ),
+  );
   return (
     <VStack gap={2} style={{ minWidth: 0 }}>
       {message.error ? (
@@ -547,15 +589,23 @@ export function AssistantContent({ message }: { message: ChatMsg }) {
         if (group.kind === "thinking") {
           return <ThinkingDisclosure key={key} text={group.text} />;
         }
+        const prose = stripThoughtPrefix(stripMarkdownImages(group.text));
+        const leftover = extractMarkdownImages(group.text).filter(
+          (image) => !toolUrls.has(imageUrlKey(image.url)),
+        );
+        if (!prose && !leftover.length) return null;
         return (
-          <ChatMessageBubble key={key} variant="ghost">
-            <Markdown
-              density="compact"
-              isStreaming={Boolean(message.streaming) && groupIndex === groups.length - 1}
-            >
-              {resolveChatImages(group.text)}
-            </Markdown>
-          </ChatMessageBubble>
+          <VStack key={key} gap={2} style={{ minWidth: 0, width: "100%" }}>
+            {prose ? (
+              <Markdown
+                density="compact"
+                isStreaming={Boolean(message.streaming) && groupIndex === groups.length - 1}
+              >
+                {resolveChatImages(prose)}
+              </Markdown>
+            ) : null}
+            <ToolImageGrid images={leftover} />
+          </VStack>
         );
       })}
       {isWorking ? <WorkingIndicator /> : null}

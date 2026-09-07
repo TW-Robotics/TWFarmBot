@@ -19,7 +19,7 @@ from farmbot_client.client import base_url
 from spatial_service import get_snapshot
 from twfarmbot_core.config import load_yaml_config
 from vision_service import capture_path, list_captures
-from watering_service.backends import farmbot
+from farmbot_gateway import farmbot
 
 log = logging.getLogger("twfarmbot.api_server.read")
 
@@ -184,3 +184,32 @@ def get_garden() -> dict[str, Any]:
         raise HTTPException(
             status_code=502, detail=f"garden read failed: {err}"
         ) from err
+
+
+@router.get("/memory")
+def get_memory(
+    limit: int = 200,
+    query: str | None = None,
+    near_x: float | None = None,
+    near_y: float | None = None,
+    radius_mm: float = 300.0,
+    category: str | None = None,
+) -> dict[str, Any]:
+    """List or search long-term agent memories."""
+    from planning_service.memory import get_memory_store
+
+    cap = max(1, min(limit, 1000))
+    store = get_memory_store()
+    searching = bool(query) or near_x is not None or near_y is not None
+    if searching:
+        memories = store.recall(
+            query=query,
+            near_x=near_x,
+            near_y=near_y,
+            radius_mm=radius_mm,
+            category=category,
+            limit=cap,
+        )
+    else:
+        memories = store.list_recent(limit=cap, category=category)
+    return {"memories": memories, "count": len(memories)}

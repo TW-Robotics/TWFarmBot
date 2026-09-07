@@ -24,6 +24,8 @@ def test_dispatch_runs_safety_then_handler() -> None:
 
 
 def test_dispatch_rejects_unsafe_before_handler() -> None:
+    from safety_service import validate as safety_validate
+
     called = False
 
     def handler(action: Action) -> Action:
@@ -31,7 +33,7 @@ def test_dispatch_rejects_unsafe_before_handler() -> None:
         called = True
         return action
 
-    r = ActionRegistry()
+    r = ActionRegistry(validate=safety_validate)
     r.register("water", handler)
     with pytest.raises(UnsafeActionError):
         r.dispatch(Action(kind="water", params={"seconds": 9999}))

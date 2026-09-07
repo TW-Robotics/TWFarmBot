@@ -21,6 +21,11 @@ from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 
 from .agent import build_base_model
+from .autonomy import (
+    AutonomousCycleResult,
+    DEFAULT_AUTONOMOUS_PROMPT,
+    run_autonomous_cycle,
+)
 from .chat import ChatResult, chat, stream_chat
 from .config import PlannerConfig, load_config
 from .harness import (
@@ -34,6 +39,16 @@ from .introspection import (
     InMemorySystemStateProvider,
     SystemStateProvider,
     build_introspection_tools,
+)
+from .memory import (
+    MemoryStore,
+    get_memory_store,
+)
+from .meteorology import (
+    calculate_solar_position,
+    fetch_open_meteo_weather,
+    get_meteorology,
+    interpret_agronomic_conditions,
 )
 from .parser import PlanError, _extract_json, parse_plan
 from .prompt import PlannerResponse
@@ -53,11 +68,13 @@ class PlanResult:
 
 
 def get_default_registry() -> ActionRegistry:
-    """Build an ActionRegistry with the same handlers the API uses."""
-    from twfarmbot_api_server.handlers import register_default_handlers
+    """Build a planning ActionRegistry with known action kinds and safety validation."""
+    from safety_service import validate as safety_validate
+    from twfarmbot_core.actions import DEFAULT_ACTION_KINDS
 
-    registry = ActionRegistry()
-    register_default_handlers(registry)
+    registry = ActionRegistry(validate=safety_validate)
+    for kind in DEFAULT_ACTION_KINDS:
+        registry.register(kind, lambda a: a)
     return registry
 
 
@@ -167,8 +184,11 @@ def _parse_with_rationale(
 
 __all__ = [
     "Action",
+    "AutonomousCycleResult",
     "ChatResult",
+    "DEFAULT_AUTONOMOUS_PROMPT",
     "InMemorySystemStateProvider",
+    "MemoryStore",
     "PlanError",
     "PlanResult",
     "PlannerConfig",
@@ -176,10 +196,16 @@ __all__ = [
     "build_base_model",
     "build_introspection_tools",
     "build_tools",
+    "calculate_solar_position",
     "chat",
+    "fetch_open_meteo_weather",
     "get_default_registry",
+    "get_memory_store",
+    "get_meteorology",
+    "interpret_agronomic_conditions",
     "load_config",
     "parse_plan",
     "plan",
+    "run_autonomous_cycle",
     "stream_chat",
 ]

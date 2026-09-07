@@ -22,9 +22,9 @@ TWFarmBot/
 │       └── events/             # internal event bus
 │
 ├── services/                   # one concern per service
-│   ├── farmbot_gateway/        # ONLY place that talks to FarmBot hardware
+│   ├── farmbot_gateway/        # ONLY place that talks to FarmBot hardware (FarmBotBackend)
 │   ├── safety_service/         # gates every action before execution
-│   ├── watering_service/       # irrigation (FarmBotBackend only — see backends/farmbot.py)
+│   ├── watering_service/       # irrigation logic
 │   ├── vision_service/         # camera + models
 │   ├── planning_service/       # LLM / VLM task planning
 │   └── spatial_service/        # garden coordinates + persistent world model
@@ -145,16 +145,16 @@ There are three concentric layers between an Action and the FarmBot:
 ```
 handlers (api_server)
     ↓
-watering_service (decision: open valve X for Y seconds)
+services (e.g. watering_service decides duration; jobs orchestrate)
     ↓
-watering_service.backends.farmbot   (translates actions to local HTTP)
+farmbot_gateway.farmbot.FarmBotBackend   (translates actions to local HTTP)
     ↓
-farmbot_gateway.get_farmbot()      (singleton HTTP handle)
+farmbot_gateway.get_farmbot()           (singleton HTTP handle)
     ↓
 httpx → TWFarmbotOS on the Raspberry Pi (default :3001)
 ```
 
-`watering_service.backends.farmbot.FarmBotBackend` is the single place
+`farmbot_gateway.farmbot.FarmBotBackend` is the single place
 that translates our vocabulary into local HTTP calls. Adding a new
 backend is not a current need — if it ever is, the import in
 `watering_service/__init__.py:_load_backend()` is the only place that
@@ -198,7 +198,7 @@ The api_server registers these action kinds via
 | `goto_named` | `name`, optional `z` | resolve zone/plant/preset, then `move` | name resolves; target in bounds |
 
 `farmbot_backend` lives at
-`services/watering_service/watering_service/backends/farmbot.py` and is
+`services/farmbot_gateway/farmbot_gateway/farmbot.py` and is
 the **only** place that translates FarmBot vocabulary into local HTTP calls.
 `capture` is not FarmBot serial: payload USB cameras are opened by
 `vision_service` on udev symlinks. `take_photo` / `POST /photo` stay unchanged.
@@ -226,7 +226,7 @@ imports the Pi client directly:
 
 Two files plus zero plumbing:
 
-1. Add a method to `services/watering_service/watering_service/backends/farmbot.py`
+1. Add a method to `services/farmbot_gateway/farmbot_gateway/farmbot.py`
    if it touches FarmBot hardware. Payload USB cameras go through
    `vision_service.capture(band)` instead — not `farmbot_gateway`.
 2. Create `apps/api_server/src/twfarmbot_api_server/handlers/<name>.py`

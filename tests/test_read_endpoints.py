@@ -137,3 +137,24 @@ def test_get_garden(client: TestClient) -> None:
     assert body["robot"] == {"x": 100.0, "y": 200.0, "z": 50.0}
     assert isinstance(body["entities"], list)
     assert isinstance(body["zones"], list)
+
+
+def test_get_memory(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    from planning_service import memory as memory_mod
+
+    store = memory_mod.MemoryStore(tmp_path / "memory.db")
+    stored = store.remember(
+        "NDRE stress at bed A",
+        category="agronomy",
+        x=120.0,
+        y=800.0,
+        tags=["ndre"],
+    )
+    monkeypatch.setattr(memory_mod, "get_memory_store", lambda: store)
+    r = client.get("/memory")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 1
+    assert body["memories"][0]["id"] == stored["id"]
+    assert body["memories"][0]["content"] == "NDRE stress at bed A"
+    assert body["memories"][0]["x"] == 120.0

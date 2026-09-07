@@ -174,6 +174,10 @@ _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {
     "segment_image": ToolCategory.ANALYZE,
     "visualize_image_features": ToolCategory.ANALYZE,
     "estimate_traversability": ToolCategory.ANALYZE,
+    "get_meteorology": ToolCategory.READ,
+    "remember": ToolCategory.ANALYZE,
+    "recall_memories": ToolCategory.READ,
+    "forget_memory": ToolCategory.ANALYZE,
 }
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Thread
 from dataclasses import replace
@@ -160,6 +161,39 @@ class ModelsPayload(BaseModel):
     llm: LlmOverrides | None = None
 
 
+class AutonomousRunPayload(BaseModel):
+    goal: str | None = Field(
+        default=None,
+        description="Optional mission prompt for the autonomous cycle.",
+    )
+    model: str | None = Field(
+        default=None,
+        description="Optional model override.",
+    )
+    llm: LlmOverrides | None = Field(
+        default=None,
+        description="Optional LLM credential overrides.",
+    )
+    save_session: bool = Field(
+        default=True,
+        description="Whether to persist the session to data/ui_sessions/.",
+    )
+    ensure_homed: bool = Field(
+        default=True,
+        description="Ensure gantry is calibrated to hardware endstops before cycle.",
+    )
+
+
+class RememberPayload(BaseModel):
+    content: str = Field(..., min_length=1)
+    category: str = "agronomy"
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+    tags: list[str] | None = None
+    importance: float = 0.5
+
+
 def _resolve_llm_config(
     llm: LlmOverrides | None,
     model_name: str | None = None,
@@ -225,6 +259,11 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
 
     @app.on_event("startup")
     def start_position_polling() -> None:
+        if app.state.farmbot_status == "unknown":
+            try:
+                connect_to_farmbot(required=os.getenv("FARMBOT_REQUIRED", "1") != "0")
+            except Exception:
+                pass
         if app.state.farmbot_status != "connected":
             return
         app.state.position_poll_thread = Thread(
@@ -241,10 +280,14 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
 
     @app.get("/health")
     def health() -> dict[str, Any]:
+        from farmbot_gateway import farmbot
+
         return {
             "status": "ok",
             "actions": app.state.registry.kinds(),
             "farmbot": app.state.farmbot_status,
+            "homed": farmbot.backend.is_homed(),
+            "last_homed_at": farmbot.backend.last_homed_at(),
         }
 
     @app.get("/providers")
@@ -516,6 +559,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
                 propose_only=False,
                 config=llm_cfg,
                 model_name=payload.model,
+                skip_approval=payload.skip_approval,
             )
         except Exception as err:  # noqa: BLE001
             cfg = load_config()
@@ -583,7 +627,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
     def post_chat_cancel(payload: ChatCancelPayload) -> dict[str, Any]:
         """Stop the in-flight agent loop and halt the gantry."""
         from planning_service.harness.cancel import cancel_run
-        from watering_service.backends import farmbot
+        from farmbot_gateway import farmbot
 
         thread_id = cancel_run(payload.thread_id)
         try:
@@ -604,6 +648,109 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         return {"status": "ok", "thread_id": thread_id}
+
+    @app.post("/autonomous/run")
+    def post_autonomous_run(
+        payload: AutonomousRunPayload | None = None,
+    ) -> dict[str, Any]:
+        """Run an autonomous See → Reason → Act → Reason crop care cycle."""
+        payload = payload or AutonomousRunPayload()
+        log.info("POST /autonomous/run goal=%s", payload.goal)
+        from planning_service import run_autonomous_cycle
+        from planning_service.introspection import HttpSystemStateProvider
+
+        api_base = os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")
+        system_state = HttpSystemStateProvider(api_base)
+        world = _world_snapshot()
+        llm_cfg = _resolve_llm_config(payload.llm, payload.model)
+
+        result = run_autonomous_cycle(
+            registry=app.state.registry,
+            goal=payload.goal,
+            world=world,
+            system_state=system_state,
+            config=llm_cfg,
+            model_name=payload.model,
+            save_session=payload.save_session,
+            ensure_homed=payload.ensure_homed,
+        )
+        return result.to_dict()
+
+    @app.get("/autonomous/status")
+    def get_autonomous_status() -> dict[str, Any]:
+        """Return the latest autonomous cycle summary from session history."""
+        session_dir = Path(
+            os.getenv("TWFB_UI_DATA_DIR", Path.cwd() / "data" / "ui_sessions")
+        )
+        if not session_dir.exists():
+            return {"status": "none", "message": "no autonomous sessions found"}
+        files = sorted(session_dir.glob("*-autonomous-*.json"), reverse=True)
+        if not files:
+            return {"status": "none", "message": "no autonomous sessions found"}
+        try:
+            latest = json.loads(files[0].read_text(encoding="utf-8"))
+            return {"status": "ok", "latest_session": latest}
+        except Exception as err:
+            return {"status": "error", "error": str(err)}
+
+    @app.get("/meteorology")
+    def get_meteorology_endpoint() -> dict[str, Any]:
+        """Current GPS solar position, weather readings, and agronomic advice."""
+        from planning_service.meteorology import get_meteorology
+
+        return get_meteorology()
+
+    @app.post("/memory/remember")
+    def post_memory_remember(payload: RememberPayload) -> dict[str, Any]:
+        """Commit an agronomic insight, crop observation, or treatment to long-term memory."""
+        from planning_service.memory import get_memory_store
+
+        try:
+            return get_memory_store().remember(
+                content=payload.content,
+                category=payload.category,
+                x=payload.x,
+                y=payload.y,
+                z=payload.z,
+                tags=payload.tags,
+                importance=payload.importance,
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.get("/memory")
+    def get_memory_endpoint(
+        query: str | None = None,
+        near_x: float | None = None,
+        near_y: float | None = None,
+        radius_mm: float = 300.0,
+        category: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Recall or list long-term memories with spatial/text search."""
+        from planning_service.memory import get_memory_store
+
+        store = get_memory_store()
+        if query or near_x is not None or near_y is not None:
+            mems = store.recall(
+                query=query,
+                near_x=near_x,
+                near_y=near_y,
+                radius_mm=radius_mm,
+                category=category,
+                limit=limit,
+            )
+        else:
+            mems = store.list_recent(limit=limit, category=category)
+        return {"memories": mems, "count": len(mems)}
+
+    @app.delete("/memory/{memory_id}")
+    def delete_memory_endpoint(memory_id: int) -> dict[str, Any]:
+        """Mark a memory entry inactive/obsolete."""
+        from planning_service.memory import get_memory_store
+
+        ok = get_memory_store().forget(memory_id)
+        return {"memory_id": memory_id, "forgotten": ok}
 
     @app.post("/voice/session")
     def post_voice_session() -> dict[str, Any]:
@@ -653,7 +800,7 @@ def _dispatch_queued(registry: ActionRegistry, action: Action) -> None:
 def _world_snapshot() -> Any:
     """Build a world-model snapshot including the last known robot position."""
     from spatial_service import get_snapshot
-    from watering_service.backends import farmbot
+    from farmbot_gateway import farmbot
 
     try:
         xyz = farmbot.backend.get_xyz()
@@ -663,7 +810,7 @@ def _world_snapshot() -> Any:
 
 
 def _refresh_position() -> None:
-    from watering_service.backends import farmbot
+    from farmbot_gateway import farmbot
 
     try:
         farmbot.backend.refresh_xyz()
@@ -683,7 +830,9 @@ def _position_poll_loop(app: FastAPI) -> None:
 
 
 def _default_registry() -> ActionRegistry:
-    r = ActionRegistry()
+    from safety_service import validate as safety_validate
+
+    r = ActionRegistry(validate=safety_validate)
     register_default_handlers(r)
     return r
 
@@ -726,6 +875,38 @@ def connect_to_farmbot(required: bool = True) -> str:
 
     app.state.farmbot_status = "connected"
     log.info("FarmBot connected")
+
+    def _should_home_on_boot() -> bool:
+        env_val = os.getenv("FARMBOT_HOME_ON_BOOT")
+        if env_val is not None:
+            return env_val.strip().lower() in {"1", "true", "yes"}
+        try:
+            from twfarmbot_core.config import load_yaml_config
+
+            cfg = load_yaml_config().get("homing", {}) or {}
+            return bool(cfg.get("home_on_boot", True))
+        except Exception:
+            return True
+
+    if _should_home_on_boot():
+        log.info("Calibrating FarmBot gantry to hardware endstops (0,0,0)...")
+        try:
+            from farmbot_gateway import farmbot
+
+            if os.getenv("FARMBOT_HOME_SYNC", "0").strip().lower() in {"1", "true", "yes"}:
+                farmbot.backend.ensure_homed()
+                log.info("Boot homing complete: gantry referenced at (0, 0, 0)")
+            else:
+                def _bg_home() -> None:
+                    try:
+                        farmbot.backend.ensure_homed()
+                        log.info("Boot homing complete: gantry referenced at (0, 0, 0)")
+                    except Exception:  # noqa: BLE001
+                        log.warning("Boot homing failed", exc_info=True)
+
+                Thread(target=_bg_home, name="farmbot-boot-homing", daemon=True).start()
+        except Exception:  # noqa: BLE001
+            log.warning("Failed to dispatch boot homing", exc_info=True)
     return "connected"
 
 

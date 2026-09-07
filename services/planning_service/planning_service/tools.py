@@ -172,6 +172,79 @@ class GotoNamedArgs(BaseModel):
     )
 
 
+class GetMeteorologyArgs(BaseModel):
+    """Query current solar position, meteorological data, and agronomic lighting/watering advice."""
+
+
+class RememberArgs(BaseModel):
+    content: str = Field(
+        ...,
+        description=(
+            "The concise insight, crop health observation, treatment outcome, anomaly, "
+            "or instruction to store in long-term memory. ACTIVELY REASON whether this "
+            "is noteworthy enough to save — do NOT store transient routine readings."
+        ),
+    )
+    category: str = Field(
+        default="agronomy",
+        description=(
+            "Category of the memory: 'agronomy' (crop vigor, chlorosis, stress), "
+            "'treatment' (actions/watering applied), 'hardware' (sensor/gantry quirks), "
+            "or 'rule' (operator directive/bed constraint)."
+        ),
+    )
+    x: float | None = Field(
+        default=None,
+        description="Optional X coordinate in mm if this memory relates to a bed location.",
+    )
+    y: float | None = Field(
+        default=None,
+        description="Optional Y coordinate in mm if this memory relates to a bed location.",
+    )
+    tags: list[str] | None = Field(
+        default=None,
+        description="Optional list of search tags, e.g. ['stress', 'watering', 'ndre'].",
+    )
+    importance: float = Field(
+        default=0.5,
+        description="Importance score from 0.1 (minor note) to 1.0 (critical directive/anomaly).",
+    )
+
+
+class RecallMemoriesArgs(BaseModel):
+    query: str | None = Field(
+        default=None,
+        description="Text query or keywords to search memories (e.g. 'ndre stress', 'drainage').",
+    )
+    near_x: float | None = Field(
+        default=None,
+        description="Optional X coordinate in mm to find memories near this location.",
+    )
+    near_y: float | None = Field(
+        default=None,
+        description="Optional Y coordinate in mm to find memories near this location.",
+    )
+    radius_mm: float = Field(
+        default=300.0,
+        description="Search radius in mm around (near_x, near_y). Default 300 mm.",
+    )
+    category: str | None = Field(
+        default=None,
+        description="Optional category filter: 'agronomy', 'treatment', 'hardware', or 'rule'.",
+    )
+    limit: int = Field(
+        default=5,
+        description="Maximum number of memories to return (1..20).",
+    )
+
+
+class ForgetMemoryArgs(BaseModel):
+    memory_id: int = Field(
+        ...,
+        description="The integer ID of the memory to remove or mark obsolete.",
+    )
+
+
 # ── Tool builder ────────────────────────────────────────────────────────
 
 

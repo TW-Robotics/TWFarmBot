@@ -29,6 +29,7 @@ from twfarmbot_ml_utils import (
 )
 
 from . import path_planning
+from .tools import ForgetMemoryArgs, RecallMemoriesArgs, RememberArgs
 
 _T = TypeVar("_T")
 
@@ -209,6 +210,64 @@ class SystemStateProvider:
 
     def get_images(self, limit: int = 5) -> list[dict[str, Any]]:
         raise NotImplementedError
+
+    def get_meteorology(self) -> dict[str, Any]:
+        from .meteorology import get_meteorology
+
+        return get_meteorology()
+
+    def remember(
+        self,
+        content: str,
+        category: str = "agronomy",
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        tags: list[str] | None = None,
+        importance: float = 0.5,
+    ) -> dict[str, Any]:
+        from .memory import get_memory_store
+
+        return get_memory_store().remember(
+            content=content,
+            category=category,
+            x=x,
+            y=y,
+            z=z,
+            tags=tags,
+            importance=importance,
+        )
+
+    def recall_memories(
+        self,
+        query: str | None = None,
+        near_x: float | None = None,
+        near_y: float | None = None,
+        radius_mm: float = 300.0,
+        category: str | None = None,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        from .memory import get_memory_store
+
+        return get_memory_store().recall(
+            query=query,
+            near_x=near_x,
+            near_y=near_y,
+            radius_mm=radius_mm,
+            category=category,
+            limit=limit,
+        )
+
+    def list_memories(self, limit: int = 10) -> list[dict[str, Any]]:
+        from .memory import get_memory_store
+
+        return get_memory_store().list_recent(limit=limit)
+
+    def forget_memory(self, memory_id: int) -> dict[str, Any]:
+        from .memory import get_memory_store
+
+        ok = get_memory_store().forget(memory_id)
+        return {"memory_id": memory_id, "forgotten": ok}
 
 
 def _get_image_processor() -> VisionProcessor:
@@ -586,6 +645,91 @@ def build_introspection_tools(
             log.warning("scan_zone failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
 
+    @tool(args_schema=_NoArgs)
+    def get_meteorology() -> dict[str, Any]:
+        """Query current solar position, meteorological data, and agronomic advice.
+
+        Returns sun altitude, azimuth, day/night phase, solar radiation (W/m²),
+        temperature, precipitation, cloud cover, and advice on multi-spectral camera
+        glare risk and watering evaporation suitability.
+        """
+        try:
+            return provider.get_meteorology()
+        except Exception as err:  # noqa: BLE001
+            log.warning("get_meteorology failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
+    @tool(args_schema=RememberArgs)
+    def remember(
+        content: str,
+        category: str = "agronomy",
+        x: float | None = None,
+        y: float | None = None,
+        tags: list[str] | None = None,
+        importance: float = 0.5,
+    ) -> dict[str, Any]:
+        """Commit a noteworthy insight, observation, treatment, or rule to long-term memory.
+
+        ACTIVELY REASON whether this information is important enough to save.
+        Do NOT save routine sensor ticks. Only save significant events:
+        - Crop stress or health anomalies at specific coordinates
+        - Interventions performed (e.g. watering amount and reason)
+        - Operator directives, preferences, or bed constraints
+        - Recovery or degradation trends
+        """
+        try:
+            return provider.remember(
+                content=content,
+                category=category,
+                x=x,
+                y=y,
+                tags=tags,
+                importance=importance,
+            )
+        except Exception as err:  # noqa: BLE001
+            log.warning("remember failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
+    @tool(args_schema=RecallMemoriesArgs)
+    def recall_memories(
+        query: str | None = None,
+        near_x: float | None = None,
+        near_y: float | None = None,
+        radius_mm: float = 300.0,
+        category: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        """Search long-term memory for past observations, treatments, or rules.
+
+        You can search:
+        - By coordinates (near_x, near_y) to find past records at a physical bed location.
+        - By text query (e.g. 'ndre stress', 'watering', 'drainage').
+        - By category ('agronomy', 'treatment', 'hardware', 'rule').
+        Returns matching memories sorted by relevance/distance.
+        """
+        try:
+            mems = provider.recall_memories(
+                query=query,
+                near_x=near_x,
+                near_y=near_y,
+                radius_mm=radius_mm,
+                category=category,
+                limit=limit,
+            )
+            return {"memories": mems, "count": len(mems)}
+        except Exception as err:  # noqa: BLE001
+            log.warning("recall_memories failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
+    @tool(args_schema=ForgetMemoryArgs)
+    def forget_memory(memory_id: int) -> dict[str, Any]:
+        """Remove or mark obsolete a memory entry by ID when resolved or superseded."""
+        try:
+            return provider.forget_memory(memory_id)
+        except Exception as err:  # noqa: BLE001
+            log.warning("forget_memory failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
     return [
         list_endpoints,
         get_health,
@@ -604,6 +748,10 @@ def build_introspection_tools(
         segment_image,
         visualize_image_features,
         estimate_traversability,
+        get_meteorology,
+        remember,
+        recall_memories,
+        forget_memory,
     ]
 
 
@@ -634,6 +782,7 @@ class HttpSystemStateProvider(SystemStateProvider):
             {"method": "GET", "path": "/pins", "summary": "Named GPIO pins"},
             {"method": "GET", "path": "/positions", "summary": "Named gantry presets"},
             {"method": "GET", "path": "/garden", "summary": "World model snapshot"},
+            {"method": "GET", "path": "/memory", "summary": "Long-term agent memories"},
             {"method": "POST", "path": "/actions", "summary": "Dispatch an Action"},
             {
                 "method": "POST",
@@ -680,12 +829,107 @@ class HttpSystemStateProvider(SystemStateProvider):
         body = self._get(f"/images?limit={limit}")
         return list(body.get("images", [])) if isinstance(body, dict) else []
 
+    def get_meteorology(self) -> dict[str, Any]:
+        return self._get("/meteorology")
+
+    def remember(
+        self,
+        content: str,
+        category: str = "agronomy",
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        tags: list[str] | None = None,
+        importance: float = 0.5,
+    ) -> dict[str, Any]:
+        try:
+            r = self._client.post(
+                "/memory/remember",
+                json={
+                    "content": content,
+                    "category": category,
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                    "tags": tags,
+                    "importance": importance,
+                },
+            )
+            r.raise_for_status()
+            return r.json() if r.content else {}
+        except Exception:
+            return super().remember(
+                content=content,
+                category=category,
+                x=x,
+                y=y,
+                z=z,
+                tags=tags,
+                importance=importance,
+            )
+
+    def recall_memories(
+        self,
+        query: str | None = None,
+        near_x: float | None = None,
+        near_y: float | None = None,
+        radius_mm: float = 300.0,
+        category: str | None = None,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": limit, "radius_mm": radius_mm}
+        if query:
+            params["query"] = query
+        if near_x is not None:
+            params["near_x"] = near_x
+        if near_y is not None:
+            params["near_y"] = near_y
+        if category:
+            params["category"] = category
+        try:
+            r = self._client.get("/memory", params=params)
+            r.raise_for_status()
+            body = r.json() if r.content else {}
+            return list(body.get("memories", []))
+        except Exception:
+            return super().recall_memories(
+                query=query,
+                near_x=near_x,
+                near_y=near_y,
+                radius_mm=radius_mm,
+                category=category,
+                limit=limit,
+            )
+
+    def list_memories(self, limit: int = 10) -> list[dict[str, Any]]:
+        try:
+            r = self._client.get("/memory", params={"limit": limit})
+            r.raise_for_status()
+            body = r.json() if r.content else {}
+            return list(body.get("memories", []))
+        except Exception:
+            return super().list_memories(limit=limit)
+
+    def forget_memory(self, memory_id: int) -> dict[str, Any]:
+        try:
+            r = self._client.delete(f"/memory/{memory_id}")
+            r.raise_for_status()
+            return r.json() if r.content else {"memory_id": memory_id, "forgotten": True}
+        except Exception:
+            return super().forget_memory(memory_id)
+
 
 class InMemorySystemStateProvider(SystemStateProvider):
     """Test/dry-run provider. Inject whatever dicts you want."""
 
     def __init__(self, **data: Any) -> None:
         self._data = data
+        if "memory_store" in data:
+            self._memory_store = data["memory_store"]
+        else:
+            from .memory import MemoryStore
+
+            self._memory_store = MemoryStore(db_path=":memory:")
 
     def list_endpoints(self) -> list[dict[str, str]]:
         return list(self._data.get("endpoints", []))
@@ -717,3 +961,55 @@ class InMemorySystemStateProvider(SystemStateProvider):
 
     def get_images(self, limit: int = 5) -> list[dict[str, Any]]:
         return list(self._data.get("images", []))[:limit]
+
+    def get_meteorology(self) -> dict[str, Any]:
+        if "meteorology" in self._data:
+            return dict(self._data["meteorology"])
+        from .meteorology import get_meteorology
+
+        return get_meteorology()
+
+    def remember(
+        self,
+        content: str,
+        category: str = "agronomy",
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        tags: list[str] | None = None,
+        importance: float = 0.5,
+    ) -> dict[str, Any]:
+        return self._memory_store.remember(
+            content=content,
+            category=category,
+            x=x,
+            y=y,
+            z=z,
+            tags=tags,
+            importance=importance,
+        )
+
+    def recall_memories(
+        self,
+        query: str | None = None,
+        near_x: float | None = None,
+        near_y: float | None = None,
+        radius_mm: float = 300.0,
+        category: str | None = None,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        return self._memory_store.recall(
+            query=query,
+            near_x=near_x,
+            near_y=near_y,
+            radius_mm=radius_mm,
+            category=category,
+            limit=limit,
+        )
+
+    def list_memories(self, limit: int = 10) -> list[dict[str, Any]]:
+        return self._memory_store.list_recent(limit=limit)
+
+    def forget_memory(self, memory_id: int) -> dict[str, Any]:
+        ok = self._memory_store.forget(memory_id)
+        return {"memory_id": memory_id, "forgotten": ok}

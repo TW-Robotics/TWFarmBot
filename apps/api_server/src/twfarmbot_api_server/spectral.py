@@ -23,7 +23,7 @@ from vision_service.spectral_calib import (
     normalize_image_align,
     save_calibration,
 )
-from watering_service.backends import farmbot
+from farmbot_gateway import farmbot
 
 from .handlers.move import handle_move
 
