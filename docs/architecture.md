@@ -170,7 +170,7 @@ Set these env vars (or use `.env` with `uv run --env-file=.env …`):
 | `WATERING_BACKEND` | backend module name (default `farmbot`) | `farmbot` |
 | `FARMBOT_MAX_WATER_SECONDS` | safety cap | `300` |
 | `FARMBOT_PUMP_PIN` | pump pin override | `7` |
-| `FARMBOT_MAX_AXIS_{X,Y,Z}` | move action bounds in mm | `650`/`1900`/`300` |
+| `FARMBOT_MAX_AXIS_{X,Y,Z}` | hard travel box from home, mm (`inf` = no cap) | `1900`/`650`/`inf` |
 | `FARMBOT_REQUIRED` | if `0`, api_server boots without a live bot (UI-only mode) | `1` |
 
 Test the link: `FARMBOT_LOCAL_URL=http://<pi-ip>:3001 uv run python scripts/test_farmbot_connect.py`.
@@ -183,7 +183,7 @@ The api_server registers these action kinds via
 | Kind | Params | Backend call | Safety rule |
 |---|---|---|---|
 | `water` | `seconds` | `farmbot_backend.water()` (pump on/off) | seconds ≤ `FARMBOT_MAX_WATER_SECONDS` |
-| `move` | `x`, `y`, `z`, optional `speed` | `farmbot_backend.move()` | each axis within `FARMBOT_MAX_AXIS_{X,Y,Z}` |
+| `move` | `x`, `y`, `z`, optional `speed` | `farmbot_backend.move()` | pose in hard box from home (`configs/dev.yaml` `safety.workspace`) |
 | `read_pin` | `pin`, optional `mode` | `farmbot_backend.read_pin()` | — |
 | `write_pin` | `pin`, `value`, optional `mode` | `farmbot_backend.write_pin()` | — |
 | `mount_tool` | `tool_name` | `farmbot_backend.mount_tool()` | — |
@@ -218,7 +218,8 @@ imports the Pi client directly:
 | `GET /pin/{pin}?mode=digital|analog` | `{pin, mode, value}` |
 | `GET /messages` | `{last_messages: [...]}` |
 | `GET /images?limit=10` | `{images: [{attachment_url, created_at, meta, ...}]}` |
-| `GET /garden` | bounds, camera pose, entities, zones, and cached robot pose |
+| `GET /garden` | bounds, camera pose, entities, zones, robot pose, latest `cells` |
+| `GET /garden/find?predicate=` | ranked cells for plant / weed / soil / healthy / stressed |
 
 ## 8. How to add …
 

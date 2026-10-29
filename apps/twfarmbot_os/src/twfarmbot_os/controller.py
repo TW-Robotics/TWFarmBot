@@ -77,7 +77,11 @@ class FarmduinoController:
             return self._request_locked(gcode, timeout_s)
 
     def _request_locked(self, gcode: str, timeout_s: float = 120.0) -> list[Report]:
-        reports = self.transport.request(gcode, timeout_s)
+        reports = self.transport.request(
+            gcode,
+            timeout_s,
+            on_report=lambda report: self._apply([report], gcode),
+        )
         self.last_reports = [r.raw for r in reports]
         self._apply(reports, gcode)
         if any(

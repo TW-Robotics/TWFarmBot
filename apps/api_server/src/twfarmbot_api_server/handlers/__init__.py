@@ -22,10 +22,12 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     from .jobs import (
         handle_goto_named,
         handle_inspect_zone,
+        handle_run_script,
         handle_scan_ndre,
         handle_water_zone,
     )
     from .ndre import handle_capture_ndre
+    from .light import handle_set_light
 
     registry.register("water", handle_water)
     registry.register("move", handle_move)
@@ -44,4 +46,6 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     registry.register("inspect_zone", handle_inspect_zone)
     registry.register("water_zone", handle_water_zone)
     registry.register("goto_named", handle_goto_named)
+    registry.register("run_script", handle_run_script)
     registry.register("scan_ndre", handle_scan_ndre)
+    registry.register("set_light", handle_set_light)

@@ -20,6 +20,30 @@ from twfarmbot_core.config import load_yaml_config
 log = logging.getLogger(__name__)
 
 
+POSE_HISTORY_FILE = "gantry_pose_history.jsonl"
+
+
+def pose_data_dir() -> Path:
+    return Path(os.getenv("TWFB_DATA_DIR", Path.cwd() / "data"))
+
+
+def read_pose_history(since: float) -> list[dict[str, float]]:
+    """Pose samples (one per move) recorded at or after the unix time ``since``."""
+    path = pose_data_dir() / POSE_HISTORY_FILE
+    if not path.exists():
+        return []
+    samples = []
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                sample = json.loads(line)
+            except ValueError:
+                continue
+            if sample.get("t", 0) >= since:
+                samples.append(sample)
+    return samples
+
+
 class FarmBotBackend:
     def __init__(self) -> None:
         self._images_cache: list[dict[str, Any]] = []
@@ -69,11 +93,17 @@ class FarmBotBackend:
                     "last_homed_at": self._last_homed_at,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
-                data_dir = Path(os.getenv("TWFB_DATA_DIR", Path.cwd() / "data"))
+                data_dir = pose_data_dir()
                 data_dir.mkdir(parents=True, exist_ok=True)
                 (data_dir / "gantry_pose.json").write_text(
                     json.dumps(data, indent=2), encoding="utf-8"
                 )
+                # Append-only history for the Overview position chart.
+                with (data_dir / POSE_HISTORY_FILE).open("a", encoding="utf-8") as fh:
+                    fh.write(
+                        json.dumps({"t": time.time(), "x": data["x"], "y": data["y"], "z": data["z"]})
+                        + "\n"
+                    )
         except Exception:  # noqa: BLE001
             pass
 

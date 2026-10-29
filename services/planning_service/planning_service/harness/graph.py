@@ -13,6 +13,8 @@ are reused unchanged — only the turn plumbing moved onto LangGraph.
 
 from __future__ import annotations
 
+import logging
+
 import json
 import operator
 import time
@@ -38,7 +40,7 @@ from .approval_gate import ApprovalGate
 from .metrics import Metrics
 from .reasoning_controller import ReasoningController, content_text
 from .tool_policy import ToolDescriptor
-from .tool_registry import ToolRegistry
+from .tool_registry import CORE_TOOLS, ToolRegistry
 from .tracing import is_enabled, log_tool_call, timed_invoke, timed_stream
 
 from .cancel import (
@@ -49,6 +51,8 @@ from .cancel import (
 )
 from .facts import record_tool_fact
 from .goal import apply_goal_update, messages_with_goal
+
+_log = logging.getLogger(__name__)
 
 STOP_DONE = "done"
 STOP_MAX_TURNS = "max_turns"
@@ -70,6 +74,7 @@ class HarnessState(TypedDict, total=False):
     saw_action_call: bool
     goal: dict[str, Any]
     motion_approved: bool
+    unlocked: Annotated[list[str], operator.add]  # tools found via tool_search
 
 
 def _llm_friendly_result(result: Any) -> Any:
@@ -171,15 +176,61 @@ def _tool_succeeded(result: Any) -> bool:
     return True
 
 
-def _bind_model_tools(model: Runnable, tools: list[Any]) -> Runnable:
+def _bind_model_tools(
+    model: Runnable, tools: list[Any], tool_choice: str | None = None
+) -> Runnable:
     """Attach JSON tool schemas when the backend supports bind_tools."""
     bind = getattr(model, "bind_tools", None)
     if bind is None or not tools:
         return model
     try:
-        return bind(tools)
+        return bind(tools, tool_choice=tool_choice) if tool_choice else bind(tools)
     except (NotImplementedError, TypeError, ValueError):
         return model
+
+
+def _model_for_turn(state: Any, deps: "RunDeps") -> Any:
+    """Force a `think` call on the first turn and after a failed tool turn."""
+    if deps.think_model is not None and (
+        state.get("turn", 0) == 0 or state.get("consecutive_errors", 0) > 0
+    ):
+        _log.info("forcing a `think` call (turn %s)", state.get("turn", 0))
+        return deps.think_model
+    bind = getattr(deps, "bind", None)
+    if bind is None:
+        return deps.model
+    return bind(tuple(dict.fromkeys(state.get("unlocked") or ())))
+
+
+def _tool_search(deps: "RunDeps", args: dict[str, Any]) -> dict[str, Any]:
+    """Keyword-rank the deferred tools; the caller unlocks the returned names."""
+    from .farm_script import _signature
+
+    query = str(args.get("query", "")).lower()
+    words = [w for w in query.replace("_", " ").split() if len(w) > 1]
+    scored = []
+    for d in deps.registry.descriptors():
+        if d.name in CORE_TOOLS:
+            continue
+        text = f"{d.name.replace('_', ' ')} {d.policy.description}".lower()
+        score = sum(w in text for w in words)
+        scored.append((score, d))
+    hits = [(sc, d) for sc, d in scored if sc > 0]
+    hits.sort(key=lambda x: -x[0])
+    chosen = [d for _, d in hits[:5]]
+    if not chosen:
+        return {
+            "matches": [],
+            "available": sorted(d.name for _, d in scored),
+            "note": "No match; pick from `available` and search by its name.",
+        }
+    return {
+        "matches": [
+            {"name": d.name, "signature": _signature(d), "about": d.policy.description[:160]}
+            for d in chosen
+        ],
+        "note": "These tools are now unlocked: call them next.",
+    }
 
 
 def _last_ai_text(messages: list[Any]) -> str:
@@ -211,6 +262,8 @@ class RunDeps:
     action_names: set[str] = field(default_factory=set)
     skip_approval: bool = False
     weave_call: Any = None
+    think_model: Any = None  # same model, tool_choice forced to `think`
+    bind: Any = None  # unlocked-tool-names tuple -> model bound to core + unlocked
 
 
 def _resolve_tool(
@@ -270,7 +323,22 @@ def _invoke_tool(
     return result
 
 
-_MOTION_TOOLS = frozenset({"move", "move_axis", "move_path"})
+_MOTION_TOOLS = frozenset({"move", "move_axis", "move_path", "goto_named", "run_script"})
+_LIVE_POSE_TOOLS = _MOTION_TOOLS | {
+    "find_home",
+    "scan_ndre",
+    "capture_ndre",
+    "get_position",
+}
+
+
+def _emit_position(writer: Any) -> None:
+    if writer is None:
+        return
+    xyz = _current_xyz()
+    if xyz is None:
+        return
+    writer({"type": "position", "xyz": {"x": xyz[0], "y": xyz[1], "z": xyz[2]}})
 
 
 def _has_active_goal(goal: dict[str, Any] | None) -> bool:
@@ -325,6 +393,8 @@ def _needs_approval(
             return True
     if name == "move":
         return _move_travel_mm(args) >= JOG_APPROVAL_MM
+    if name == "goto_named":
+        return _goto_named_travel_mm(args) >= JOG_APPROVAL_MM
     return False
 
 
@@ -337,6 +407,19 @@ def _move_travel_mm(args: dict[str, Any]) -> float:
     if current is None:
         return JOG_APPROVAL_MM + 1
     return sum((target[i] - current[i]) ** 2 for i in range(3)) ** 0.5
+
+
+def _goto_named_travel_mm(args: dict[str, Any]) -> float:
+    try:
+        from spatial_service import resolve_named
+
+        target = resolve_named(str(args.get("name") or ""))
+        z = args.get("z", target["z"])
+        return _move_travel_mm(
+            {"x": target["x"], "y": target["y"], "z": z}
+        )
+    except Exception:  # noqa: BLE001
+        return JOG_APPROVAL_MM + 1
 
 
 def _current_xyz() -> list[float] | None:
@@ -374,13 +457,17 @@ def build_graph(deps: RunDeps):
             return {
                 "stop_reason": STOP_CANCELLED if is_cancelled() else STOP_MAX_TURNS
             }
+        model = _model_for_turn(state, deps)
+        forced = model is deps.think_model and deps.think_model is not None
         response = timed_invoke(
-            deps.model,
+            model,
             messages_with_goal(state.get("messages") or [], state.get("goal")),
             deps.model_name,
             metrics=deps.metrics,
             parent=deps.weave_call,
         )
+        if forced:  # only the think call counts; drop any answer typed beside it
+            response = response.model_copy(update={"content": ""})
         update: dict[str, Any] = {
             "messages": [response],
             "turn": state.get("turn", 0) + 1,
@@ -402,8 +489,10 @@ def build_graph(deps: RunDeps):
         streamed_reasoning: list[str] = []
         reasoning_emitted = False
         assembled: Any = None
+        model = _model_for_turn(state, deps)
+        forced = model is deps.think_model and deps.think_model is not None
         for chunk in timed_stream(
-            deps.model,
+            model,
             messages_with_goal(state.get("messages") or [], state.get("goal")),
             deps.model_name,
             metrics=deps.metrics,
@@ -414,6 +503,8 @@ def build_graph(deps: RunDeps):
             stream_event = kwargs.get("stream_event")
             if isinstance(stream_event, dict) and stream_event.get("type"):
                 writer(stream_event)
+                continue
+            if forced:  # the think tool streams the real thought; hide chatter
                 continue
             for event in deps.reasoning.stream_chunks(
                 chunk,
@@ -431,6 +522,8 @@ def build_graph(deps: RunDeps):
         if buffer:
             writer({"type": "delta", "content": buffer})
         response = _ai_from_stream(assembled, buffer)
+        if forced:
+            response = response.model_copy(update={"content": ""})
         update = {
             "messages": [response],
             "turn": state.get("turn", 0) + 1,
@@ -489,6 +582,7 @@ def build_graph(deps: RunDeps):
         tool_messages: list[ToolMessage] = []
         vision_messages: list[HumanMessage] = []
         saw_action = False
+        unlocked: list[str] = []
         # Stream tool lifecycle events so the UI can show a row the moment a
         # call starts (often minutes for scans) instead of after the fact.
         writer = get_stream_writer() if deps.streaming else None
@@ -530,7 +624,12 @@ def build_graph(deps: RunDeps):
                             "args": args,
                         }
                     )
-                if name == "set_goal":
+                if name == "think" and writer:
+                    writer({"type": "thinking", "content": str(args.get("thought", ""))})
+                if name == "tool_search":
+                    result = _tool_search(deps, args)
+                    unlocked += [m["name"] for m in result.get("matches", [])]
+                elif name == "set_goal":
                     goal = apply_goal_update(goal, args)
                     result = {"status": "ok", "goal": goal}
                     if writer:
@@ -557,6 +656,8 @@ def build_graph(deps: RunDeps):
                         "images": _sse_images(name, result),
                     }
                 )
+                if name in _LIVE_POSE_TOOLS and _tool_succeeded(result):
+                    _emit_position(writer)
             records.append({"name": name, "args": args, "result": result})
             if isinstance(result, dict) and result.get("status") == "proposed":
                 proposed.append(
@@ -595,6 +696,7 @@ def build_graph(deps: RunDeps):
             "saw_action_call": saw_action,
             "goal": goal,
             "motion_approved": True if ran_motion else motion_approved,
+            "unlocked": unlocked,
         }
         if is_cancelled():
             update["stop_reason"] = STOP_CANCELLED

@@ -25,30 +25,123 @@ class UnsafeActionError(ValueError):
     """Raised when an action fails a safety rule."""
 
 
+_INF = float("inf")
+_DEFAULT_MIN = {"x": 0.0, "y": 0.0, "z": -_INF}
+_DEFAULT_MAX = {"x": 1900.0, "y": 650.0, "z": _INF}
+
+
 @dataclass(frozen=True)
 class SafetyLimits:
     max_water_seconds: float = 60.0
-    # When False (default), axis magnitude is not gated — operator is present.
-    enforce_workspace: bool = False
-    max_axis_mm: dict[str, float] = field(
-        default_factory=lambda: {"x": 650.0, "y": 1900.0, "z": 300.0}
-    )
+    enforce_workspace: bool = True
+    min_axis_mm: dict[str, float] = field(default_factory=lambda: dict(_DEFAULT_MIN))
+    max_axis_mm: dict[str, float] = field(default_factory=lambda: dict(_DEFAULT_MAX))
 
 
 def _env_flag(name: str, default: str = "0") -> bool:
     return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _cap(raw: str | None, fallback: float) -> float:
+    if raw is None or not str(raw).strip():
+        return fallback
+    text = str(raw).strip().lower()
+    if text in {"inf", "+inf", "none", "unbounded", "-"}:
+        return _INF
+    if text in {"-inf"}:
+        return -_INF
+    return float(raw)
+
+
+def _axis_pair(raw: object, lo: float, hi: float) -> tuple[float, float]:
+    if raw is None:
+        return lo, hi
+    if isinstance(raw, (list, tuple)) and len(raw) == 2:
+        a, b = raw
+        return (
+            -_INF if a is None else float(a),
+            _INF if b is None else float(b),
+        )
+    return lo, float(raw)
+
+
 def load_limits() -> SafetyLimits:
+    cfg: dict = {}
+    try:
+        from twfarmbot_core.config import load_yaml_config
+
+        cfg = load_yaml_config().get("safety") or {}
+    except Exception:  # noqa: BLE001
+        cfg = {}
+    ws = cfg.get("workspace") or {}
+    lo = dict(_DEFAULT_MIN)
+    hi = dict(_DEFAULT_MAX)
+    for axis in ("x", "y", "z"):
+        lo[axis], hi[axis] = _axis_pair(ws.get(axis), lo[axis], hi[axis])
+    water = cfg.get("max_water_seconds", 60)
+    enforce = bool(cfg.get("enforce_workspace", True))
+    if "FARMBOT_ENFORCE_WORKSPACE" in os.environ:
+        enforce = _env_flag("FARMBOT_ENFORCE_WORKSPACE")
+    if "FARMBOT_MAX_WATER_SECONDS" in os.environ:
+        water = os.environ["FARMBOT_MAX_WATER_SECONDS"]
+    for axis, env_name in (
+        ("x", "FARMBOT_MAX_AXIS_X"),
+        ("y", "FARMBOT_MAX_AXIS_Y"),
+        ("z", "FARMBOT_MAX_AXIS_Z"),
+    ):
+        if env_name in os.environ:
+            hi[axis] = _cap(os.environ.get(env_name), hi[axis])
+    for axis, env_name in (
+        ("x", "FARMBOT_MIN_AXIS_X"),
+        ("y", "FARMBOT_MIN_AXIS_Y"),
+        ("z", "FARMBOT_MIN_AXIS_Z"),
+    ):
+        if env_name in os.environ:
+            lo[axis] = _cap(os.environ.get(env_name), lo[axis])
     return SafetyLimits(
-        max_water_seconds=float(os.getenv("FARMBOT_MAX_WATER_SECONDS", "60")),
-        enforce_workspace=_env_flag("FARMBOT_ENFORCE_WORKSPACE", "0"),
-        max_axis_mm={
-            "x": float(os.getenv("FARMBOT_MAX_AXIS_X", "650")),
-            "y": float(os.getenv("FARMBOT_MAX_AXIS_Y", "1900")),
-            "z": float(os.getenv("FARMBOT_MAX_AXIS_Z", "300")),
-        },
+        max_water_seconds=float(water),
+        enforce_workspace=enforce,
+        min_axis_mm=lo,
+        max_axis_mm=hi,
     )
+
+
+def format_workspace_box(limits: SafetyLimits | None = None) -> str:
+    """Prompt text: allowed millimetres from home (0,0,0)."""
+    limits = limits or load_limits()
+
+    def _fmt(axis: str) -> str:
+        a = limits.min_axis_mm.get(axis, 0.0)
+        b = limits.max_axis_mm.get(axis, _INF)
+        if not math.isfinite(a) and not math.isfinite(b):
+            return f"{axis} unconstrained"
+        lo = f"{a:g}" if math.isfinite(a) else "open"
+        hi = f"{b:g}" if math.isfinite(b) else "open"
+        return f"{axis} {lo}..{hi}"
+
+    box = ", ".join(_fmt(a) for a in ("x", "y", "z"))
+    if not limits.enforce_workspace:
+        return f"Home is (0,0,0) after find_home. Travel box (not enforced): {box} mm."
+    return (
+        f"Home is (0,0,0) after find_home. Hard travel box (mm): {box}. "
+        "Do not request poses outside it; tools reject them."
+    )
+
+
+def workspace_payload(limits: SafetyLimits | None = None) -> dict[str, dict[str, float | None]]:
+    """JSON limits for the UI map. ``null`` means that side is open."""
+    limits = limits or load_limits()
+
+    def _side(value: float) -> float | None:
+        return float(value) if math.isfinite(value) else None
+
+    return {
+        axis: {
+            "min": _side(limits.min_axis_mm.get(axis, 0.0)),
+            "max": _side(limits.max_axis_mm.get(axis, _INF)),
+        }
+        for axis in ("x", "y", "z")
+    }
 
 
 Validator = Callable[[Action, SafetyLimits], None]
@@ -66,9 +159,47 @@ def register(kind: str, validator: Validator) -> None:
 def _check_axis_value(axis: str, value: float, limits: SafetyLimits) -> None:
     if not limits.enforce_workspace:
         return
-    cap = limits.max_axis_mm.get(axis, float("inf"))
-    if abs(value) > cap:
-        raise UnsafeActionError(f"move action {axis}={value} exceeds |max| {cap} mm")
+    lo = limits.min_axis_mm.get(axis, 0.0)
+    hi = limits.max_axis_mm.get(axis, _INF)
+    if value < lo or value > hi:
+        raise UnsafeActionError(
+            f"move action {axis}={value} outside [{lo:g}, {hi:g}] mm from home"
+        )
+
+
+def _read_xyz() -> tuple[float, float, float]:
+    from farmbot_gateway import farmbot
+
+    start = farmbot.backend.get_xyz()
+    if isinstance(start, dict):
+        return (
+            float(start.get("x", 0)),
+            float(start.get("y", 0)),
+            float(start.get("z", 0)),
+        )
+    if isinstance(start, (list, tuple)) and len(start) >= 3:
+        return float(start[0]), float(start[1]), float(start[2])
+    raise UnsafeActionError("unexpected position shape")
+
+
+def _check_move_axis(action: Action, limits: SafetyLimits) -> None:
+    axis = str(action.params.get("axis") or "").strip().lower()
+    if axis not in {"x", "y", "z"}:
+        raise UnsafeActionError("move_axis needs axis x, y, or z")
+    try:
+        dist = float(action.params.get("distance"))
+    except (TypeError, ValueError) as err:
+        raise UnsafeActionError("move_axis distance must be numeric") from err
+    if not limits.enforce_workspace:
+        return
+    try:
+        x, y, z = _read_xyz()
+    except UnsafeActionError:
+        raise
+    except Exception as err:  # noqa: BLE001
+        raise UnsafeActionError(f"move_axis cannot read position: {err}") from err
+    cur = {"x": x, "y": y, "z": z}[axis]
+    _check_axis_value(axis, cur + dist, limits)
 
 
 def _check_move(action: Action, limits: SafetyLimits) -> None:
@@ -222,30 +353,19 @@ def _check_capture_ndre(action: Action, limits: SafetyLimits) -> None:
         SpectralAnalysisError,
         band_separation_mm,
     )
-    from farmbot_gateway import farmbot
 
     try:
         separation = band_separation_mm()
-        start = farmbot.backend.get_xyz()
+        x0, y0, z0 = _read_xyz()
     except SpectralAnalysisError as err:
         raise UnsafeActionError(f"capture_ndre calibration: {err}") from err
+    except UnsafeActionError:
+        raise
     except Exception as err:  # noqa: BLE001
         raise UnsafeActionError(f"capture_ndre cannot read position: {err}") from err
 
     if not limits.enforce_workspace:
         return
-
-    if isinstance(start, dict):
-        x0, y0, z0 = (
-            float(start.get("x", 0)),
-            float(start.get("y", 0)),
-            float(start.get("z", 0)),
-        )
-    elif isinstance(start, (list, tuple)) and len(start) >= 3:
-        x0, y0, z0 = float(start[0]), float(start[1]), float(start[2])
-    else:
-        raise UnsafeActionError("capture_ndre: unexpected position shape")
-
     _check_xyz(
         x0 + float(separation.get("x", 0)),
         y0 + float(separation.get("y", 0)),
@@ -264,7 +384,8 @@ def _check_scan_ndre(action: Action, limits: SafetyLimits) -> None:
         step = float(action.params.get("step_mm") or 100)
         end = float(action.params["end_mm"])
         start = float(action.params["start_mm"]) if action.params.get("start_mm") is not None else 0.0
-        z_value = float(action.params["z"]) if action.params.get("z") is not None else 0.0
+        z_param = action.params.get("z")
+        z_value = float(z_param) if z_param is not None else None
     except (TypeError, ValueError) as err:
         raise UnsafeActionError(f"scan_ndre params must be numeric: {err}") from err
     if step < 50 or step > 800:
@@ -274,19 +395,49 @@ def _check_scan_ndre(action: Action, limits: SafetyLimits) -> None:
         raise UnsafeActionError(
             "scan_ndre would take too many stops; increase step_mm"
         )
+    x0, y0, z0 = 0.0, 0.0, 0.0
+    if limits.enforce_workspace:
+        try:
+            x0, y0, z0 = _read_xyz()
+        except Exception as err:  # noqa: BLE001
+            raise UnsafeActionError(f"scan_ndre cannot read position: {err}") from err
+    if z_value is None:
+        z_value = z0
     if axis == "y":
-        _check_xyz(0.0, start, z_value, limits)
-        _check_xyz(0.0, end, z_value, limits)
+        _check_xyz(x0, start, z_value, limits)
+        _check_xyz(x0, end, z_value, limits)
     else:
-        _check_xyz(start, 0.0, z_value, limits)
-        _check_xyz(end, 0.0, z_value, limits)
+        _check_xyz(start, y0, z_value, limits)
+        _check_xyz(end, y0, z_value, limits)
     _check_capture_ndre(Action(kind="capture_ndre", params={}), limits)
 
 
+def _check_run_script(action: Action, limits: SafetyLimits) -> None:
+    name = action.params.get("name")
+    if not name:
+        raise UnsafeActionError("run_script action needs a name")
+    try:
+        from spatial_service import resolve_script
+
+        script = resolve_script(str(name))
+    except ValueError as err:
+        raise UnsafeActionError(str(err)) from err
+    waypoints = script.get("waypoints") or []
+    if not waypoints:
+        raise UnsafeActionError(
+            f"{script['label']!r} has no waypoints yet. Record them on the Scripts page."
+        )
+    _check_move_path(
+        Action(kind="move_path", params={"waypoints": waypoints}), limits
+    )
+
+
 register("move", _check_move)
+register("move_axis", _check_move_axis)
 register("move_path", _check_move_path)
 register("water", _check_water)
 register("goto_named", _check_goto_named)
+register("run_script", _check_run_script)
 register("water_zone", _check_water_zone)
 register("inspect_zone", _check_inspect_zone)
 register("capture", _check_capture)
