@@ -149,3 +149,35 @@ def test_handle_move_path_calls_backend(monkeypatch: Any) -> None:
     assert result is action
     assert moves == [(10.0, 20.0, 30.0), (40.0, 50.0, 60.0)]
     assert len(photos) == 2
+
+
+def test_handle_run_script_uses_move_path(monkeypatch: Any, tmp_path) -> None:
+    from spatial_service.scripts import save_scripts
+    from twfarmbot_api_server.handlers import jobs as jobs_handler
+    from twfarmbot_api_server.handlers import path as path_handler
+
+    path = tmp_path / "dev.yaml"
+    path.write_text("scripts: []\n", encoding="utf-8")
+    monkeypatch.setenv("TWFB_CONFIG", str(path))
+    save_scripts(
+        [
+            {
+                "label": "Get tool servo",
+                "waypoints": [
+                    {"x": 1927, "y": 186, "z": 0},
+                    {"x": 1850, "y": 186, "z": -297},
+                ],
+            }
+        ]
+    )
+    moves: list[tuple[float, float, float]] = []
+    monkeypatch.setattr(
+        path_handler.farmbot.backend,
+        "move",
+        lambda x, y, z, speed=None: moves.append((x, y, z)),
+    )
+    result = jobs_handler.handle_run_script(
+        Action(kind="run_script", params={"name": "Get tool servo"})
+    )
+    assert result.params["resolved"] == "Get tool servo"
+    assert moves == [(1927.0, 186.0, 0.0), (1850.0, 186.0, -297.0)]

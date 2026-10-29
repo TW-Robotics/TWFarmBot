@@ -110,3 +110,48 @@ def test_handle_scan_ndre_visits_each_stop(monkeypatch) -> None:
     assert [sample["y"] for sample in out.params["samples"]] == [0.0, 100.0, 200.0, 300.0]
     assert captures["n"] == 4
     assert moves[-1] == {"x": 10.0, "y": 0.0, "z": 0.0}
+
+
+def test_handle_scan_ndre_stamps_each_stop(monkeypatch) -> None:
+    from spatial_service.observations import ObservationStore
+
+    store = ObservationStore(":memory:")
+    monkeypatch.setattr(
+        "spatial_service.observations.get_observation_store",
+        lambda db_path=None: store,
+    )
+    monkeypatch.setattr(
+        "twfarmbot_api_server.handlers.jobs.farmbot.backend.get_xyz",
+        lambda: {"x": 10.0, "y": 0.0, "z": 0.0},
+    )
+    monkeypatch.setattr(
+        "twfarmbot_api_server.handlers.jobs.handle_move",
+        lambda action: action,
+    )
+
+    def fake_pair(return_to_start=True):
+        n = store.count()
+        return {
+            "metrics": {
+                "summary": "ok",
+                "ndre": {"mean": 0.1 * (n + 1), "stress_fraction": 0.2},
+                "interpretation": {"action_hint": "monitor"},
+            },
+            "gantry_mm": {"x": 10.0, "y": float(n * 100), "z": 0.0},
+            "nir": {"artifact_id": f"nir-{n}", "band": "nir"},
+            "rededge": {"artifact_id": f"re-{n}", "band": "rededge"},
+        }
+
+    monkeypatch.setattr(
+        "twfarmbot_api_server.spectral.capture_spectral_pair", fake_pair
+    )
+    out = handle_scan_ndre(
+        Action(
+            kind="scan_ndre",
+            params={"axis": "y", "end_mm": 300, "step_mm": 100, "start_mm": 0},
+        )
+    )
+    assert out.params["count"] == 4
+    assert store.count() == 4
+    cells = store.latest_cells(cell_mm=100)
+    assert len(cells) == 4

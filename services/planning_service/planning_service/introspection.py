@@ -29,7 +29,13 @@ from twfarmbot_ml_utils import (
 )
 
 from . import path_planning
-from .tools import ForgetMemoryArgs, RecallMemoriesArgs, RememberArgs, SetGoalArgs
+from .tools import (
+    FindLocationsArgs,
+    ForgetMemoryArgs,
+    RecallMemoriesArgs,
+    RememberArgs,
+    SetGoalArgs,
+)
 
 _T = TypeVar("_T")
 
@@ -43,6 +49,38 @@ _IMAGE_PROCESSOR: VisionProcessor | None = None
 
 class _NoArgs(BaseModel):
     pass
+
+
+class GetWeatherHistoryArgs(BaseModel):
+    range: str = Field(
+        default="month",
+        description="Past period: 'day' (hourly), 'month' (daily, last ~31 days), or 'year' (daily). Use 'month' for 'last month'.",
+    )
+    display: bool = Field(
+        default=True,
+        description=(
+            "Show a weather-history chart inline in the chat. Keep true when the user asks "
+            "how the weather was or says show/display it; only set false when you need the "
+            "numbers silently for your own reasoning."
+        ),
+    )
+
+
+class GetForecastArgs(BaseModel):
+    hours: int = Field(
+        default=48,
+        ge=3,
+        le=72,
+        description="How many hours ahead to cover (3-72).",
+    )
+    display: bool = Field(
+        default=True,
+        description=(
+            "Show a forecast chart inline in the chat. Leave true when the user asks about the "
+            "weather or you are explaining a forecast; set false when you only need the numbers "
+            "for your own reasoning (e.g. deciding whether to water)."
+        ),
+    )
 
 
 class ListEndpointsArgs(BaseModel):
@@ -202,11 +240,23 @@ class SystemStateProvider:
     def get_garden(self) -> dict[str, Any]:
         raise NotImplementedError
 
+    def find_locations(
+        self, predicate: str, cell_mm: float = 250.0
+    ) -> dict[str, Any]:
+        from spatial_service import find_locations as query
+
+        return query(predicate, cell_mm=cell_mm)
+
     def get_pins(self) -> list[dict[str, Any]]:
         raise NotImplementedError
 
     def get_positions(self) -> list[dict[str, Any]]:
         raise NotImplementedError
+
+    def get_scripts(self) -> list[dict[str, Any]]:
+        from spatial_service import list_scripts
+
+        return list_scripts()
 
     def get_images(self, limit: int = 5) -> list[dict[str, Any]]:
         raise NotImplementedError
@@ -215,6 +265,16 @@ class SystemStateProvider:
         from .meteorology import get_meteorology
 
         return get_meteorology()
+
+    def get_forecast(self, hours: int = 48) -> dict[str, Any]:
+        from .meteorology import get_forecast
+
+        return get_forecast(hours=hours)
+
+    def get_weather_history(self, range_: str = "month") -> dict[str, Any]:
+        from .meteorology import get_weather_history
+
+        return get_weather_history(range_)
 
     def remember(
         self,
@@ -406,13 +466,49 @@ def build_introspection_tools(
 
     @tool(args_schema=_NoArgs)
     def get_garden() -> dict[str, Any]:
-        """Return the configured world model (bounds, zones, entities, camera pose).
+        """Return the world model: bounds, camera, entities, zones, and latest bed cells.
 
-        Use this to look up zone names and coordinates. This is the same
-        data the planner sees in the world-model context, but queried live
-        so it reflects the current config.
+        `cells` is the pose-stamped map (NDRE vigor and plant/weed/soil coverage).
+        To go to a crop attribute, prefer `find_locations` then `move`.
         """
         return _safe("get_garden", provider.get_garden)
+
+    @tool(args_schema=FindLocationsArgs)
+    def find_locations(
+        predicate: str, cell_mm: float = 250.0
+    ) -> dict[str, Any]:
+        """Rank latest bed-map cells and return gantry millimetre targets.
+
+        predicate: plant, weed, soil, healthy, or stressed. Ripeness is not
+        a map layer yet. Then call move(x,y,z) on the top location.
+        A saved position name (e.g. "carrot", "home") is NOT a map predicate:
+        it is matched against `get_positions` first and answered with the
+        `goto_named` call to make.
+        """
+        try:
+            wanted = predicate.strip().lower().removeprefix("the ").strip()
+            for pos in provider.get_positions():
+                if str(pos.get("label", "")).strip().lower() == wanted and pos.get("set") is not False:
+                    return {
+                        "named_position": pos["label"],
+                        "x": pos.get("x"),
+                        "y": pos.get("y"),
+                        "z": pos.get("z"),
+                        "next": f'call goto_named(name="{pos["label"]}") to travel there',
+                    }
+        except Exception:  # noqa: BLE001
+            log.debug("named-position lookup failed", exc_info=True)
+        try:
+            result = provider.find_locations(predicate, cell_mm=cell_mm)
+            if isinstance(result, dict) and not result.get("locations"):
+                result["hint"] = (
+                    "No scanned cells. If the user named a place, call "
+                    "goto_named(name) or get_positions instead of scanning."
+                )
+            return result
+        except Exception as err:  # noqa: BLE001
+            log.warning("find_locations failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
 
     @tool(args_schema=_NoArgs)
     def list_zones() -> dict[str, Any]:
@@ -465,8 +561,13 @@ def build_introspection_tools(
 
     @tool(args_schema=_NoArgs)
     def get_positions() -> dict[str, Any]:
-        """List the named gantry position presets (Home, Bed, ...)."""
+        """Named gantry presets from the Motion page. Use goto_named to travel to a label."""
         return _safe("get_positions", lambda: {"positions": provider.get_positions()})
+
+    @tool(args_schema=_NoArgs)
+    def get_scripts() -> dict[str, Any]:
+        """Named waypoint scripts from the Scripts page. Use run_script to play one."""
+        return _safe("get_scripts", lambda: {"scripts": provider.get_scripts()})
 
     @tool(args_schema=_NoArgs)
     def get_images(limit: int = 5) -> dict[str, Any]:
@@ -528,7 +629,7 @@ def build_introspection_tools(
                 if class_scores
                 else None
             )
-            return _with_resireg_latency(
+            payload = _with_resireg_latency(
                 {
                     "image_urls": [
                         _image_to_data_uri(Path(result[0])),
@@ -544,6 +645,15 @@ def build_introspection_tools(
                 },
                 latency,
             )
+            try:
+                from spatial_service import try_record_segment
+
+                try_record_segment(
+                    provider.get_position(), class_scores, dominant
+                )
+            except Exception:  # noqa: BLE001
+                log.warning("segment_image map stamp failed", exc_info=True)
+            return payload
         except Exception as err:  # noqa: BLE001
             log.warning("segment_image failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
@@ -659,6 +769,24 @@ def build_introspection_tools(
             log.warning("get_meteorology failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
 
+    @tool(args_schema=GetForecastArgs)
+    def get_forecast(hours: int = 48, display: bool = True) -> dict[str, Any]:
+        """Look ahead at the weather for the next 1-3 days.
+
+        Returns 3-hour blocks (temperature, humidity, cloud cover, rain mm, solar W/m²),
+        a per-day summary (min/max temperature, rain total, peak sun), the time rain
+        is next expected (`next_rain_at`, unix seconds) and sunrise/sunset times.
+        Use it before recommending watering, scans or outdoor work. By default the
+        user also sees a chart of it in the chat, so do not repeat every number —
+        summarise what matters (rain, frost, heat, best scan window).
+        """
+        try:
+            result = provider.get_forecast(hours=hours)
+            return {**result, "display": display}
+        except Exception as err:  # noqa: BLE001
+            log.warning("get_forecast failed: %s", err)
+            return {"error": f"{type(err).__name__}: {err}"}
+
     @tool(args_schema=RememberArgs)
     def remember(
         content: str,
@@ -721,6 +849,39 @@ def build_introspection_tools(
             log.warning("recall_memories failed: %s", err)
             return {"error": f"{type(err).__name__}: {err}"}
 
+    @tool
+    def get_help(topic: str = "") -> dict[str, Any]:
+        """Load a reference note. Topics: spectral (NIR/red-edge cameras, NDRE
+        meaning and how to report it). Call with no topic to list topics."""
+        from .help_topics import get_help as _help
+
+        return {"help": _help(topic)}
+
+    @tool
+    def tool_search(query: str) -> dict[str, Any]:
+        """Find more tools by keyword and unlock them for your next call, e.g.
+        'scan ndre', 'light', 'gpio pin', 'segment image', 'zone path', 'goal',
+        'home axis', 'forget memory'. Only core tools are listed by default."""
+        return {"note": "handled by the harness"}  # see graph._tool_search
+
+    @tool
+    def think(thought: str) -> dict[str, Any]:
+        """Scratchpad: reason out loud before acting. No side effects.
+
+        Use it (a) at the start of any request that is ambiguous or names a
+        place/thing: what does the user mean, which tools or saved positions
+        could match, what is my plan; and (b) after a tool result that did not
+        answer the question: what went wrong, what will I try next.
+        """
+        return {
+            "status": "ok",
+            "next": (
+                "Now carry out your plan: call the tool(s) you named (e.g. "
+                "get_position for where the robot is). Do not answer from "
+                "memory; answer only from tool results."
+            ),
+        }
+
     @tool(args_schema=SetGoalArgs)
     def set_goal(
         objective: str | None = None,
@@ -760,9 +921,11 @@ def build_introspection_tools(
         get_messages,
         read_pin,
         get_garden,
+        find_locations,
         list_zones,
         get_pins,
         get_positions,
+        get_scripts,
         get_images,
         plan_path,
         scan_zone,
@@ -771,10 +934,14 @@ def build_introspection_tools(
         visualize_image_features,
         estimate_traversability,
         get_meteorology,
+        get_forecast,
         remember,
         recall_memories,
         forget_memory,
         set_goal,
+        think,
+        get_help,
+        tool_search,
     ]
 
 
@@ -804,6 +971,9 @@ class HttpSystemStateProvider(SystemStateProvider):
             {"method": "GET", "path": "/images", "summary": "Recent camera images"},
             {"method": "GET", "path": "/pins", "summary": "Named GPIO pins"},
             {"method": "GET", "path": "/positions", "summary": "Named gantry presets"},
+            {"method": "PUT", "path": "/positions", "summary": "Replace named gantry presets"},
+            {"method": "GET", "path": "/scripts", "summary": "Named waypoint scripts"},
+            {"method": "PUT", "path": "/scripts", "summary": "Replace named waypoint scripts"},
             {"method": "GET", "path": "/garden", "summary": "World model snapshot"},
             {"method": "GET", "path": "/memory", "summary": "Long-term agent memories"},
             {"method": "GET", "path": "/meteorology", "summary": "Sun, weather, agronomic advice"},
@@ -841,6 +1011,15 @@ class HttpSystemStateProvider(SystemStateProvider):
     def get_garden(self) -> dict[str, Any]:
         return self._get("/garden")
 
+    def find_locations(
+        self, predicate: str, cell_mm: float = 250.0
+    ) -> dict[str, Any]:
+        r = self._client.get(
+            "/garden/find", params={"predicate": predicate, "cell_mm": cell_mm}
+        )
+        r.raise_for_status()
+        return r.json() if r.content else {}
+
     def get_pins(self) -> list[dict[str, Any]]:
         body = self._get("/pins")
         return list(body.get("pins", [])) if isinstance(body, dict) else []
@@ -849,12 +1028,19 @@ class HttpSystemStateProvider(SystemStateProvider):
         body = self._get("/positions")
         return list(body.get("positions", [])) if isinstance(body, dict) else []
 
+    def get_scripts(self) -> list[dict[str, Any]]:
+        body = self._get("/scripts")
+        return list(body.get("scripts", [])) if isinstance(body, dict) else []
+
     def get_images(self, limit: int = 5) -> list[dict[str, Any]]:
         body = self._get(f"/images?limit={limit}")
         return list(body.get("images", [])) if isinstance(body, dict) else []
 
     def get_meteorology(self) -> dict[str, Any]:
         return self._get("/meteorology")
+
+    def get_forecast(self, hours: int = 48) -> dict[str, Any]:
+        return self._get(f"/meteorology/forecast?hours={hours}")
 
     def remember(
         self,
@@ -977,11 +1163,27 @@ class InMemorySystemStateProvider(SystemStateProvider):
     def get_garden(self) -> dict[str, Any]:
         return dict(self._data.get("garden", {}))
 
+    def find_locations(
+        self, predicate: str, cell_mm: float = 250.0
+    ) -> dict[str, Any]:
+        cached = self._data.get("find_locations")
+        if isinstance(cached, dict):
+            return dict(cached)
+        return {
+            "predicate": predicate,
+            "cell_mm": cell_mm,
+            "locations": [],
+            "count": 0,
+        }
+
     def get_pins(self) -> list[dict[str, Any]]:
         return list(self._data.get("pins_list", []))
 
     def get_positions(self) -> list[dict[str, Any]]:
         return list(self._data.get("positions", []))
+
+    def get_scripts(self) -> list[dict[str, Any]]:
+        return list(self._data.get("scripts", []))
 
     def get_images(self, limit: int = 5) -> list[dict[str, Any]]:
         return list(self._data.get("images", []))[:limit]
@@ -992,6 +1194,13 @@ class InMemorySystemStateProvider(SystemStateProvider):
         from .meteorology import get_meteorology
 
         return get_meteorology()
+
+    def get_forecast(self, hours: int = 48) -> dict[str, Any]:
+        if "forecast" in self._data:
+            return dict(self._data["forecast"])
+        from .meteorology import get_forecast
+
+        return get_forecast(hours=hours)
 
     def remember(
         self,

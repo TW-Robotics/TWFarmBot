@@ -19,7 +19,9 @@ import { MicrophoneIcon, SpeakerWaveIcon, StopIcon } from "@heroicons/react/24/o
 import { ApiError, api, apiUrl, streamChat } from "../api";
 import { useMicTranscribe } from "../useMicTranscribe";
 import { useRealtimeVoice } from "../useRealtimeVoice";
+import { VoiceDock } from "../components/VoiceDock";
 import { VoiceOverlay } from "../components/VoiceOverlay";
+import { useDevice } from "../device";
 import {
   GoalBubble,
   AssistantContent,
@@ -173,7 +175,11 @@ function shortModelName(id: string): string {
   return slash >= 0 ? id.slice(slash + 1) : id;
 }
 
-export function AssistantPage() {
+export function AssistantPage({
+  onBusyChange,
+}: {
+  onBusyChange?: (busy: boolean) => void;
+}) {
   const toast = useToast();
   // Bump this when the assistant wire format/provider defaults change so old
   // conversations cannot keep the UI in an incompatible state.
@@ -200,6 +206,7 @@ export function AssistantPage() {
   const [activeProfileName, setActiveProfileName] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const mic = useMicTranscribe();
+  const { isTablet } = useDevice();
   const voice = useRealtimeVoice();
   const voiceApiRef = useRef(voice);
   voiceApiRef.current = voice;
@@ -207,6 +214,11 @@ export function AssistantPage() {
   messagesRef.current = messages;
   const busyRef = useRef(busy);
   busyRef.current = busy;
+
+  useEffect(() => {
+    onBusyChange?.(busy);
+    return () => onBusyChange?.(false);
+  }, [busy, onBusyChange]);
   const midRunUsersRef = useRef<ChatMsg[]>([]);
   const leftoverRef = useRef<string[]>([]);
   const pendingRef = useRef(pendingApprovals);
@@ -612,7 +624,11 @@ export function AssistantPage() {
         emptyState={
           <EmptyState
             title="What would you like to do?"
-            description="Ask about the garden, inspect robot state, analyze a camera image, or prepare a safe action."
+            description={
+              isTablet
+                ? "Tap Live voice to talk hands-free, or Transcribe to record a single request."
+                : "Ask about the garden, inspect robot state, analyze a camera image, or prepare a safe action."
+            }
           />
         }
         composer={
@@ -637,6 +653,23 @@ export function AssistantPage() {
                 }}
               />
             )}
+            {isTablet ? (
+              <VoiceDock
+                liveOn={voice.listening}
+                recording={mic.recording}
+                transcribing={mic.busy}
+                busy={busy || pendingApprovals.length > 0}
+                onLive={toggleVoice}
+                onTranscribe={() =>
+                  void mic.toggle(
+                    llmOverridesFromProfile(getActiveLlmProfile()),
+                    (text) => void send(text),
+                    (message) => toast({ body: message, type: "error" }),
+                  )
+                }
+                onStop={() => void stopRun()}
+              />
+            ) : (
             <ChatComposer
             placeholder="Ask about your garden…"
             value={draft}
@@ -730,6 +763,7 @@ export function AssistantPage() {
               />
             }
           />
+            )}
           </VStack>
         }
       >

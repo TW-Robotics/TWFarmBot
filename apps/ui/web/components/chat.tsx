@@ -10,7 +10,7 @@
  * Everything is an Astryx component so colors, scale and spacing stay on
  * theme tokens — no ad-hoc hex colors or font sizes.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   ChatMessageMetadata,
   ChatToolCalls,
@@ -32,6 +32,7 @@ import { Thumbnail } from "@astryxdesign/core/Thumbnail";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { InformationCircleIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { apiUrl } from "../api";
+import { ForecastCard, isForecastResult } from "./ForecastCard";
 
 // ---------------------------------------------------------------------------
 // Shared chat types (used by AssistantPage for state + streaming)
@@ -273,6 +274,9 @@ function describeToolCall(name: string, args: unknown): string {
         ? `${base} = ${String(a.value)}`
         : base;
     }
+    case "goto_named":
+    case "run_script":
+      return typeof a.name === "string" ? a.name : "";
     case "mount_tool":
     case "dismount_tool":
       return typeof a.tool_name === "string"
@@ -414,11 +418,28 @@ function toolGroupImages(items: ToolTranscriptItem[]): ToolImage[] {
   return items.flatMap((item) => mergeToolImages(item.images, item.name, item.result));
 }
 
+/**
+ * Rich inline visuals for tool results, keyed by tool name. A visual renders
+ * under the tool rows when its `render` returns a node (null = nothing to show).
+ */
+const TOOL_VISUALS: Record<string, (result: unknown) => ReactNode> = {
+  get_forecast: (result) =>
+    isForecastResult(result) && result.display !== false ? <ForecastCard result={result} /> : null,
+};
+
 /** Consecutive tool calls render as one grouped, collapsible ChatToolCalls. */
 function ToolCallsGroup({ items }: { items: ToolTranscriptItem[] }) {
   return (
     <VStack gap={2} style={{ minWidth: 0 }}>
       <ChatToolCalls calls={items.map(toCallItem)} />
+      {items.map((item, index) => {
+        const visual = item.result === undefined ? null : TOOL_VISUALS[item.name]?.(item.result);
+        return visual ? (
+          <div key={item.id ?? `${item.name}-${index}`} className="chat-visual">
+            {visual}
+          </div>
+        ) : null;
+      })}
       <ToolImageGrid images={toolGroupImages(items)} />
     </VStack>
   );

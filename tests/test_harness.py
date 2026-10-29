@@ -257,16 +257,13 @@ def test_reasoning_controller_splits_text_events() -> None:
 # ─────────────────────────────── ContextBuilder ──────────────────────────────
 
 
-def test_context_builder_lists_tools_in_prompt() -> None:
-    reg = _make_registry()
-    tool_registry = ToolRegistry(reg)
-    builder = ContextBuilder(tool_registry)
-    prompt = builder.chat_system_prompt()
-    assert "Available tools" in prompt
-    assert "take_photo" in prompt
-    assert "move" in prompt
-    assert "observe → decide → act → verify" in prompt
-    assert "After a move, use `get_position` to confirm arrival" in prompt
+def test_context_builder_prompt_is_slim_and_points_to_tools() -> None:
+    prompt = ContextBuilder(ToolRegistry(_make_registry())).chat_system_prompt()
+    assert "Available tools" not in prompt  # schemas are sent with the request
+    assert "tool_search" in prompt and "get_help" in prompt
+    assert "get_position" in prompt  # verify moves
+    assert len(prompt) < 4500
+
 
 
 # ────────────────────────────────── AgentLoop ────────────────────────────────
@@ -872,6 +869,8 @@ def test_agent_hides_resi_except_segment() -> None:
     tools = ToolRegistry(_make_registry(), InMemorySystemStateProvider())
     names = set(tools.by_name())
     assert "segment_image" in names
+    assert "get_garden" in names
+    assert "find_locations" in names
     assert "analyze_image" not in names
     assert "visualize_image_features" not in names
     assert "estimate_traversability" not in names
@@ -1302,3 +1301,30 @@ def test_water_runs_even_when_a_watering_fact_exists() -> None:
     assert result.tool_calls[0]["result"]["status"] == "ok"
     texts = " ".join(m["content"] for m in store.list_recent(limit=8))
     assert texts.count("Pump ran") >= 2
+
+
+def test_think_is_forced_on_first_turn_and_after_errors() -> None:
+    from types import SimpleNamespace
+
+    from planning_service.harness.graph import _model_for_turn
+
+    deps = SimpleNamespace(model="free", think_model="forced")
+    assert _model_for_turn({"turn": 0}, deps) == "forced"
+    assert _model_for_turn({"turn": 2, "consecutive_errors": 0}, deps) == "free"
+    assert _model_for_turn({"turn": 2, "consecutive_errors": 1}, deps) == "forced"
+    assert _model_for_turn({"turn": 0}, SimpleNamespace(model="free", think_model=None)) == "free"
+
+
+def test_tool_search_unlocks_deferred_tools_and_core_stays_bound() -> None:
+    from types import SimpleNamespace
+
+    from planning_service.harness.graph import _model_for_turn, _tool_search
+    from planning_service.harness.tool_registry import CORE_TOOLS
+
+    tool_registry = ToolRegistry(_make_registry())
+    deps = SimpleNamespace(registry=tool_registry, model="all", think_model=None,
+                           bind=lambda unlocked: ("bound", unlocked))
+    out = _tool_search(deps, {"query": "ndre"})
+    names = [m["name"] for m in out["matches"]]
+    assert "capture_ndre" in names and not set(names) & CORE_TOOLS
+    assert _model_for_turn({"turn": 3, "unlocked": names + names}, deps) == ("bound", tuple(dict.fromkeys(names)))

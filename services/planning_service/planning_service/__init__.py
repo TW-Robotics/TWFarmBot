@@ -101,7 +101,7 @@ def plan(
 
     tool_registry = ToolRegistry(registry, system_state)
     approval_gate = ApprovalGate(registry, planning_mode=True)
-    context_builder = ContextBuilder(tool_registry, world=world)
+    context_builder = ContextBuilder(tool_registry)
     planner_model = base_model
     selected_model = model_name or cfg.model
 

@@ -173,7 +173,7 @@ def test_inmemory_provider_memory_tools() -> None:
     assert after_forget["count"] == 0
 
 
-def test_context_builder_injects_memories(mem_store: MemoryStore) -> None:
+def test_context_builder_does_not_inject_memories(mem_store: MemoryStore) -> None:
     mem_store.remember(
         content="Plant at (1100, 200) showed high chlorophyll index.",
         category="agronomy",
@@ -186,9 +186,9 @@ def test_context_builder_injects_memories(mem_store: MemoryStore) -> None:
     cb = ContextBuilder(tool_reg)
 
     prompt = cb.chat_system_prompt()
-    assert "Recent Long-Term Memories" in prompt
-    assert "chlorophyll index" in prompt
-    assert "ACTIVELY REASON" in prompt
+    # Memories are fetched via the recall_memories tool, never put in the prompt.
+    assert "Recent Long-Term Memories" not in prompt
+    assert "chlorophyll index" not in prompt
 
 
 def test_collapse_auto_entries_keeps_one_water_and_one_ndre_cell() -> None:

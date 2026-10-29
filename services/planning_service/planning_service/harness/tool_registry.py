@@ -14,10 +14,13 @@ from ..tools import (
     CaptureNdreArgs,
     ScanNdreArgs,
     FindHomeArgs,
+    GotoNamedArgs,
     MountToolArgs,
     MoveArgs,
     MovePathArgs,
     ReadPinArgs,
+    RunScriptArgs,
+    SetLightArgs,
     WaterArgs,
     WritePinArgs,
 )
@@ -36,6 +39,11 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         requires_approval=True,
         safety_rules=("water",),
         description="Start the bed sprayers (one pump for all nozzles). The Shelly plug already stops after 1 minute. Pauses for operator approval in chat.",
+    ),
+    "set_light": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=False,
+        description="Turn the bed work/grow light on or off (Shelly plug). Stays on until off. Not the light sensor pin.",
     ),
     "find_home": ToolPolicy(
         ToolCategory.ACT,
@@ -103,7 +111,7 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         safety_rules=("scan_ndre",),
         description=(
             "Sweep X or Y in millimetre steps and run capture_ndre at every "
-            "stop. Use this for bed transects (e.g. y=0..300 step 100). "
+            "stop. Use this for bed transects (e.g. y=0..650 step 100). "
             "Do not loop move+capture_ndre yourself. Pauses for approval in chat."
         ),
     ),
@@ -112,6 +120,27 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         requires_approval=True,
         safety_rules=("move_path",),
         description="Move the gantry through a sequence of waypoints, optionally taking photos. Pauses for operator approval in chat.",
+    ),
+    "goto_named": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=False,
+        safety_rules=("goto_named",),
+        description=(
+            "Move to a named gantry preset from the Motion page "
+            "(Home, End, Carrot, Camera top, …). Use this FIRST whenever the user names a place, "
+            "Call get_positions if you need the current millimetres. "
+            "Unset presets have no pose yet — do not invent coordinates."
+        ),
+    ),
+    "run_script": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=True,
+        safety_rules=("run_script",),
+        description=(
+            "Run a named waypoint script from the Scripts page "
+            "(tool pickup, slot approaches). Pauses for approval in chat. "
+            "Prefer this over a chain of move calls."
+        ),
     ),
     "e_stop": ToolPolicy(
         ToolCategory.ACT,
@@ -126,16 +155,16 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
     ),
 }
 
-# Zone/garden map tooling is parked until beds are reconfigured.
+# Named-zone jobs stay parked until YAML beds exist. get_garden and
+# find_locations expose the pose-stamped observation field instead.
 # Resi heatmaps/PCA stay on the Camera page; the chat model looks at
 # attached RGB stills itself. segment_image remains for pixel masks.
+# goto_named is live: it resolves Motion-page presets (and any zones/plants).
 _HIDDEN_AGENT_TOOLS = frozenset(
     {
         "inspect_zone",
         "water_zone",
-        "goto_named",
         "list_zones",
-        "get_garden",
         "scan_zone",
         "analyze_image",
         "visualize_image_features",
@@ -144,9 +173,12 @@ _HIDDEN_AGENT_TOOLS = frozenset(
 )
 
 _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
+    "goto_named": GotoNamedArgs,
+    "run_script": RunScriptArgs,
     "move": MoveArgs,
     "move_path": MovePathArgs,
     "water": WaterArgs,
+    "set_light": SetLightArgs,
     "find_home": FindHomeArgs,
     "read_pin": ReadPinArgs,
     "write_pin": WritePinArgs,
@@ -163,10 +195,12 @@ _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {
     "get_status": ToolCategory.READ,
     "get_messages": ToolCategory.READ,
     "get_garden": ToolCategory.READ,
+    "find_locations": ToolCategory.READ,
     "list_zones": ToolCategory.READ,
     "list_endpoints_action": ToolCategory.READ,
     "get_pins": ToolCategory.READ,
     "get_positions": ToolCategory.READ,
+    "get_scripts": ToolCategory.READ,
     "get_images": ToolCategory.READ,
     "plan_path": ToolCategory.ANALYZE,
     "scan_zone": ToolCategory.ANALYZE,
@@ -175,11 +209,26 @@ _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {
     "visualize_image_features": ToolCategory.ANALYZE,
     "estimate_traversability": ToolCategory.ANALYZE,
     "get_meteorology": ToolCategory.READ,
+    "get_forecast": ToolCategory.READ,
     "remember": ToolCategory.ANALYZE,
     "recall_memories": ToolCategory.READ,
     "forget_memory": ToolCategory.ANALYZE,
     "set_goal": ToolCategory.ANALYZE,
+    "think": ToolCategory.ANALYZE,
+    "get_help": ToolCategory.READ,
+    "tool_search": ToolCategory.READ,
 }
+
+# Tools the model always sees. Everything else is found with `tool_search`
+# (pi-style deferred tools) so the schema payload and the choice stay small.
+CORE_TOOLS = frozenset(
+    {
+        "think", "tool_search", "get_help",
+        "get_position", "get_status", "get_positions", "goto_named", "move",
+        "capture", "water", "e_stop",
+        "get_meteorology", "get_forecast", "recall_memories", "remember",
+    }
+)
 
 _INTROSPECTION_NEEDS_APPROVAL = frozenset({"set_goal"})
 

@@ -23,10 +23,11 @@ def _coords(
 ) -> tuple[float | None, float | None, float | None]:
     gantry = payload.get("gantry_mm")
     if isinstance(gantry, dict):
-        try:
-            return float(gantry["x"]), float(gantry["y"]), float(gantry.get("z") or 0)
-        except (KeyError, TypeError, ValueError):
-            pass
+        from spatial_service.observations import xyz_from_pose
+
+        parsed = xyz_from_pose(gantry)
+        if parsed is not None:
+            return parsed
     if xyz and len(xyz) >= 2:
         z = float(xyz[2]) if len(xyz) > 2 else None
         return float(xyz[0]), float(xyz[1]), z

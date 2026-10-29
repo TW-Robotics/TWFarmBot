@@ -8,16 +8,24 @@ They still use the same ``FarmBotBackend`` so the UI never talks to the Pi.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from farmbot_client.client import base_url
 
-from spatial_service import get_snapshot
+from spatial_service import (
+    DEFAULT_CELL_MM,
+    find_locations,
+    get_snapshot,
+    list_positions,
+    list_scripts,
+    save_positions,
+    save_scripts,
+)
 from twfarmbot_core.config import load_yaml_config
 from vision_service import capture_path, list_captures
 from farmbot_gateway import farmbot
@@ -73,7 +81,9 @@ def get_position(refresh: bool = False) -> dict[str, Any]:
         raise HTTPException(
             status_code=502, detail=f"farmbot read failed: {err}"
         ) from err
-    return {"xyz": xyz}
+    from safety_service import workspace_payload
+
+    return {"xyz": xyz, "workspace": workspace_payload()}
 
 
 @router.get("/status")
@@ -170,10 +180,75 @@ def get_pins() -> dict[str, Any]:
     return {"pins": load_yaml_config().get("pins", []) or []}
 
 
+class PositionItem(BaseModel):
+    label: str
+    group: str = "Travel"
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+
+
+class PositionsPayload(BaseModel):
+    positions: list[PositionItem]
+
+
 @router.get("/positions")
 def get_positions() -> dict[str, Any]:
-    """Preset gantry positions for the UI Move widget."""
-    return {"positions": load_yaml_config().get("positions", []) or []}
+    """Named gantry presets for the Motion page and goto_named."""
+    try:
+        return {"positions": list_positions()}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@router.put("/positions")
+def put_positions(payload: PositionsPayload) -> dict[str, Any]:
+    """Replace the named gantry preset list in the YAML config."""
+    try:
+        return {
+            "positions": save_positions([item.model_dump() for item in payload.positions])
+        }
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except OSError as err:
+        raise HTTPException(status_code=500, detail=str(err)) from err
+
+
+class ScriptWaypoint(BaseModel):
+    x: float
+    y: float
+    z: float
+
+
+class ScriptItem(BaseModel):
+    label: str
+    waypoints: list[ScriptWaypoint] = []
+
+
+class ScriptsPayload(BaseModel):
+    scripts: list[ScriptItem]
+
+
+@router.get("/scripts")
+def get_scripts() -> dict[str, Any]:
+    """Named waypoint scripts for the Scripts page and run_script."""
+    try:
+        return {"scripts": list_scripts()}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@router.put("/scripts")
+def put_scripts(payload: ScriptsPayload) -> dict[str, Any]:
+    """Replace the named waypoint script list in the YAML config."""
+    try:
+        return {
+            "scripts": save_scripts([item.model_dump() for item in payload.scripts])
+        }
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except OSError as err:
+        raise HTTPException(status_code=500, detail=str(err)) from err
 
 
 @router.get("/garden")
@@ -184,6 +259,21 @@ def get_garden() -> dict[str, Any]:
     except Exception as err:  # noqa: BLE001
         raise HTTPException(
             status_code=502, detail=f"garden read failed: {err}"
+        ) from err
+
+
+@router.get("/garden/find")
+def find_garden_locations(
+    predicate: str, cell_mm: float = DEFAULT_CELL_MM
+) -> dict[str, Any]:
+    """Rank latest bed cells for plant, weed, soil, healthy, or stressed."""
+    try:
+        return find_locations(predicate, cell_mm=cell_mm)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"garden find failed: {err}"
         ) from err
 
 
@@ -229,6 +319,50 @@ def get_meteorology_snapshot() -> dict[str, Any]:
         ) from err
 
 
+@router.get("/meteorology/forecast")
+def get_meteorology_forecast(hours: int = Query(48, ge=3, le=72)) -> dict[str, Any]:
+    """Upcoming weather in 3-hour blocks, plus daily summaries (assistant tool)."""
+    from planning_service.meteorology import get_forecast
+
+    try:
+        return get_forecast(hours=hours)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"forecast failed: {err}"
+        ) from err
+
+
+@router.get("/meteorology/history")
+def get_meteorology_history(
+    range: Literal["day", "month", "year"] = "day",  # noqa: A002
+) -> dict[str, Any]:
+    """Weather and sun series for Overview charts (day hourly, month/year daily)."""
+    from planning_service.meteorology import fetch_meteorology_history
+
+    try:
+        return fetch_meteorology_history(range)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"meteorology history failed: {err}"
+        ) from err
+
+
+_POSE_RANGE_S = {"day": 86400, "month": 31 * 86400, "year": 366 * 86400}
+
+
+@router.get("/pose/history")
+def get_pose_history(
+    range: Literal["day", "month", "year"] = "day",  # noqa: A002
+) -> dict[str, Any]:
+    """Gantry X/Y/Z after each move, for the Overview position chart."""
+    import time
+
+    from farmbot_gateway.farmbot import read_pose_history
+
+    since = time.time() - _POSE_RANGE_S[range]
+    return {"range": range, "since": since, "samples": read_pose_history(since)}
+
+
 class WateringPayload(BaseModel):
     on: bool
 
@@ -251,3 +385,27 @@ def post_watering(payload: WateringPayload) -> dict[str, Any]:
         return watering_service.set_pump(payload.on)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"watering control failed: {err}") from err
+
+
+class LightingPayload(BaseModel):
+    on: bool
+
+
+@router.get("/lighting")
+def get_lighting() -> dict[str, Any]:
+    from watering_service.lighting import light_status
+
+    try:
+        return light_status()
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"lighting status failed: {err}") from err
+
+
+@router.post("/lighting")
+def post_lighting(payload: LightingPayload) -> dict[str, Any]:
+    from watering_service.lighting import set_light
+
+    try:
+        return set_light(payload.on)
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"lighting control failed: {err}") from err
