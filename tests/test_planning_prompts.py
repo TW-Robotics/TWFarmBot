@@ -12,43 +12,34 @@ def _make_registry() -> ActionRegistry:
     reg.register("move", lambda a: a)
     reg.register("find_home", lambda a: a)
     reg.register("water", lambda a: a)
+    reg.register("goto_named", lambda a: a)
+    reg.register("run_script", lambda a: a)
     return reg
 
 
-def test_system_prompt_mentions_action_kinds() -> None:
-    reg = _make_registry()
-    prompt = ContextBuilder(ToolRegistry(reg)).planner_system_prompt()
-    assert "move" in prompt
-    assert "find_home" in prompt
-    assert "water" in prompt
-    assert "JSON function/tool calling" in prompt
-    assert "Programmatic Tool Calling" not in prompt
-    assert "programmatic" not in prompt.lower()
+def test_planner_prompt_is_tool_first() -> None:
+    prompt = ContextBuilder(ToolRegistry(_make_registry())).planner_system_prompt()
+    assert "JSON tool calls" in prompt
+    assert "goto_named" in prompt and "find_locations" in prompt
+    assert "tool_search" in prompt
+    assert "Hard travel box" in prompt
 
 
-def test_chat_prompt_lists_execution_tools() -> None:
-    reg = _make_registry()
-    prompt = ContextBuilder(ToolRegistry(reg)).chat_system_prompt()
-    assert "Available tools" in prompt
-    assert "move" in prompt
-    assert "JSON function/tool calling" in prompt
-    assert "Programmatic Tool Calling" not in prompt
-
-
-def test_chat_prompt_explains_ndre_nir_rededge() -> None:
+def test_chat_prompt_is_slim_no_catalog() -> None:
     prompt = ContextBuilder(ToolRegistry(_make_registry())).chat_system_prompt()
-    assert "NDRE = (NIR − red-edge) / (NIR + red-edge)" in prompt
-    assert "not NDVI" in prompt
-    assert "not thermal" in prompt
-    assert "not the RGB red channel" in prompt
-    assert "segment_image" in prompt
-    assert "Inspect RGB yourself" in prompt
-    assert "analyze_image" not in prompt
-    assert "interpretation.advice" in prompt
-    assert "not each stop" in prompt
-    assert "Never refuse `water` only because a watering fact exists" in prompt
-    assert "set_goal" in prompt
-    assert "Voice mode" not in prompt
+    assert "Available tools" not in prompt and "NDRE = (" not in prompt
+    assert "tool_search" in prompt and "get_help" in prompt
+
+
+def test_ndre_notes_live_in_get_help_not_the_prompt() -> None:
+    from planning_service.help_topics import get_help
+
+    notes = get_help("spectral")
+    assert "NDRE = (NIR − red-edge) / (NIR + red-edge)" in notes
+    assert "not NDVI" in notes and "not thermal" in notes
+    assert "interpretation.advice" in notes
+    prompt = ContextBuilder(ToolRegistry(_make_registry())).chat_system_prompt()
+    assert "NDRE = (" not in prompt and "Hard travel box" in prompt
 
 
 def test_voice_prompt_asks_for_short_spoken_ndre() -> None:
@@ -73,3 +64,21 @@ def test_user_prompt_omits_world_when_none() -> None:
     prompt = build_user_prompt("snap a pic")
     assert "Current world model" not in prompt
     assert "Request: snap a pic" in prompt
+
+
+def test_chat_prompt_injects_no_live_data_and_points_to_tools() -> None:
+    """World model/weather/memories are never in the prompt; the model uses tools."""
+    builder = ContextBuilder(ToolRegistry(_make_registry()))
+    msgs = builder.chat_messages([{"role": "user", "content": "hi"}])
+    text = str(msgs[0].content)
+    for bad in ("Current world model", "<background>", "Long-Term Memor", "Solar Context"):
+        assert bad not in text
+    assert str(msgs[-1].content) == "hi"
+    for tool in ("get_positions", "goto_named", "tool_search"):
+        assert tool in text
+    assert builder.chat_messages([{"role": "user", "content": "hi"}])[0].content == msgs[0].content
+
+
+def test_chat_prompt_forces_fresh_tool_call_for_live_state() -> None:
+    text = str(ContextBuilder(ToolRegistry(_make_registry())).chat_system_prompt())
+    assert "get_position" in text and "not from memory" not in text and "never from memory" in text

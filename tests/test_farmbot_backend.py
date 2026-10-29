@@ -185,8 +185,51 @@ def test_safety_rejects_move_outside_bounds():
         enforce_workspace=True,
         max_axis_mm={"x": 1000, "y": 1000, "z": 1000},
     )
-    with pytest.raises(UnsafeActionError, match="exceeds"):
+    with pytest.raises(UnsafeActionError, match="outside"):
         validate(Action(kind="move", params={"x": 9999, "y": 0, "z": 0}), limits=limits)
+
+
+def test_safety_rejects_past_home():
+    from safety_service import SafetyLimits, UnsafeActionError, validate
+
+    limits = SafetyLimits(enforce_workspace=True)
+    with pytest.raises(UnsafeActionError, match="outside"):
+        validate(Action(kind="move", params={"x": -1, "y": 0, "z": 0}), limits=limits)
+
+
+def test_safety_allows_any_z():
+    from safety_service import SafetyLimits, validate
+
+    limits = SafetyLimits(enforce_workspace=True)
+    out = validate(
+        Action(kind="move", params={"x": 0, "y": 0, "z": 99999}), limits=limits
+    )
+    assert out.kind == "move"
+
+
+def test_safety_rejects_y_beyond_box():
+    from safety_service import SafetyLimits, UnsafeActionError, validate
+
+    limits = SafetyLimits(enforce_workspace=True)
+    with pytest.raises(UnsafeActionError, match="outside"):
+        validate(Action(kind="move", params={"x": 0, "y": 651, "z": 0}), limits=limits)
+
+
+def test_move_axis_rejected_past_box(monkeypatch):
+    from farmbot_gateway import farmbot
+    from safety_service import SafetyLimits, UnsafeActionError, validate
+
+    class _Stub:
+        def get_xyz(self):
+            return {"x": 1890.0, "y": 0.0, "z": 0.0}
+
+    monkeypatch.setattr(farmbot, "backend", _Stub())
+    limits = SafetyLimits(enforce_workspace=True)
+    with pytest.raises(UnsafeActionError, match="outside"):
+        validate(
+            Action(kind="move_axis", params={"axis": "x", "distance": 20}),
+            limits=limits,
+        )
 
 
 def test_safety_accepts_move_within_bounds():

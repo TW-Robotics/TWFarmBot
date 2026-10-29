@@ -112,8 +112,16 @@ def _summarize_water_zone(params: dict[str, Any]) -> str:
     )
 
 
+def _summarize_run_script(params: dict[str, Any]) -> str:
+    return f"📜 **run_script** {params.get('name', '—')}"
+
+
 def _summarize_goto_named(params: dict[str, Any]) -> str:
     return f"🛠️ **goto_named** {params.get('name', '—')}"
+
+
+def _summarize_set_light(params: dict[str, Any]) -> str:
+    return f"💡 **set_light** {'on' if params.get('on') else 'off'}"
 
 
 ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
@@ -134,6 +142,8 @@ ACTION_SUMMARIES: dict[str, Callable[[dict[str, Any]], str]] = {
     "inspect_zone": _summarize_inspect_zone,
     "water_zone": _summarize_water_zone,
     "goto_named": _summarize_goto_named,
+    "run_script": _summarize_run_script,
+    "set_light": _summarize_set_light,
 }
 
 

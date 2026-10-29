@@ -15,8 +15,9 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from twfarmbot_core.config import load_yaml_config
@@ -294,3 +295,263 @@ def get_meteorology(
         "weather": weather,
         "agronomic_advice": advice,
     }
+
+
+
+_HISTORY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+_HOURLY_VARS = {
+    "temperature_c": "temperature_2m",
+    "relative_humidity_pct": "relative_humidity_2m",
+    "cloud_cover_pct": "cloud_cover",
+    "precipitation_mm": "precipitation",
+    "total_radiation_w_m2": "shortwave_radiation",
+    "uv_index": "uv_index",
+}
+_DAILY_VARS = {
+    "temperature_c": "temperature_2m_mean",
+    "relative_humidity_pct": "relative_humidity_2m_mean",
+    "cloud_cover_pct": "cloud_cover_mean",
+    "precipitation_mm": "precipitation_sum",
+    "total_radiation_w_m2": "shortwave_radiation_sum",  # MJ/m²/day, converted below
+    "uv_index": "uv_index_max",
+}
+_ARCHIVE_DAILY_VARS = {k: v for k, v in _DAILY_VARS.items() if k != "uv_index"}
+HISTORY_RANGES = ("day", "month", "year")
+
+
+def _open_meteo(url: str, params: dict[str, Any], timeout_s: float) -> dict[str, Any]:
+    with httpx.Client(timeout=timeout_s) as client:
+        resp = client.get(url, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def fetch_meteorology_history(
+    range_: str = "day",
+    location: LocationConfig | None = None,
+    timeout_s: float = 10.0,
+) -> dict[str, Any]:
+    """Weather + sun series for the Overview charts.
+
+    day   → hourly, yesterday through tomorrow (forecast API)
+    month → daily, last 31 days + 2-day forecast (forecast API)
+    year  → daily, last 365 days (archive API, ~5 days behind)
+
+    ``forecast`` (internal, used by ``get_forecast``) is hourly from today, 3 days ahead.
+    """
+    if range_ not in (*HISTORY_RANGES, "forecast"):
+        raise ValueError(f"range must be one of {HISTORY_RANGES}")
+    hourly = range_ in ("day", "forecast")
+    cached = _HISTORY_CACHE.get(range_)
+    now = time.time()
+    if cached and (now - cached[0]) < _WEATHER_CACHE_TTL_S:
+        return cached[1]
+
+    loc = location or load_location_config()
+    base = {
+        "latitude": loc.latitude,
+        "longitude": loc.longitude,
+        "timezone": loc.timezone,
+        "timeformat": "unixtime",
+    }
+    if range_ == "year":
+        today = datetime.now(timezone.utc).date()
+        variables = _ARCHIVE_DAILY_VARS
+        data = _open_meteo(
+            "https://archive-api.open-meteo.com/v1/archive",
+            {
+                **base,
+                "start_date": (today - timedelta(days=365)).isoformat(),
+                "end_date": today.isoformat(),
+                "daily": [*variables.values(), "sunrise", "sunset"],
+            },
+            timeout_s,
+        )
+    else:
+        variables = _HOURLY_VARS if hourly else _DAILY_VARS
+        params = {
+            **base,
+            "past_days": {"day": 1, "forecast": 0}.get(range_, 31),
+            "forecast_days": 3 if range_ == "forecast" else 2,
+        }
+        if hourly:
+            params["hourly"] = list(variables.values())
+            params["daily"] = ["sunrise", "sunset"]
+        else:
+            params["daily"] = [*variables.values(), "sunrise", "sunset"]
+        data = _open_meteo("https://api.open-meteo.com/v1/forecast", params, timeout_s)
+
+    daily = data.get("daily") or {}
+    days = [
+        {"t": day, "sunrise": rise, "sunset": set_}
+        for day, rise, set_ in zip(
+            daily.get("time") or [], daily.get("sunrise") or [], daily.get("sunset") or []
+        )
+        if rise is not None and set_ is not None
+    ]
+
+    if hourly:
+        series = data.get("hourly") or {}
+        points = []
+        for i, ts in enumerate(series.get("time") or []):
+            sun = calculate_solar_position(
+                loc.latitude, loc.longitude, datetime.fromtimestamp(ts, timezone.utc)
+            )
+            point = {key: series[var][i] for key, var in variables.items()}
+            points.append(
+                {
+                    "t": ts,
+                    **point,
+                    "altitude_deg": sun["altitude_deg"],
+                    "azimuth_deg": sun["azimuth_deg"],
+                    "clear_sky_irradiance_w_m2": sun["clear_sky_irradiance_w_m2"],
+                }
+            )
+    else:
+        points = []
+        for i, ts in enumerate(daily.get("time") or []):
+            point = {key: daily[var][i] for key, var in variables.items()}
+            if point.get("total_radiation_w_m2") is not None:
+                point["total_radiation_w_m2"] = round(
+                    point["total_radiation_w_m2"] * 1e6 / 86400, 1
+                )
+            point.setdefault("uv_index", None)
+            # Sun geometry per day: peak altitude, mean clear-sky irradiance,
+            # and the azimuth the sun rises at (it swings over the year).
+            hours = [
+                calculate_solar_position(
+                    loc.latitude, loc.longitude, datetime.fromtimestamp(ts + h * 3600, timezone.utc)
+                )
+                for h in range(24)
+            ]
+            sunrise = daily["sunrise"][i]
+            rise = (
+                calculate_solar_position(
+                    loc.latitude, loc.longitude, datetime.fromtimestamp(sunrise, timezone.utc)
+                )
+                if sunrise is not None
+                else None
+            )
+            points.append(
+                {
+                    "t": ts,
+                    **point,
+                    "altitude_deg": max(h["altitude_deg"] for h in hours),
+                    "azimuth_deg": rise["azimuth_deg"] if rise else None,
+                    "clear_sky_irradiance_w_m2": round(
+                        sum(h["clear_sky_irradiance_w_m2"] for h in hours) / 24, 1
+                    ),
+                }
+            )
+
+    result = {
+        "range": range_,
+        "resolution": "hourly" if hourly else "daily",
+        "timezone": loc.timezone,
+        "hourly": points,
+        "daily": days,
+    }
+    _HISTORY_CACHE[range_] = (now, result)
+    return result
+
+
+def get_forecast(
+    hours: int = 48,
+    step_hours: int = 3,
+    location: LocationConfig | None = None,
+) -> dict[str, Any]:
+    """Upcoming weather for the assistant and the inline chat forecast card.
+
+    ``hourly`` is downsampled to ``step_hours`` so the model gets a compact table;
+    ``daily`` summarises each calendar day from the full hourly series.
+    """
+    data = fetch_meteorology_history("forecast", location=location)
+    now = time.time()
+    upcoming = [p for p in data["hourly"] if p["t"] >= now - 3600][: max(1, hours)]
+    step = max(1, step_hours)
+
+    def block(points: list[dict[str, Any]]) -> dict[str, Any]:
+        """One step_hours block: rain is summed, everything else averaged."""
+
+        def avg(key: str) -> float | None:
+            values = [p[key] for p in points if p.get(key) is not None]
+            return round(sum(values) / len(values), 1) if values else None
+
+        rain = [p["precipitation_mm"] for p in points if p.get("precipitation_mm") is not None]
+        return {
+            "t": points[0]["t"],
+            "temperature_c": avg("temperature_c"),
+            "relative_humidity_pct": avg("relative_humidity_pct"),
+            "cloud_cover_pct": avg("cloud_cover_pct"),
+            "precipitation_mm": round(sum(rain), 1) if rain else None,
+            "total_radiation_w_m2": avg("total_radiation_w_m2"),
+        }
+
+    blocks = [block(upcoming[i : i + step]) for i in range(0, len(upcoming), step)]
+
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for point in upcoming:
+        day = datetime.fromtimestamp(point["t"], ZoneInfo(data["timezone"])).date().isoformat()
+        by_day.setdefault(day, []).append(point)
+
+    def stat(points: list[dict[str, Any]], key: str, fn: Any) -> float | None:
+        values = [p[key] for p in points if p.get(key) is not None]
+        return round(fn(values), 1) if values else None
+
+    daily = [
+        {
+            "date": day,
+            "temp_min_c": stat(points, "temperature_c", min),
+            "temp_max_c": stat(points, "temperature_c", max),
+            "rain_mm": stat(points, "precipitation_mm", sum),
+            "cloud_mean_pct": stat(points, "cloud_cover_pct", lambda v: sum(v) / len(v)),
+            "solar_peak_w_m2": stat(points, "total_radiation_w_m2", max),
+        }
+        for day, points in by_day.items()
+    ]
+    wet = next((p for p in upcoming if (p.get("precipitation_mm") or 0) >= 0.2), None)
+    return {
+        "timezone": data["timezone"],
+        "generated_at": int(now),
+        "step_hours": step_hours,
+        "hourly": blocks,
+        "daily": daily,
+        "next_rain_at": wet["t"] if wet else None,
+        "rain_total_mm": stat(upcoming, "precipitation_mm", sum),
+        "sun_times": data["daily"],
+    }
+
+
+_HISTORY_TITLES = {
+    "day": "Weather history · yesterday to tomorrow (hourly)",
+    "month": "Weather history · last month (daily)",
+    "year": "Weather history · last year (daily)",
+}
+
+
+def shape_weather_history(data: dict[str, Any], range_: str) -> dict[str, Any]:
+    """Shape ``fetch_meteorology_history`` output for the chat chart card.
+
+    Reuses the forecast card shape (`hourly` points); daily ranges plot on a
+    day/month axis. No `next_rain_at` — this is the past, not a forecast.
+    """
+    daily = data.get("resolution") == "daily"
+    return {
+        "timezone": data.get("timezone"),
+        "range": range_,
+        "resolution": data.get("resolution"),
+        "title": _HISTORY_TITLES.get(range_, "Weather history"),
+        "axis": ("month" if range_ == "year" else "day") if daily else "hour",
+        "hourly": data.get("hourly", []),
+        "daily": [],
+    }
+
+
+def get_weather_history(
+    range_: str = "month", location: LocationConfig | None = None
+) -> dict[str, Any]:
+    """Past weather (day=hourly, month/year=daily) for assistant + chat card."""
+    return shape_weather_history(
+        fetch_meteorology_history(range_, location=location), range_
+    )

@@ -3,15 +3,26 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { Text } from "@astryxdesign/core/Text";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import { api, apiUrl, setApiUrl } from "../api";
+import { setDevicePref, useDevice, type DevicePref } from "../device";
 import { ReasoningEffortSelector } from "../components/ReasoningEffortControl";
-import { PageHeader } from "../components/PageHeader";
+import {
+  AdjustmentsHorizontalIcon,
+  ChatBubbleLeftRightIcon,
+  CloudIcon,
+  ComputerDesktopIcon,
+  GlobeAltIcon,
+  MicrophoneIcon,
+} from "@heroicons/react/24/outline";
 import {
   AppSettings,
   LLM_PROVIDERS,
@@ -61,7 +72,7 @@ const PROVIDER_HELP: Record<string, string> = {
   openai: "ChatGPT API. Create a secret key at platform.openai.com.",
   openrouter: "One key for many models (Claude, GPT, Gemini, …). openrouter.ai",
   vertex: "Uses Google Cloud on this machine. No chat API key — set the project in step 4.",
-  local: "Ollama or any OpenAI-compatible server on this network.",
+  local: "LFM3 via scripts/lfm3_server.sh, Ollama, or any OpenAI-compatible server. No key needed.",
 };
 
 const ENV_LOCK_LABEL: Record<string, string> = {
@@ -97,36 +108,6 @@ function profileToPayload(profile: LlmProfile) {
   };
 }
 
-function StepCard({
-  step,
-  title,
-  status,
-  children,
-}: {
-  step: number;
-  title: string;
-  status: "ready" | "needed" | "optional";
-  children: ReactNode;
-}) {
-  const badge =
-    status === "ready"
-      ? { variant: "success" as const, label: `${step} · ready` }
-      : status === "optional"
-        ? { variant: "neutral" as const, label: `${step} · optional` }
-        : { variant: "warning" as const, label: `${step} · needed` };
-  return (
-    <Card padding={4}>
-      <VStack gap={3}>
-        <HStack gap={2}>
-          <Badge variant={badge.variant} label={badge.label} />
-          <Text weight="semibold">{title}</Text>
-        </HStack>
-        {children}
-      </VStack>
-    </Card>
-  );
-}
-
 export function SettingsPage({
   farmbot,
   onSaved,
@@ -152,6 +133,8 @@ export function SettingsPage({
   const [savingVertex, setSavingVertex] = useState(false);
   const [testingModels, setTestingModels] = useState(false);
   const [checkingApi, setCheckingApi] = useState(false);
+  const [section, setSection] = useState<SectionId>("general");
+  const device = useDevice();
 
   const activeProfile = useMemo(
     () => settings.llmProfiles.find((profile) => profile.id === settings.activeLlmProfileId) ?? null,
@@ -396,231 +379,300 @@ export function SettingsPage({
     toast({ body: "Browser profile deleted" });
   };
 
+
   const keyStored = Boolean(serverLlm?.keys_configured?.[chatDraft.provider]);
 
-  return (
-    <VStack gap={4}>
-      <PageHeader kicker="TWFarmBot · UAS Technikum Wien" title="Settings" />
-      <Text type="supporting" color="secondary">
-        Work top to bottom. Chat and voice keys are saved on this robot and never shown again
-        after you save.
-      </Text>
+  const sections: { id: SectionId; label: string; icon: typeof GlobeAltIcon; ready?: boolean }[] = [
+    { id: "general", label: "General", icon: AdjustmentsHorizontalIcon },
+    { id: "assistant", label: "Assistant", icon: ChatBubbleLeftRightIcon, ready: assistantReady },
+    { id: "voice", label: "Voice", icon: MicrophoneIcon, ready: voiceReady },
+    { id: "vertex", label: "Vertex AI", icon: CloudIcon, ready: vertexReady },
+    { id: "profile", label: "Browser profile", icon: ComputerDesktopIcon },
+  ];
+  const current = sections.find((item) => item.id === section) ?? sections[0];
 
-      <HStack gap={2} wrap="wrap">
-        <Badge variant={robotReady ? "success" : "warning"} label={robotReady ? "Robot connected" : "Robot"} />
-        <Badge
-          variant={assistantReady ? "success" : "warning"}
-          label={assistantReady ? "Chat ready" : "Chat needs a key"}
+  const general = (
+    <>
+      <SettingsGroup title="Robot connection">
+        <SettingRow
+          label="FarmBot API URL"
+          description="On the robot itself this is usually correct. Change it only if you opened the UI from another computer."
+        >
+          <TextInput label="FarmBot API URL" isLabelHidden width={320} value={url} onChange={setUrl} />
+        </SettingRow>
+        <SettingRow
+          label="Status"
+          description={
+            farmbot === "unreachable"
+              ? "Cannot reach the API — check the URL and that twfarmbot-api is running."
+              : `FarmBot ${farmbot} · ${apiUrl()}`
+          }
+        >
+          <HStack gap={2}>
+            <Button
+              label={checkingApi ? "Checking…" : "Health check"}
+              onClick={() => void checkApi()}
+              isDisabled={checkingApi}
+            />
+            <Button
+              label="Save"
+              variant="primary"
+              onClick={() => {
+                setApiUrl(url);
+                void onSaved();
+                toast({ body: "API URL saved" });
+              }}
+            />
+          </HStack>
+        </SettingRow>
+      </SettingsGroup>
+      <SettingsGroup title="This device">
+        <SettingRow
+          label="Layout"
+          description={`Tablet layout collapses the sidebars and makes the Assistant voice-only. Detected: ${device.detectedTablet ? "tablet (touch only)" : "desktop"}.`}
+        >
+          <Selector
+            label="Layout"
+            isLabelHidden
+            width={CONTROL_WIDTH}
+            options={Object.values(DEVICE_LABELS)}
+            value={DEVICE_LABELS[device.pref]}
+            onChange={(label) => {
+              const next = (Object.keys(DEVICE_LABELS) as DevicePref[]).find(
+                (key) => DEVICE_LABELS[key] === label,
+              );
+              if (next) setDevicePref(next);
+            }}
+          />
+        </SettingRow>
+      </SettingsGroup>
+      <SettingsGroup title="Overview">
+        <StatusRow label="Robot" description="Connection to the FarmBot API." ready={robotReady} />
+        <StatusRow
+          label="Chat assistant"
+          description={`${providerLabel(chatDraft.provider)} · ${chatDraft.model}`}
+          ready={assistantReady}
         />
-        <Badge variant={voiceReady ? "success" : "neutral"} label={voiceReady ? "Voice ready" : "Voice optional"} />
-        <Badge
-          variant={vertexReady ? "success" : "neutral"}
-          label={vertexReady ? "Vertex ready" : "Vertex optional"}
-        />
-      </HStack>
+        <StatusRow label="Voice" description="OpenAI Realtime voice and dictation." ready={voiceReady} optional />
+        <StatusRow label="Vertex AI" description="Only needed for the Vertex provider." ready={vertexReady} optional />
+      </SettingsGroup>
+    </>
+  );
 
-      {activeProfile ? (
+  const assistant = (
+    <>
+      {lockedNames.length ? (
         <Banner
-          status="warning"
-          title="This browser is overriding the robot"
-          description={`Profile “${profileLabel(activeProfile)}” is active. The Assistant tab will use it instead of the server settings below. Switch back to “Use server settings” in Advanced if you want everyone to share the same setup.`}
+          status="info"
+          title="Some values are locked by the server environment"
+          description={`${lockedNames.join(", ")} ${lockedNames.length === 1 ? "is" : "are"} set on the machine. Remove ${lockedNames.length === 1 ? "it" : "them"} from .env to change ${lockedNames.length === 1 ? "it" : "them"} here.`}
           collapsible={false}
         />
       ) : null}
-
-      <StepCard step={1} title="Connect this browser to the robot" status={robotReady ? "ready" : "needed"}>
-        <Text type="supporting" color="secondary">
-          On the robot itself this is usually already correct. Change it only if you opened the UI
-          from another computer.
-        </Text>
-        <TextInput label="FarmBot API URL" value={url} onChange={setUrl} />
-        <HStack gap={2}>
-          <Button
-            label="Save connection"
-            variant="primary"
-            onClick={() => {
-              setApiUrl(url);
-              void onSaved();
-              toast({ body: "API URL saved" });
+      <SettingsGroup title="Model">
+        <SettingRow label="Provider" description={PROVIDER_HELP[chatDraft.provider] || ""}>
+          <Selector
+            label="Provider"
+            isLabelHidden
+            width={CONTROL_WIDTH}
+            options={LLM_PROVIDERS.map((item) => item.label)}
+            value={providerLabel(chatDraft.provider)}
+            isDisabled={Boolean(locked.provider)}
+            disabledMessage="Locked by PLANNING_LLM_PROVIDER"
+            onChange={(label) => {
+              const provider = LLM_PROVIDERS.find((item) => item.label === label)?.id || "openai";
+              const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openai;
+              updateChat({ provider, baseUrl: defaults.baseUrl, model: defaults.model });
             }}
           />
-          <Button
-            label={checkingApi ? "Checking…" : "Health check"}
-            onClick={() => void checkApi()}
-            isDisabled={checkingApi}
-          />
-        </HStack>
-        <Text type="supporting">
-          {farmbot === "unreachable"
-            ? "Cannot reach the API — check the URL and that twfarmbot-api is running."
-            : `FarmBot ${farmbot} · ${apiUrl()}`}
-        </Text>
-      </StepCard>
-
-      <StepCard
-        step={2}
-        title="Chat assistant"
-        status={assistantReady ? "ready" : "needed"}
-      >
-        <Text type="supporting" color="secondary">
-          The model that plans and talks on the Assistant tab. Saved for everyone using this robot.
-          Reasoning is none / low / medium / high / extra high when the selected model supports it.
-        </Text>
-        {lockedNames.length ? (
-          <Banner
-            status="info"
-            title="Some values are locked by the server environment"
-            description={`${lockedNames.join(", ")} ${lockedNames.length === 1 ? "is" : "are"} set on the machine. Remove ${lockedNames.length === 1 ? "it" : "them"} from .env to change ${lockedNames.length === 1 ? "it" : "them"} here.`}
-            collapsible={false}
-          />
-        ) : null}
-        <Selector
-          label="Provider"
-          options={LLM_PROVIDERS.map((item) => item.label)}
-          value={providerLabel(chatDraft.provider)}
-          isDisabled={Boolean(locked.provider)}
-          disabledMessage="Locked by PLANNING_LLM_PROVIDER"
-          onChange={(label) => {
-            const provider = LLM_PROVIDERS.find((item) => item.label === label)?.id || "openai";
-            const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openai;
-            updateChat({ provider, baseUrl: defaults.baseUrl, model: defaults.model });
-          }}
-        />
-        <Text type="supporting" color="secondary">
-          {PROVIDER_HELP[chatDraft.provider] || ""}
-        </Text>
+        </SettingRow>
         {chatDraft.provider !== "vertex" ? (
-          <TextInput
-            label="API base URL"
-            value={chatDraft.baseUrl}
-            onChange={(baseUrl) => updateChat({ baseUrl })}
-            isDisabled={Boolean(locked.base_url)}
-            disabledMessage="Locked by PLANNING_LLM_BASE_URL"
-          />
-        ) : null}
-        <TextInput
-          label="Default model"
-          value={chatDraft.model}
-          onChange={(model) => updateChat({ model })}
-          isDisabled={Boolean(locked.model)}
-          disabledMessage="Locked by PLANNING_LLM_MODEL"
-        />
-        {chatDraft.provider !== "vertex" ? (
-          <VStack gap={2}>
+          <SettingRow label="API base URL" description="OpenAI-compatible endpoint for this provider.">
             <TextInput
-              label={`${providerLabel(chatDraft.provider)} API key`}
-              value={chatDraft.apiKey}
-              onChange={(apiKey) => updateChat({ apiKey })}
-              type="password"
-              placeholder={keyStored ? "Saved on this robot — paste a new key to replace" : "Paste the secret key"}
-              isDisabled={Boolean(locked.api_key)}
-              disabledMessage="Locked by PLANNING_LLM_API_KEY"
+              label="API base URL"
+              isLabelHidden
+              width={CONTROL_WIDTH}
+              value={chatDraft.baseUrl}
+              onChange={(baseUrl) => updateChat({ baseUrl })}
+              isDisabled={Boolean(locked.base_url)}
+              disabledMessage="Locked by PLANNING_LLM_BASE_URL"
             />
-            <Text type="supporting">
-              {locked.api_key
-                ? "A key is set in the server environment."
-                : keyStored
-                  ? "A key is saved on this robot."
-                  : "No key yet — chat will fail until you save one."}
-            </Text>
-          </VStack>
+          </SettingRow>
         ) : null}
-        <HStack gap={3}>
+        <SettingRow label="Default model" description="Used by the Assistant tab unless you pick another one there.">
+          <TextInput
+            label="Default model"
+            isLabelHidden
+            width={CONTROL_WIDTH}
+            value={chatDraft.model}
+            onChange={(model) => updateChat({ model })}
+            isDisabled={Boolean(locked.model)}
+            disabledMessage="Locked by PLANNING_LLM_MODEL"
+          />
+        </SettingRow>
+        {chatDraft.provider !== "vertex" ? (
+          <SettingRow
+            label={`${providerLabel(chatDraft.provider)} API key`}
+            description={
+              locked.api_key
+                ? "A key is set in the server environment."
+                : chatDraft.provider === "local"
+                  ? "Optional — only if your local server requires one."
+                  : keyStored
+                  ? "A key is saved on this robot. Paste a new one to replace it."
+                  : "No key yet — chat will fail until you save one."
+            }
+          >
+            <HStack gap={2}>
+              <TextInput
+                label="API key"
+                isLabelHidden
+                width={keyStored && !locked.api_key ? 220 : CONTROL_WIDTH}
+                value={chatDraft.apiKey}
+                onChange={(apiKey) => updateChat({ apiKey })}
+                type="password"
+                placeholder={keyStored ? "••••••••" : "Paste the secret key"}
+                isDisabled={Boolean(locked.api_key)}
+                disabledMessage="Locked by PLANNING_LLM_API_KEY"
+              />
+              {keyStored && !locked.api_key ? (
+                <Button label="Clear" onClick={() => void clearChatKey()} isDisabled={savingChat} />
+              ) : null}
+            </HStack>
+          </SettingRow>
+        ) : null}
+      </SettingsGroup>
+      <SettingsGroup title="Behaviour">
+        <SettingRow label="Reasoning" description="Effort level, when the selected model supports it.">
+          <ReasoningEffortSelector
+            isLabelHidden
+            width={CONTROL_WIDTH}
+            model={chatDraft.model}
+            budget={chatDraft.reasoningBudget}
+            isDisabled={Boolean(locked.reasoning_budget)}
+            onChange={(reasoningBudget) => updateChat({ reasoningBudget })}
+          />
+        </SettingRow>
+        <SettingRow label="Temperature" description="0 keeps planning deterministic.">
+          <NumberInput
+            label="Temperature"
+            isLabelHidden
+            width={120}
+            value={chatDraft.temperature}
+            onChange={(temperature) => updateChat({ temperature: temperature ?? chatDraft.temperature })}
+            isDisabled={Boolean(locked.temperature)}
+          />
+        </SettingRow>
+        <SettingRow label="Timeout" description="Seconds to wait for a model response. Raise for slow models.">
           <NumberInput
             label="Timeout (s)"
+            isLabelHidden
+            width={120}
             value={chatDraft.timeoutS}
             onChange={(timeoutS) => updateChat({ timeoutS: timeoutS ?? chatDraft.timeoutS })}
             isDisabled={Boolean(locked.timeout_s)}
           />
-          <NumberInput
-            label="Temperature"
-            value={chatDraft.temperature}
-            onChange={(temperature) =>
-              updateChat({ temperature: temperature ?? chatDraft.temperature })
-            }
-            isDisabled={Boolean(locked.temperature)}
-          />
-        </HStack>
-        <ReasoningEffortSelector
-          model={chatDraft.model}
-          budget={chatDraft.reasoningBudget}
-          isDisabled={Boolean(locked.reasoning_budget)}
-          onChange={(reasoningBudget) => updateChat({ reasoningBudget })}
-        />
-        <HStack gap={2} wrap="wrap">
-          <Button
-            label={savingChat ? "Saving…" : "Save assistant"}
-            variant="primary"
-            onClick={() => void saveChat()}
-            isDisabled={savingChat}
-          />
-          {keyStored && !locked.api_key ? (
-            <Button label="Clear key" onClick={() => void clearChatKey()} isDisabled={savingChat} />
-          ) : null}
-          <Button
-            label={testingModels ? "Testing…" : "Test connection"}
-            onClick={() => void testLlmConnection()}
-            isDisabled={testingModels}
-          />
-        </HStack>
-      </StepCard>
-
-      <StepCard step={3} title="Voice" status={voiceReady ? "ready" : "optional"}>
-        <Text type="supporting" color="secondary">
-          Voice and dictate use OpenAI Realtime / transcription with the same native OpenAI
-          key as step 2. OpenRouter keys cannot do this. No extra voice key is required.
-        </Text>
-        {voiceReady ? (
-          <Text type="supporting">OpenAI Realtime is ready.</Text>
-        ) : (
-          <Banner
-            status="warning"
-            title="Save an OpenAI key in step 2"
-            description="Voice stays off until a native OpenAI API key is stored. You can still type."
-            collapsible={false}
-          />
-        )}
-      </StepCard>
-
-      <StepCard step={4} title="Vertex AI" status={vertexReady ? "ready" : "optional"}>
-        <Text type="supporting" color="secondary">
-          Only needed if the chat provider is Vertex AI. Enable the Vertex AI API on the GCP
-          project and give this machine Google credentials (service-account JSON at
-          GOOGLE_APPLICATION_CREDENTIALS). The project id is not secret.
-        </Text>
-        <TextInput
-          label="GCP project id"
-          value={vertexDraft.project}
-          onChange={(project) => setVertexDraft((current) => ({ ...current, project }))}
-          placeholder="my-gcp-project"
-          isDisabled={Boolean(serverLlm?.vertex_env?.project)}
-          disabledMessage="Locked by GOOGLE_CLOUD_PROJECT"
-        />
-        <TextInput
-          label="Location"
-          value={vertexDraft.location}
-          onChange={(location) => setVertexDraft((current) => ({ ...current, location }))}
-          placeholder={serverLlm?.vertex?.location || "global"}
-          isDisabled={Boolean(serverLlm?.vertex_env?.location)}
-          disabledMessage="Locked by GOOGLE_CLOUD_LOCATION"
+        </SettingRow>
+      </SettingsGroup>
+      <HStack gap={2} hAlign="end">
+        <Button
+          label={testingModels ? "Testing…" : "Test connection"}
+          onClick={() => void testLlmConnection()}
+          isDisabled={testingModels}
         />
         <Button
-          label={savingVertex ? "Saving…" : "Save Vertex settings"}
+          label={savingChat ? "Saving…" : "Save"}
+          variant="primary"
+          onClick={() => void saveChat()}
+          isDisabled={savingChat}
+        />
+      </HStack>
+    </>
+  );
+
+  const voice = (
+    <SettingsGroup title="Realtime voice">
+      <StatusRow
+        label="OpenAI Realtime"
+        description="Voice and dictate use the native OpenAI key from Assistant. OpenRouter keys cannot do this."
+        ready={voiceReady}
+        optional
+      />
+      {!voiceReady ? (
+        <SettingRow label="Set up" description="Save a native OpenAI API key in Assistant. You can still type meanwhile.">
+          <Button label="Open Assistant settings" onClick={() => setSection("assistant")} />
+        </SettingRow>
+      ) : null}
+    </SettingsGroup>
+  );
+
+  const vertex = (
+    <>
+      <SettingsGroup title="Google Cloud">
+        <SettingRow
+          label="GCP project id"
+          description="Enable the Vertex AI API on this project. The id is not secret."
+        >
+          <TextInput
+            label="GCP project id"
+            isLabelHidden
+            width={CONTROL_WIDTH}
+            value={vertexDraft.project}
+            onChange={(project) => setVertexDraft((v) => ({ ...v, project }))}
+            placeholder="my-gcp-project"
+            isDisabled={Boolean(serverLlm?.vertex_env?.project)}
+            disabledMessage="Locked by GOOGLE_CLOUD_PROJECT"
+          />
+        </SettingRow>
+        <SettingRow label="Location" description="Vertex region. Defaults to global.">
+          <TextInput
+            label="Location"
+            isLabelHidden
+            width={CONTROL_WIDTH}
+            value={vertexDraft.location}
+            onChange={(location) => setVertexDraft((v) => ({ ...v, location }))}
+            placeholder={serverLlm?.vertex?.location || "global"}
+            isDisabled={Boolean(serverLlm?.vertex_env?.location)}
+            disabledMessage="Locked by GOOGLE_CLOUD_LOCATION"
+          />
+        </SettingRow>
+        <SettingRow
+          label="Credentials"
+          description="This machine needs a service-account JSON at GOOGLE_APPLICATION_CREDENTIALS."
+        >
+          <Badge variant={vertexReady ? "success" : "neutral"} label={vertexReady ? "Ready" : "Optional"} />
+        </SettingRow>
+      </SettingsGroup>
+      <HStack gap={2} hAlign="end">
+        <Button
+          label={savingVertex ? "Saving…" : "Save"}
           variant="primary"
           onClick={() => void saveVertexSettings()}
           isDisabled={savingVertex}
         />
-      </StepCard>
+      </HStack>
+    </>
+  );
 
-      <Card padding={4}>
-        <VStack gap={3}>
-          <Text weight="semibold">Advanced · this browser only</Text>
-          <Text type="supporting" color="secondary">
-            Override the robot for yourself — for example to try another model — without changing
-            what others use. Keys stay in this browser and never reach the server store.
-          </Text>
+  const profile = (
+    <>
+      {activeProfile ? (
+        <Banner
+          status="warning"
+          title="This browser is overriding the robot"
+          description={`Profile “${profileLabel(activeProfile)}” is active. The Assistant tab uses it instead of the robot settings.`}
+          collapsible={false}
+        />
+      ) : null}
+      <SettingsGroup title="Profile">
+        <SettingRow
+          label="Active profile"
+          description="Override the robot for yourself only. Keys stay in this browser."
+        >
           <Selector
             label="Active profile"
+            isLabelHidden
+            width={CONTROL_WIDTH}
             options={profileOptions}
             value={activeProfileLabel}
             onChange={(label) => {
@@ -628,24 +680,29 @@ export function SettingsPage({
                 updateSettings({ ...settings, activeLlmProfileId: null });
                 return;
               }
-              const profile = settings.llmProfiles.find((item) => profileLabel(item) === label);
-              if (profile) updateSettings({ ...settings, activeLlmProfileId: profile.id });
+              const match = settings.llmProfiles.find((item) => profileLabel(item) === label);
+              if (match) updateSettings({ ...settings, activeLlmProfileId: match.id });
             }}
           />
-          <HStack gap={2} wrap="wrap">
-            <Button label="New profile" onClick={addProfile} />
-            {activeProfile ? (
-              <>
-                <Button label="Save profile" variant="primary" onClick={saveProfile} />
-                <Button label="Delete profile" onClick={deleteProfile} />
-              </>
-            ) : null}
+        </SettingRow>
+        <SettingRow label="Manage" description="Create, save or delete browser-only profiles.">
+          <HStack gap={2}>
+            <Button label="New" onClick={addProfile} />
+            {activeProfile ? <Button label="Delete" onClick={deleteProfile} /> : null}
           </HStack>
-          {draft ? (
-            <VStack gap={3}>
-              <TextInput label="Profile name" value={draft.name} onChange={(name) => updateDraft({ name })} />
+        </SettingRow>
+      </SettingsGroup>
+      {draft ? (
+        <>
+          <SettingsGroup title="Profile model">
+            <SettingRow label="Name" description="Shown in the profile picker.">
+              <TextInput label="Profile name" isLabelHidden width={CONTROL_WIDTH} value={draft.name} onChange={(name) => updateDraft({ name })} />
+            </SettingRow>
+            <SettingRow label="Provider" description={PROVIDER_HELP[draft.provider] || ""}>
               <Selector
                 label="Provider"
+                isLabelHidden
+                width={CONTROL_WIDTH}
                 options={LLM_PROVIDERS.map((item) => item.label)}
                 value={providerLabel(draft.provider)}
                 onChange={(label) => {
@@ -654,57 +711,152 @@ export function SettingsPage({
                   updateDraft({ provider, baseUrl: defaults.baseUrl, model: defaults.model });
                 }}
               />
+            </SettingRow>
+            <SettingRow label="Base URL" description="OpenAI-compatible endpoint.">
               <TextInput
                 label="Base URL"
+                isLabelHidden
+                width={CONTROL_WIDTH}
                 value={draft.baseUrl}
                 onChange={(baseUrl) => updateDraft({ baseUrl })}
-                placeholder={draft.provider === "vertex" ? "auto: built from project + location" : undefined}
+                placeholder={draft.provider === "vertex" ? "auto: project + location" : undefined}
               />
-              {draft.provider === "vertex" ? (
-                <Text type="supporting" color="secondary">
-                  Vertex AI uses the server&apos;s Google credentials plus the project in step 4.
-                </Text>
-              ) : (
-                <TextInput
-                  label="API key"
-                  value={draft.apiKey}
-                  onChange={(apiKey) => updateDraft({ apiKey })}
-                  type="password"
-                />
-              )}
-              <TextInput
-                label="Default model"
-                value={draft.model}
-                onChange={(model) => updateDraft({ model })}
-              />
-              <HStack gap={3}>
-                <NumberInput
-                  label="Timeout (s)"
-                  value={draft.timeoutS}
-                  onChange={(timeoutS) => updateDraft({ timeoutS: timeoutS ?? draft.timeoutS })}
-                />
-                <NumberInput
-                  label="Temperature"
-                  value={draft.temperature}
-                  onChange={(temperature) =>
-                    updateDraft({ temperature: temperature ?? draft.temperature })
-                  }
-                />
-              </HStack>
+            </SettingRow>
+            {draft.provider !== "vertex" ? (
+              <SettingRow label="API key" description="Stored only in this browser.">
+                <TextInput label="API key" isLabelHidden width={CONTROL_WIDTH} type="password" value={draft.apiKey} onChange={(apiKey) => updateDraft({ apiKey })} />
+              </SettingRow>
+            ) : null}
+            <SettingRow label="Default model" description="Model id for this profile.">
+              <TextInput label="Default model" isLabelHidden width={CONTROL_WIDTH} value={draft.model} onChange={(model) => updateDraft({ model })} />
+            </SettingRow>
+            <SettingRow label="Reasoning" description="Effort level, when supported.">
               <ReasoningEffortSelector
+            isLabelHidden
+            width={CONTROL_WIDTH}
                 model={draft.model}
                 budget={draft.reasoningBudget}
                 onChange={(reasoningBudget) => updateDraft({ reasoningBudget })}
               />
-            </VStack>
-          ) : (
-            <Text color="secondary">
-              Using the robot settings from steps 2–4. Create a profile only if you need a
-              personal override in this browser.
-            </Text>
-          )}
-        </VStack>
+            </SettingRow>
+            <SettingRow label="Temperature" description="0 keeps planning deterministic.">
+              <NumberInput label="Temperature" isLabelHidden width={120} value={draft.temperature} onChange={(temperature) => updateDraft({ temperature: temperature ?? draft.temperature })} />
+            </SettingRow>
+            <SettingRow label="Timeout" description="Seconds to wait for a response.">
+              <NumberInput label="Timeout (s)" isLabelHidden width={120} value={draft.timeoutS} onChange={(timeoutS) => updateDraft({ timeoutS: timeoutS ?? draft.timeoutS })} />
+            </SettingRow>
+          </SettingsGroup>
+          <HStack gap={2} hAlign="end">
+            <Button
+              label={testingModels ? "Testing…" : "Test connection"}
+              onClick={() => void testLlmConnection()}
+              isDisabled={testingModels}
+            />
+            <Button label="Save profile" variant="primary" onClick={saveProfile} />
+          </HStack>
+        </>
+      ) : null}
+    </>
+  );
+
+  const content = { general, assistant, voice, vertex, profile }[current.id];
+
+  return (
+    <div className="settings-page">
+      <header className="settings-header">
+        <Heading level={2}>Settings</Heading>
+        <TabList value={current.id} onChange={(id) => setSection(id as SectionId)}>
+          {sections.map((item) => (
+            <Tab
+              key={item.id}
+              value={item.id}
+              label={item.label}
+              icon={<item.icon style={{ width: 16, height: 16 }} />}
+              endContent={
+                item.ready === undefined ? null : (
+                  <StatusDot
+                    variant={item.ready ? "success" : "neutral"}
+                    label={item.ready ? "Ready" : "Not set up"}
+                  />
+                )
+              }
+            />
+          ))}
+        </TabList>
+      </header>
+      <div className="settings-scroll">
+        <div className="settings-content">
+          <VStack gap={6}>{content}</VStack>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CONTROL_WIDTH = 300;
+
+const DEVICE_LABELS: Record<DevicePref, string> = {
+  auto: "Detect automatically",
+  tablet: "Tablet",
+  desktop: "Desktop",
+};
+
+type SectionId = "general" | "assistant" | "voice" | "vertex" | "profile";
+
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <VStack gap={3}>
+      <Heading level={3}>{title}</Heading>
+      <Card padding={0}>
+        <List hasDividers density="spacious">
+          {children}
+        </List>
       </Card>
     </VStack>
+  );
+}
+
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <ListItem
+      label={label}
+      description={
+        description ? (
+          <Text type="supporting" color="secondary">
+            {description}
+          </Text>
+        ) : undefined
+      }
+      endContent={<div className="settings-control">{children}</div>}
+    />
+  );
+}
+
+function StatusRow({
+  label,
+  description,
+  ready,
+  optional,
+}: {
+  label: string;
+  description: string;
+  ready: boolean;
+  optional?: boolean;
+}) {
+  return (
+    <SettingRow label={label} description={description}>
+      <Badge
+        variant={ready ? "success" : optional ? "neutral" : "warning"}
+        label={ready ? "Ready" : optional ? "Optional" : "Needs setup"}
+      />
+    </SettingRow>
   );
 }

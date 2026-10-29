@@ -1,7 +1,8 @@
 """Build system prompts and conversation context for the agent loop.
 
-Tool lists and approval notes are generated from ``ToolRegistry`` so the
-prompts stay in sync with the code.
+pi-style: a short prompt, a small core tool set, everything else looked up with
+tools (``tool_search`` for more tools, ``get_help`` for reference notes). Tool
+schemas are sent with the request, so they are not repeated here.
 """
 
 from __future__ import annotations
@@ -10,219 +11,92 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from spatial_service import format_world_context
-from twfarmbot_core.config import load_yaml_config
+from safety_service import format_workspace_box
 
 from ..tool_results import compact_input_text
-from .farm_script import format_tool_catalog
 from .tool_registry import ToolRegistry
 
-_CHAT_HEADER = """You are TWFarmBot Assistant, a helpful, concise farm-robot operator.
+_CHAT_HEADER = """You are TWFarmBot Assistant, a concise farm-robot operator. Reply in the user's language.
 
-You can chat naturally with the user, answer questions about the robot, and
-use the available tools.
+You act through tools (JSON tool calls). Nothing about the robot, weather, bed
+map, saved positions or memories is preloaded: look it up with tools every time,
+never from memory or earlier answers in this chat.
 
-Call tools through JSON function/tool calling. Read tools
-(get_position, get_images, get_health, get_pins, plan_path) are ordinary
-JSON tools. Call independent reads together when useful, then answer from
-the results. Do not write Python scripts or farm_script fences.
-
-Work as an adaptive observe → decide → act → verify loop, not a fixed
-script. Before a consequential action, consider what live state, image, sensor
-reading, history, or plan would actually reduce uncertainty; gather it when it
-matters, otherwise act. After every tool result, reassess it before choosing the
-next call. Never bundle dependent calls: a move must finish before a capture,
-and an action's result must inform the next decision. Independent read-only
-lookups may be grouped. After a move, use `get_position` to confirm arrival
-before work at that location; after an intervention, choose an observation that
-can verify its intended effect. Prefer absolute `move(x,y,z)` — there are no
-named garden zones right now.
-
-Never merely describe an action that the user asked you to perform. Always
-respond in the same language the user writes in.
-
-"""
-
-_SPECTRAL = """
-Spectral cameras (this robot — do not confuse with RGB or NDVI):
-- NIR (near-infrared, ~800–900 nm): a dedicated grayscale USB camera (`capture` band=nir).
-  Healthy leaves reflect strongly in NIR because of internal leaf structure. NIR is
-  not thermal, not night-vision, and not an RGB channel.
-- Red-edge (~700–750 nm): a second grayscale USB camera (`capture` band=rededge).
-  It sits on the chlorophyll absorption → NIR reflection transition, so it is
-  sensitive to chlorophyll / early stress. It is not the RGB red channel and
-  not “just red”.
-- The two cameras are not co-located. `capture_ndre` shoots NIR, moves the
-  calibrated gantry offset, shoots red-edge, then warps red-edge onto NIR.
-- NDRE = (NIR − red-edge) / (NIR + red-edge), per pixel, typically −1…1.
-  This farm uses NDRE, not NDVI. NDVI uses red; NDRE uses red-edge and holds
-  up better on dense canopy. Never invent NDVI or treat a single NIR/red-edge
-  still as a colour photo.
-- How to read this farm’s NDRE metrics (trust `interpretation.*` over vibes):
-  mean ≥ 0.25 and vegetation_fraction ≥ 0.4 → healthy, do not water from NDRE
-  alone; mean ≥ 0.15 → moderate, water only with other evidence; high
-  stress_fraction with mean < 0.15 → likely stressed; mean < 0.05 and little
-  vegetation → soil/empty/misaimed, do not water.
-- After `capture_ndre` or `scan_ndre`, the user-facing reply is ONE short
-  sentence paraphrasing `interpretation.advice` (e.g. "Canopy looks healthy —
-  I wouldn't water from this."). Do not list mean, fractions, or the formula.
-  The NDRE map is already on screen. For a scan, summarise the whole bed in
-  that one sentence, not each stop.
-- Do not run `segment_image` on NIR or red-edge grayscale. For plant ID use RGB.
+Only core tools are listed. For anything else call `tool_search(query)`: it
+returns matching tools and unlocks them for your next call (scanning/NDRE,
+images and vision, zones and paths, GPIO pins and light, scripts, goals, homing
+and axis jogs, memory edits). `get_help(topic)` loads reference notes
+(topics: spectral).
 """
 
 _VOICE_STYLE = """
-Voice mode: the user hears your reply aloud. Use at most two short sentences.
-Never read markdown, maps, tables, or NDRE numbers. After NDRE, speak only the
-takeaway.
+Voice mode: the user hears your reply aloud. At most two short sentences; never
+read markdown, maps, tables or numbers from NDRE.
 """
 
 _CHAT_FOOTER = """
 Guidelines:
-- Keep answers short and actionable. Confirm what you did and any relevant
-  sensor/position readings.
-- Do NOT refuse moves because of workspace/garden bounds. The operator is
-  present; only refuse clearly impossible requests (e.g. missing coordinates
-  when asked to move somewhere specific) or hard tool errors.
-- When the user names a plant/area without coordinates, ask for mm targets
-  or use the current pose — do not invent zone centres or cite garden bounds.
-- When you call `capture`, `take_photo`, or `capture_ndre`, the latest still is
-  attached as an image you can see. Inspect RGB yourself (coverage, weeds,
-  plant vs soil, gaps). Do not call `segment_image` just to "look at" a photo,
-  and never tell the user to inspect it for you.
-- `segment_image` is Resi pixel masks only — use it when you need a class
-  overlay, not ordinary visual QA.
-- `capture_ndre` returns `interpretation`, `action_hint`, and `advice` plus an
-  NDRE map shown to the user. Reply with one sentence from those fields.
-- Water duration is still safety-limited. If a tool returns an error, explain
-  it briefly.
-- `scan_ndre(axis, end_mm, step_mm, start_mm?)` walks an axis and captures
-  NDRE at each stop.
-- Long-term memory: Recent facts (including auto-logged watering and NDRE) are
-  history, not rules. Never refuse `water` only because a watering fact exists.
-  Before work at a known location, consider `recall_memories`. Store extra
-  insights with `remember` when they add something the auto-facts miss.
-- Long jobs: call `set_goal` with an objective and a remaining checklist
-  (e.g. NDRE stops). Mark `completed` as you finish a step. The current goal
-  is re-read every turn so you do not lose y=200 after an approval.
-- For a transect (photos every N mm, NDRE every M mm) use `move_path` or
-  `scan_ndre` — do not emit a series of 50 mm `move` calls to skip approval.
-- Use the reasoning/thinking space throughout the loop: assess the facts and
-  uncertainty before each call, then reassess the returned evidence before the
-  next one. The user will see this as a collapsible pill.
+- Work in short turns like a coding agent: `think` (what is meant, which tools,
+  plan), gather with read tools (group independent reads), act, verify (after a
+  move call `get_position`), then answer. If a result did not answer the
+  question, `think` again and try a different tool. Never give up after one call.
+- Always call a tool in the current turn before stating anything live
+  (position, status, weather, memories, saved positions). Re-run it even when
+  asked "are you sure?". The origin (0,0,0) is a reference point, not where the
+  robot is.
+- A named place ("carrot", "home", a tool bay): call `goto_named(name)`; if it
+  errors, `get_positions` for the exact label. Never scan just to guess.
+- Do what the user asked; do not merely describe it. Stay inside the travel box.
+  Moves over 50 mm, water, homing and paths pause for operator approval.
+- Answers: one to three sentences, what you did plus relevant readings; no menu
+  of offers. Weather or forecast: `get_forecast` shows a chart, add one sentence.
+- After `capture`/`take_photo` the still is attached: inspect it yourself. For
+  NDRE reply with one sentence from `interpretation.advice` (`get_help` spectral).
 """
 
 _PLANNER_HEADER = """You are a task planner for an autonomous farm robot.
 
-Translate natural-language requests into an ordered plan using JSON
-function/tool calling. Call read tools to gather live state. Physical
-actions must remain safety-validated proposals. Do not write Python
-scripts, and do not emit a JSON action plan as the user-facing answer
-when you can call tools instead.
-
+Translate the request into an ordered plan with JSON tool calls. Nothing is
+preloaded: gather live state with read tools first (`tool_search(query)` unlocks
+more tools, `get_help(topic)` loads notes). Physical actions stay
+safety-validated proposals. Do not write scripts or a JSON plan as the answer.
 """
 
 _PLANNER_FOOTER = """
-Grounding coordinates:
-- There are no named zones. Use absolute millimetre coordinates from the
-  user, or `get_position` for the current pose.
-- DEFAULT to producing a plan. Only return `actions: []` when the request is
-  genuinely impossible (e.g. missing required numbers).
-- Do not refuse because of workspace/garden bounds.
-- If the request is ambiguous, ask for coordinates in `rationale` rather
-  than inventing a zone centre.
+- A named place: `goto_named(name)` (`get_positions` lists labels). Map
+  attributes (plant/weed/soil/healthy/stressed): `find_locations` via
+  `tool_search`. If the map is empty, plan a scan or ask for millimetres; never
+  invent coordinates.
+- Default to producing a plan; return no actions only if impossible.
+- Stay inside the hard travel box from the origin (0,0,0).
 """
 
 
-def _format_meteorology_context() -> str:
-    try:
-        from ..meteorology import get_meteorology
-
-        m = get_meteorology()
-        sun = m.get("sun", {})
-        w = m.get("weather", {})
-        adv = m.get("agronomic_advice", {})
-        loc = m.get("location", {})
-        return (
-            f"\nEnvironment & Solar Context ({loc.get('timezone', 'local')}):\n"
-            f"- Sun: altitude {sun.get('altitude_deg')}°, azimuth {sun.get('azimuth_deg')}°, phase: {sun.get('sun_phase')} (daylight={sun.get('is_daylight')}), clear-sky irradiance ~{sun.get('clear_sky_irradiance_w_m2')} W/m²\n"
-            f"- Weather: {w.get('temperature_c')}°C, humidity {w.get('relative_humidity_pct')}%, clouds {w.get('cloud_cover_pct')}%, rain {w.get('precipitation_mm')}mm, total solar radiation {w.get('total_radiation_w_m2')} W/m² (UV {w.get('uv_index')})\n"
-            f"- Agronomic Advice: Camera lighting={adv.get('camera_lighting_quality')} ({adv.get('camera_lighting_advice')}); Watering={adv.get('watering_suitability')} ({adv.get('watering_advice')})\n"
-        )
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-def _format_memory_context(registry: ToolRegistry | None = None) -> str:
-    try:
-        mems = None
-        if registry is not None and getattr(registry, "_system_state", None) is not None:
-            try:
-                mems = registry._system_state.list_memories(limit=8)
-            except Exception:
-                mems = None
-        if mems is None:
-            from ..memory import get_memory_store
-
-            mems = get_memory_store().list_recent(limit=8)
-        if not mems:
-            return (
-                "\nLong-Term Memory:\n"
-                "- Memory store active (0 saved memories). Treatments and NDRE are also auto-logged after those tools.\n"
-            )
-        lines = ["\nRecent Long-Term Memories (facts, not constraints — you may still water):"]
-        for m in mems:
-            loc = (
-                f" (x={m['x']}, y={m['y']})"
-                if m.get("x") is not None and m.get("y") is not None
-                else ""
-            )
-            cat = f" [{m['category']}]" if m.get("category") else ""
-            lines.append(f"- [ID {m['id']}]{loc}{cat}: {m['content']}")
-        lines.append(
-            "(Use `recall_memories` to query past records by coordinates or keywords, "
-            "`remember` to commit new significant insights, `forget_memory` when obsolete)"
-        )
-        return "\n".join(lines) + "\n"
-    except Exception:  # noqa: BLE001
-        return ""
-
-
 class ContextBuilder:
-    """Build prompts and LangChain message lists."""
+    """Build prompts and LangChain message lists.
+
+    No live state (world model, weather, memories) is ever injected into
+    the prompt — the model gathers it with tool calls instead.
+    """
 
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        world: Any = None,
     ) -> None:
         self._registry = tool_registry
-        self._world = world
 
-    def chat_system_prompt(self, *, voice: bool = False) -> str:
+    def chat_system_prompt(self, *, voice: bool = False, **_: Any) -> str:
+        """System prompt carries no live state; the model uses tools instead."""
         parts = [_CHAT_HEADER]
-        parts.append(self._render_tool_section())
-        parts.append(_format_pin_context())
-        parts.append(_SPECTRAL)
-        parts.append(_format_meteorology_context())
-        parts.append(_format_memory_context(self._registry))
+        parts.append(format_workspace_box())
         parts.append(_CHAT_FOOTER)
         if voice:
             parts.append(_VOICE_STYLE)
-        parts.append(
-            "\nRegistered action kinds you can use: "
-            + ", ".join(sorted(self._registry.by_name()))
-            + "."
-        )
         return "\n".join(parts)
 
     def planner_system_prompt(self) -> str:
         parts = [_PLANNER_HEADER]
-        parts.append(self._render_tool_section(for_planner=True))
-        parts.append(_format_pin_context())
-        parts.append(_SPECTRAL)
-        parts.append(_format_meteorology_context())
-        parts.append(_format_memory_context(self._registry))
+        parts.append(format_workspace_box())
         parts.append(_PLANNER_FOOTER)
         return "\n".join(parts)
 
@@ -233,12 +107,11 @@ class ContextBuilder:
         include_reasoning: bool = False,
         voice: bool = False,
     ) -> list[SystemMessage | HumanMessage | AIMessage | ToolMessage]:
+        # No live data is injected: weather, memories, and the bed map are
+        # gathered by the model via tool calls (get_meteorology, get_forecast,
+        # recall_memories, get_garden, find_locations, …). This keeps the
+        # system prompt identical every turn so prefix caching holds.
         system = self.chat_system_prompt(voice=voice)
-        world_context = (
-            format_world_context(self._world) if self._world is not None else None
-        )
-        if world_context:
-            system += "\n\nCurrent world model:\n" + world_context
         out: list[SystemMessage | HumanMessage | AIMessage | ToolMessage] = [
             SystemMessage(content=system)
         ]
@@ -271,51 +144,7 @@ class ContextBuilder:
         self, request: str
     ) -> list[SystemMessage | HumanMessage | ToolMessage]:
         system = self.planner_system_prompt()
-        world_context = (
-            format_world_context(self._world) if self._world is not None else None
-        )
-        if world_context:
-            system += "\n\nCurrent world model:\n" + world_context
         return [
             SystemMessage(content=system),
             HumanMessage(content=request),
         ]
-
-    def _render_tool_section(self, for_planner: bool = False) -> str:
-        del for_planner
-        return format_tool_catalog(self._registry.descriptors())
-
-
-def _format_pin_context() -> str:
-    """Load named pins from config and format them for the system prompt."""
-    try:
-        pins = load_yaml_config().get("pins", []) or []
-    except Exception:  # noqa: BLE001
-        pins = []
-    if not pins:
-        return ""
-    lines = ["\nConfigured GPIO pins (single source of truth):"]
-    for p in pins:
-        label = p.get("label", "unknown")
-        pin = p.get("pin", "?")
-        mode = p.get("mode", "digital")
-        kind = p.get("kind", "io")
-        group = p.get("group", "")
-        group_text = f" · {group}" if group else ""
-        presets = p.get("presets") or {}
-        preset_text = ""
-        if presets:
-            preset_items = ", ".join(
-                f"{v}={lbl}"
-                for v, lbl in sorted(presets.items(), key=lambda x: int(x[0]))
-            )
-            preset_text = f" · presets: {preset_items}"
-        lines.append(
-            f"- pin {pin} · {label} · mode={mode} · kind={kind}{group_text}{preset_text}"
-        )
-    lines.append(
-        "When calling read_pin or write_pin, use the configured mode for the pin "
-        "unless the user explicitly asks for a different mode. For analog pins, "
-        "use the named preset values when the user refers to them."
-    )
-    return "\n".join(lines)

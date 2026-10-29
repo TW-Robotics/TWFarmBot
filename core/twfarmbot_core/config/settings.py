@@ -24,6 +24,16 @@ def load_settings() -> Settings:
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "dev.yaml"
 
 
+def yaml_config_path(
+    path: str | Path | None = None,
+    env_var: str = "TWFB_CONFIG",
+) -> Path:
+    """Resolve the project YAML config path (``configs/dev.yaml`` by default)."""
+    if path is None:
+        return Path(os.getenv(env_var, _DEFAULT_CONFIG_PATH))
+    return Path(path)
+
+
 def load_yaml_config(
     path: str | Path | None = None,
     env_var: str = "TWFB_CONFIG",
@@ -37,11 +47,8 @@ def load_yaml_config(
 
     Returns an empty dict if the file does not exist or is empty.
     """
-    if path is None:
-        path = Path(os.getenv(env_var, _DEFAULT_CONFIG_PATH))
-    else:
-        path = Path(path)
-    if not path.exists():
+    config_path = yaml_config_path(path, env_var)
+    if not config_path.exists():
         return {}
-    with path.open() as fh:
+    with config_path.open() as fh:
         return yaml.safe_load(fh) or {}

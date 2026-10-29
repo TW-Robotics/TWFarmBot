@@ -13,11 +13,44 @@ body {
   font-family: var(--font-family-body, Figtree, ui-sans-serif, system-ui, sans-serif);
 }
 
-.garden-map {
-  width: 100%;
-  height: 520px;
-  border-radius: var(--radius-container, 12px);
-  background: var(--color-background-wash, #111);
+.app-body {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main > * {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Tablet: an open bed panel overlays instead of squeezing the page, and its
+   content scrolls instead of clipping. Desktop keeps the fixed 320px rail. */
+.app-body--tablet .bed-sidebar:not(.bed-sidebar--collapsed) {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+  max-width: min(340px, 86vw);
+  overflow-y: auto;
+  box-shadow: var(--shadow-low, 0 8px 30px rgba(0, 0, 0, 0.25));
+}
+
+.app-body--tablet {
+  position: relative;
 }
 
 .metric-grid {
@@ -36,6 +69,33 @@ body {
 
 .jog-grid > div {
   display: flex;
+}
+
+/* Tablet-only: big finger targets, no double-tap zoom delay. Desktop keeps
+   the compact 56px pad above. */
+.jog-grid--tablet {
+  grid-template-columns: repeat(3, minmax(64px, 96px)) 12px minmax(64px, 96px);
+  grid-template-rows: repeat(3, minmax(72px, 96px));
+  gap: 8px;
+  justify-content: center;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.jog-grid--tablet > div > * {
+  flex: 1;
+  min-height: 76px;
+}
+
+.jog-grid--tablet button {
+  touch-action: manipulation;
+}
+
+.jog-steps--tablet > * {
+  flex: 1 1 88px;
+  min-height: 52px;
 }
 
 .jog-yplus { grid-column: 2; grid-row: 1; }
@@ -112,4 +172,212 @@ textarea,
 
 .twfb-goal-chip-action {
   outline: 1px solid var(--color-border-warning, rgba(212, 168, 75, 0.4));
+}
+
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.settings-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 24px 0;
+  border-bottom: 1px solid var(--color-border-secondary, #ccc);
+}
+
+.settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-content {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.settings-control {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding-left: 24px;
+}
+
+/* The four weather charts fill the viewport below the header, so they are
+   visible without scrolling; the detail tiles sit beneath them. */
+.trend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 0 auto;
+  height: calc(100vh - 300px);
+  min-height: 420px;
+}
+
+.trend-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.trend-cell {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.trend-cell > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.trend-body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trend-chart {
+  flex: 1;
+  min-height: 0;
+}
+
+.trend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Chart hues from the validated dataviz palette; brighter than the theme's
+   icon tokens, which are tuned for text contrast rather than data marks. */
+:root {
+  --chart-blue: light-dark(#2a78d6, #3987e5);
+  --chart-orange: light-dark(#eb6834, #d95926);
+  --chart-aqua: light-dark(#1baf7a, #199e70);
+  --chart-yellow: light-dark(#eda100, #c98500);
+  --chart-violet: light-dark(#6250d6, #9085e9);
+}
+
+/* Bed sidebar ------------------------------------------------------------- */
+:root {
+  --bed-healthy: light-dark(#2f9e44, #51b765);
+  --bed-monitor: light-dark(#eda100, #c98500);
+  --bed-water: light-dark(#eb6834, #d95926);
+  --bed-weed: light-dark(#e34948, #e66767);
+  --bed-soil: light-dark(#9a6b3f, #b68a5e);
+  --bed-unclear: light-dark(#9a9a96, #6f6f6b);
+}
+
+.bed-sidebar {
+  flex: 0 0 320px;
+  width: 320px;
+  min-height: 0;
+  padding: 20px;
+  background: var(--color-background-surface);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.bed-sidebar--collapsed {
+  flex-basis: 48px;
+  width: 48px;
+  padding: 12px 4px;
+  align-items: center;
+}
+
+.gantry-map {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.gantry-map svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.gantry-map--goto svg {
+  cursor: crosshair;
+}
+
+.gantry-bed {
+  fill: color-mix(in srgb, #8b6b4a 12%, var(--color-background-surface));
+}
+
+.gantry-cell {
+  fill-opacity: 0.9;
+}
+
+.gantry-beam {
+  stroke: var(--color-text-primary);
+  stroke-opacity: 0.35;
+  stroke-width: 3;
+}
+
+.gantry-head {
+  fill: var(--color-text-primary);
+  stroke: var(--color-background-surface);
+  stroke-width: 4;
+}
+
+.bed-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bed-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.bed-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bed-legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.bed-pose {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline tool visuals in the chat (forecast card, ...) */
+.chat-visual {
+  width: 100%;
+  max-width: 560px;
+}
+
+.forecast-days {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.forecast-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--color-background-muted);
 }

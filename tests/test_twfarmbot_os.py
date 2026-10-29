@@ -17,7 +17,13 @@ class _MockTransport(BaseTransport):
         self.locked = False
         self.pins: dict[int, float] = {}
 
-    def request(self, gcode: str, timeout_s: float = 120.0) -> list[Report]:
+    def request(
+        self,
+        gcode: str,
+        timeout_s: float = 120.0,
+        on_report=None,
+        on_wait=None,
+    ) -> list[Report]:
         cmd = parse_command(gcode)
         reports = [Report(number=8, raw=f"R08 {gcode}"), Report(number=1, raw="R01")]
         if self.locked and cmd.code != "F09" and cmd.kind != "E":
@@ -83,6 +89,9 @@ class _MockTransport(BaseTransport):
             reports.append(Report(number=41, params={"P": p, "V": v}, raw=f"R41 P{p} V{v}"))
 
         reports.append(Report(number=2, raw="R02"))
+        if on_report is not None:
+            for report in reports:
+                on_report(report)
         return reports
 
 
@@ -90,6 +99,41 @@ def _client(tmp_path) -> TestClient:
     bot = FarmduinoController(_MockTransport())
     cam = Camera(directory=str(tmp_path / "photos"))
     return TestClient(create_app(bot, cam))
+
+
+def test_snapshot_tracks_r82_before_move_finishes() -> None:
+    class _Stream(BaseTransport):
+        def __init__(self) -> None:
+            self.bot: FarmduinoController | None = None
+            self.mid: float | None = None
+
+        def request(
+            self,
+            gcode: str,
+            timeout_s: float = 120.0,
+            on_report=None,
+            on_wait=None,
+        ) -> list[Report]:
+            mid = Report(
+                number=82,
+                params={"X": 40.0, "Y": 0.0, "Z": 0.0},
+                raw="R82 X40 Y0 Z0",
+            )
+            done = Report(number=2, raw="R02")
+            if on_report is not None:
+                on_report(mid)
+            if self.bot is not None:
+                self.mid = self.bot.x
+            if on_report is not None:
+                on_report(done)
+            return [mid, done]
+
+    stream = _Stream()
+    bot = FarmduinoController(stream)
+    stream.bot = bot
+    bot.move_absolute(90, 0, 0)
+    assert stream.mid == 40.0
+    assert bot.x == 40.0
 
 
 def test_absolute_move_and_state(tmp_path) -> None:

@@ -21,7 +21,13 @@ class TransportError(RuntimeError):
 
 
 class BaseTransport:
-    def request(self, gcode: str, timeout_s: float) -> list[Report]:
+    def request(
+        self,
+        gcode: str,
+        timeout_s: float,
+        on_report=None,
+        on_wait=None,
+    ) -> list[Report]:
         raise NotImplementedError
 
     def close(self) -> None:
@@ -90,7 +96,13 @@ class SerialTransport(BaseTransport):
         )
         self._drain()
 
-    def request(self, gcode: str, timeout_s: float) -> list[Report]:
+    def request(
+        self,
+        gcode: str,
+        timeout_s: float,
+        on_report=None,
+        on_wait=None,
+    ) -> list[Report]:
         self._drain()
         payload = gcode.strip() + "\r\n"
         log.debug("farmduino >> %s", gcode)
@@ -101,17 +113,20 @@ class SerialTransport(BaseTransport):
         while time.monotonic() < deadline:
             remaining = deadline - time.monotonic()
             try:
-                line = self._inbox.get(timeout=min(0.25, remaining))
+                line = self._inbox.get(timeout=min(0.2, remaining))
             except Empty:
+                if on_wait is not None:
+                    on_wait()
                 continue
             report = parse_report(line)
             if report is None:
                 continue
             reports.append(report)
+            if on_report is not None:
+                on_report(report)
             if report.number == 1:
                 saw_r01 = True
             if report.number == 88 and not saw_r01:
-                # Boot-time "no config yet" — keep reading for this command.
                 continue
             if report.number in _DONE_CODES or report.number == 88:
                 return reports

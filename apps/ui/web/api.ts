@@ -155,6 +155,19 @@ export function parseNumber(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+export async function refreshXyz(): Promise<{ x: number; y: number; z: number }> {
+  const body = await api<{ xyz?: { x?: number; y?: number; z?: number } }>(
+    "/position?refresh=true",
+  );
+  const x = body.xyz?.x;
+  const y = body.xyz?.y;
+  const z = body.xyz?.z;
+  if (x == null || y == null || z == null) {
+    throw new Error("No gantry pose yet — find home first");
+  }
+  return { x, y, z };
+}
+
 export function fmt(value: unknown): string {
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(1) : "—";
