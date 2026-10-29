@@ -45,6 +45,7 @@ PERCEPTION_TOOLS = frozenset(
 ACTION_TOOLS = frozenset(
     {
         "water",
+        "set_light",
         "move",
         "move_axis",
         "move_path",

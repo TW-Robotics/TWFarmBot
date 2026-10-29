@@ -39,7 +39,7 @@ export const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string 
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5.6" },
   openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4" },
   vertex: { baseUrl: "", model: "gemini-2.5-flash" },
-  local: { baseUrl: "http://127.0.0.1:11434/v1", model: "llama3.2" },
+  local: { baseUrl: "http://127.0.0.1:8090/v1", model: "lfm3" },
 };
 
 const DEFAULT_SETTINGS: AppSettings = {

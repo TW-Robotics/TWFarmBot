@@ -152,11 +152,95 @@ def test_shelly_water_pulses_switch_on(monkeypatch: pytest.MonkeyPatch) -> None:
     assert posts == [("http://10.0.0.8/rpc/Switch.Set", {"id": 0, "on": False})]
 
 
+def test_shelly_light_sets_switch(monkeypatch: pytest.MonkeyPatch) -> None:
+    from watering_service.lighting import set_light
+
+    monkeypatch.setenv("SHELLY_LIGHT_HOST", "192.168.1.3")
+    posts: list[tuple[str, dict]] = []
+
+    class _Resp:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"output": True, "apower": 12.0}
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def __enter__(self) -> "_Client":
+            return self
+
+        def __exit__(self, *args) -> None:
+            del args
+
+        def post(self, url: str, json: dict | None = None) -> _Resp:
+            posts.append((url, json or {}))
+            return _Resp()
+
+        def get(self, url: str, params: dict | None = None) -> _Resp:
+            del url, params
+            return _Resp()
+
+    import watering_service.backends.shelly as shelly
+
+    monkeypatch.setattr(shelly.httpx, "Client", _Client)
+    out = set_light(True)
+    assert posts == [("http://192.168.1.3/rpc/Switch.Set", {"id": 0, "on": True})]
+    assert out["on"] is True
+    assert out["host"] == "192.168.1.3"
+
+
 def test_api_actions_dispatches_water() -> None:
     client = TestClient(app)
     r = client.post("/actions", json={"kind": "water", "params": {"seconds": 0.01}})
     assert r.status_code == 200
     assert r.json()["action"]["kind"] == "water"
+
+
+def test_api_actions_dispatches_set_light(monkeypatch: pytest.MonkeyPatch) -> None:
+    from watering_service import lighting as lighting_mod
+
+    calls: list[bool] = []
+
+    def fake_set(on: bool) -> dict:
+        calls.append(on)
+        return {"on": on, "host": "192.168.1.3", "power_w": 0}
+
+    monkeypatch.setattr(lighting_mod, "set_light", fake_set)
+    client = TestClient(app)
+    r = client.post("/actions", json={"kind": "set_light", "params": {"on": True}})
+    assert r.status_code == 200
+    assert r.json()["action"]["kind"] == "set_light"
+    assert calls == [True]
+
+
+def test_lighting_io_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
+    from watering_service import lighting as lighting_mod
+
+    state = {"on": False}
+
+    def fake_status() -> dict:
+        return {"on": state["on"], "host": "192.168.1.3", "power_w": 4.0 if state["on"] else 0}
+
+    def fake_set(on: bool) -> dict:
+        state["on"] = on
+        return fake_status()
+
+    monkeypatch.setattr(lighting_mod, "light_status", fake_status)
+    monkeypatch.setattr(lighting_mod, "set_light", fake_set)
+    client = TestClient(app)
+    r = client.get("/lighting")
+    assert r.status_code == 200
+    assert r.json()["on"] is False
+    r = client.post("/lighting", json={"on": True})
+    assert r.status_code == 200
+    assert r.json()["on"] is True
+    r = client.post("/lighting", json={"on": False})
+    assert r.json()["on"] is False
 
 
 def test_api_actions_can_queue_without_waiting() -> None:

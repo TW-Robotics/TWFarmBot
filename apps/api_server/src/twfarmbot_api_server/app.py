@@ -774,7 +774,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
 
     @app.post("/chat/transcribe")
     def post_chat_transcribe(payload: ChatTranscribePayload) -> dict[str, str]:
-        """Speech-to-text via OpenAI for the dictate button."""
+        """Speech-to-text for the dictate button: local LFM3 when the provider is local."""
         import base64
 
         from planning_service.transcribe import TRANSCRIBE_MODEL, transcribe_audio
@@ -790,7 +790,7 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(err)) from err
         except RuntimeError as err:
             raise HTTPException(status_code=502, detail=str(err)) from err
-        return {"text": text, "model": TRANSCRIBE_MODEL}
+        return {"text": text, "model": cfg.model if cfg.provider == "local" else TRANSCRIBE_MODEL}
 
     return app
 

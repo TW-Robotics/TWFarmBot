@@ -36,7 +36,9 @@ DEFAULT_ACTION_KINDS: tuple[str, ...] = (
     "inspect_zone",
     "water_zone",
     "goto_named",
+    "run_script",
     "scan_ndre",
+    "set_light",
 )
 
 

@@ -26,6 +26,22 @@ def handle_goto_named(action: Action) -> Action:
     return Action(kind="goto_named", params={**action.params, "resolved": target})
 
 
+def handle_run_script(action: Action) -> Action:
+    from spatial_service import resolve_script
+
+    script = resolve_script(str(action.params["name"]))
+    waypoints = script.get("waypoints") or []
+    if not waypoints:
+        raise ValueError(
+            f"{script['label']!r} has no waypoints yet. Record them on the Scripts page."
+        )
+    handle_move_path(Action(kind="move_path", params={"waypoints": waypoints}))
+    return Action(
+        kind="run_script",
+        params={**action.params, "resolved": script["label"], "waypoints": waypoints},
+    )
+
+
 def handle_water_zone(action: Action) -> Action:
     from spatial_service import resolve_named
 

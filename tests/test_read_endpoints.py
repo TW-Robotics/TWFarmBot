@@ -47,7 +47,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 def test_get_position(client: TestClient) -> None:
     r = client.get("/position")
     assert r.status_code == 200
-    assert r.json() == {"xyz": {"x": 100.0, "y": 200.0, "z": 50.0}}
+    assert r.json()["xyz"] == {"x": 100.0, "y": 200.0, "z": 50.0}
+    assert r.json()["workspace"]["x"]["max"] == 2000
+    assert r.json()["workspace"]["y"]["max"] == 650
+    assert r.json()["workspace"]["z"]["max"] is None
 
 
 def test_get_status_default_path(client: TestClient) -> None:
@@ -122,11 +125,66 @@ def test_get_positions(client: TestClient) -> None:
     body = r.json()
     assert "positions" in body
     assert isinstance(body["positions"], list)
+    labels = {item["label"] for item in body["positions"]}
+    assert "Home" in labels
+    assert "Cutting" in labels
     if body["positions"]:
         first = body["positions"][0]
         assert "label" in first
-        for axis in ("x", "y", "z"):
-            assert axis in first
+        assert "group" in first
+        assert "set" in first
+
+
+def test_put_positions(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    path = tmp_path / "dev.yaml"
+    path.write_text("safety: {}\npositions: []\n", encoding="utf-8")
+    monkeypatch.setenv("TWFB_CONFIG", str(path))
+    r = client.put(
+        "/positions",
+        json={
+            "positions": [
+                {"label": "Home", "group": "Travel", "x": 0, "y": 0, "z": 0},
+                {"label": "Cutting", "group": "Tools"},
+            ]
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()["positions"]
+    assert body[0]["set"] is True
+    assert body[1]["set"] is False
+    listed = client.get("/positions").json()["positions"]
+    assert listed[1]["label"] == "Cutting"
+
+
+def test_get_scripts(client: TestClient) -> None:
+    r = client.get("/scripts")
+    assert r.status_code == 200
+    labels = {item["label"] for item in r.json()["scripts"]}
+    assert "Get tool servo" in labels
+
+
+def test_put_scripts(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    path = tmp_path / "dev.yaml"
+    path.write_text("scripts: []\n", encoding="utf-8")
+    monkeypatch.setenv("TWFB_CONFIG", str(path))
+    r = client.put(
+        "/scripts",
+        json={
+            "scripts": [
+                {
+                    "label": "Get tool servo",
+                    "waypoints": [
+                        {"x": 1927, "y": 186, "z": 0},
+                        {"x": 1927, "y": 186, "z": -297},
+                    ],
+                }
+            ]
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()["scripts"]
+    assert body[0]["label"] == "Get tool servo"
+    assert len(body[0]["waypoints"]) == 2
 
 
 def test_get_garden(client: TestClient) -> None:
@@ -137,6 +195,33 @@ def test_get_garden(client: TestClient) -> None:
     assert body["robot"] == {"x": 100.0, "y": 200.0, "z": 50.0}
     assert isinstance(body["entities"], list)
     assert isinstance(body["zones"], list)
+    assert isinstance(body["cells"], list)
+    assert body["cell_mm"] == 250
+
+
+def test_find_garden_locations(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from spatial_service.observations import ObservationStore
+
+    store = ObservationStore(":memory:")
+    store.record(
+        x=1200, y=400, ndre_mean=0.02, stress_fraction=0.7, action_hint="consider_water"
+    )
+    store.record(x=200, y=100, ndre_mean=0.3, stress_fraction=0.05, action_hint="ok")
+    monkeypatch.setattr(
+        "spatial_service.observations.get_observation_store",
+        lambda db_path=None: store,
+    )
+    r = client.get("/garden/find", params={"predicate": "stressed"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["locations"][0]["x"] == 1200
+    ripe = client.get("/garden/find", params={"predicate": "ripe"})
+    assert ripe.status_code == 200
+    assert ripe.json()["locations"] == []
+    bad = client.get("/garden/find", params={"predicate": "moon"})
+    assert bad.status_code == 400
 
 
 def test_get_memory(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

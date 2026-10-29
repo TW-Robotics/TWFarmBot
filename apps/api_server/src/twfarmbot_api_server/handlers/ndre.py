@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from spatial_service import try_record_ndre
 from twfarmbot_core.domain import Action
 
 
@@ -20,18 +21,17 @@ def handle_capture_ndre(action: Action) -> Action:
         out = {k: band[k] for k in ("artifact_id", "band") if k in band}
         return out or None
 
-    return Action(
-        kind="capture_ndre",
-        params={
-            **action.params,
-            "summary": metrics.get("summary"),
-            "ndre": metrics.get("ndre"),
-            "interpretation": metrics.get("interpretation"),
-            "nir": _band_ref(result.get("nir")),
-            "rededge": _band_ref(result.get("rededge")),
-            "gantry_mm": result.get("gantry_mm"),
-            "image_align": metrics.get("image_align"),
-            "ndre_preview": metrics.get("ndre_preview"),
-            "calibration": result.get("calibration"),
-        },
-    )
+    params = {
+        **action.params,
+        "summary": metrics.get("summary"),
+        "ndre": metrics.get("ndre"),
+        "interpretation": metrics.get("interpretation"),
+        "nir": _band_ref(result.get("nir")),
+        "rededge": _band_ref(result.get("rededge")),
+        "gantry_mm": result.get("gantry_mm"),
+        "image_align": metrics.get("image_align"),
+        "ndre_preview": metrics.get("ndre_preview"),
+        "calibration": result.get("calibration"),
+    }
+    try_record_ndre(params)
+    return Action(kind="capture_ndre", params=params)

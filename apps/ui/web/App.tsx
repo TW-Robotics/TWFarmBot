@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { NavIcon } from "@astryxdesign/core/NavIcon";
 import {
@@ -23,14 +23,19 @@ import {
   CubeTransparentIcon,
   HomeIcon,
   MoonIcon,
+  QueueListIcon,
   PlayIcon,
   StopCircleIcon,
   SunIcon,
 } from "@heroicons/react/24/outline";
 import { api, postAction } from "./api";
+import { useDevice } from "./device";
 import { useThemeMode, type ColorMode } from "./theme";
+import { BedSidebar } from "./components/BedSidebar";
+import type { GardenCell, Pose, Workspace } from "./components/GantryMap";
 import { OverviewPage } from "./pages/OverviewPage";
 import { MotionPage } from "./pages/MotionPage";
+import { ScriptsPage } from "./pages/ScriptsPage";
 import { CameraPage } from "./pages/CameraPage";
 import { AssistantPage } from "./pages/AssistantPage";
 import { MemoryPage } from "./pages/MemoryPage";
@@ -41,6 +46,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 export type Tab =
   | "overview"
   | "motion"
+  | "scripts"
   | "camera"
   | "assistant"
   | "io"
@@ -112,6 +118,7 @@ function SideNavFooterIcons({
 const TABS: { id: Tab; label: string; icon: typeof HomeIcon }[] = [
   { id: "overview", label: "Overview", icon: HomeIcon },
   { id: "motion", label: "Motion", icon: PlayIcon },
+  { id: "scripts", label: "Scripts", icon: QueueListIcon },
   { id: "camera", label: "Camera", icon: CameraIcon },
   { id: "assistant", label: "Assistant", icon: ChatBubbleLeftRightIcon },
   { id: "io", label: "I/O", icon: BeakerIcon },
@@ -130,8 +137,31 @@ export function App() {
   const toast = useToast();
   const { mode, toggle } = useThemeMode();
   const [tab, setTab] = useState<Tab>(tabFromUrl);
+  const { isTablet } = useDevice();
+  // Tablets start with the nav collapsed to its icon rail; follow the device class
+  // if it changes (e.g. the layout is switched in Settings).
+  const [navCollapsed, setNavCollapsed] = useState(isTablet);
+  useEffect(() => setNavCollapsed(isTablet), [isTablet]);
   const [farmbot, setFarmbot] = useState("unknown");
-  const [pose, setPose] = useState<{ x?: number; y?: number; z?: number }>({});
+  const [pose, setPose] = useState<Pose>({});
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [cells, setCells] = useState<GardenCell[]>([]);
+  const [cellMm, setCellMm] = useState(250);
+  const [livePose, setLivePose] = useState(false);
+  const poseTicket = useRef(0);
+
+  const applyPolledPose = useCallback((xyz: Pose | undefined, ticket: number) => {
+    if (ticket !== poseTicket.current) return;
+    setPose(xyz || {});
+  }, []);
+
+  const applyGarden = useCallback((garden: { cells?: GardenCell[]; cell_mm?: number } | null) => {
+    if (!garden) return;
+    setCells(Array.isArray(garden.cells) ? garden.cells : []);
+    if (typeof garden.cell_mm === "number" && Number.isFinite(garden.cell_mm)) {
+      setCellMm(garden.cell_mm);
+    }
+  }, []);
 
   const selectTab = useCallback((next: Tab) => {
     setTab(next);
@@ -140,25 +170,77 @@ export function App() {
     window.history.replaceState({}, "", url);
   }, []);
 
+  const refreshPose = useCallback(async () => {
+    const ticket = ++poseTicket.current;
+    try {
+      const [position, garden] = await Promise.all([
+        api<{ xyz?: Pose; workspace?: Workspace }>("/position"),
+        api<{ cells?: GardenCell[]; cell_mm?: number }>("/garden").catch(() => null),
+      ]);
+      if (ticket !== poseTicket.current) return;
+      if (position.workspace) setWorkspace(position.workspace);
+      applyPolledPose(position.xyz, ticket);
+      applyGarden(garden);
+    } catch {
+      /* keep last pose */
+    }
+  }, [applyGarden, applyPolledPose]);
+
   const refreshTelemetry = useCallback(async (refresh = false) => {
+    const ticket = ++poseTicket.current;
     try {
       const positionPath = refresh ? "/position?refresh=true" : "/position";
-      const [health, position] = await Promise.all([
+      const [health, position, garden] = await Promise.all([
         api<{ farmbot?: string }>("/health"),
-        api<{ xyz?: { x?: number; y?: number; z?: number } }>(positionPath),
+        api<{ xyz?: Pose; workspace?: Workspace }>(positionPath),
+        api<{ cells?: GardenCell[]; cell_mm?: number }>("/garden").catch(() => null),
       ]);
+      if (ticket !== poseTicket.current) {
+        setFarmbot(health.farmbot || "?");
+        return;
+      }
       setFarmbot(health.farmbot || "?");
-      setPose(position.xyz || {});
+      if (position.workspace) setWorkspace(position.workspace);
+      applyPolledPose(position.xyz, ticket);
+      applyGarden(garden);
     } catch {
       setFarmbot("unreachable");
     }
-  }, []);
+  }, [applyGarden, applyPolledPose]);
 
   useEffect(() => {
     void refreshTelemetry();
-    const id = window.setInterval(() => void refreshTelemetry(), 15000);
-    return () => window.clearInterval(id);
   }, [refreshTelemetry]);
+
+  useEffect(() => {
+    let inFlight = false;
+    const id = window.setInterval(() => {
+      if (inFlight) return;
+      inFlight = true;
+      void refreshPose().finally(() => {
+        inFlight = false;
+      });
+    }, 400);
+    return () => window.clearInterval(id);
+  }, [refreshPose]);
+
+  const gotoMap = useCallback(
+    (x: number, y: number) => {
+      const z = pose.z ?? 0;
+      void postAction("move", { x, y, z }, true)
+        .then(() => {
+          toast({ body: `→ (${x}, ${y}, ${z})` });
+          return refreshTelemetry(true);
+        })
+        .catch((error) => {
+          toast({
+            body: error instanceof Error ? error.message : "Move failed",
+            type: "error",
+          });
+        });
+    },
+    [pose.z, refreshTelemetry, toast],
+  );
 
   const estop = async () => {
     try {
@@ -175,10 +257,12 @@ export function App() {
         return <OverviewPage pose={pose} farmbot={farmbot} />;
       case "motion":
         return <MotionPage pose={pose} onMoved={() => refreshTelemetry(true)} />;
+      case "scripts":
+        return <ScriptsPage onMoved={() => refreshTelemetry(true)} />;
       case "camera":
         return <CameraPage />;
       case "assistant":
-        return <AssistantPage />;
+        return <AssistantPage onBusyChange={setLivePose} />;
       case "io":
         return <IoPage />;
       case "memory":
@@ -193,11 +277,11 @@ export function App() {
   return (
     <AppShell
       height="fill"
-      contentPadding={tab === "assistant" ? 0 : 5}
+      contentPadding={tab === "assistant" || tab === "settings" ? 0 : 5}
       variant="elevated"
       sideNav={
         <SideNav
-          collapsible
+          collapsible={{ isCollapsed: navCollapsed, onCollapsedChange: setNavCollapsed }}
           header={
             <SideNavHeading
               icon={<NavIcon icon={<CubeIcon style={{ width: 16, height: 16 }} />} />}
@@ -231,7 +315,21 @@ export function App() {
         </SideNav>
       }
     >
-      {page}
+      <div className={`app-body${isTablet ? " app-body--tablet" : ""}`}>
+        <div className="app-main">{page}</div>
+        {/* Tablet motion tab already shows the bed map inline; the sidebar
+            would only squeeze the jog UI. */}
+        {tab !== "settings" && !(isTablet && tab === "motion") ? (
+          <BedSidebar
+            pose={pose}
+            workspace={workspace}
+            live={livePose}
+            cells={cells}
+            cellMm={cellMm}
+            onGoto={gotoMap}
+          />
+        ) : null}
+      </div>
     </AppShell>
   );
 }

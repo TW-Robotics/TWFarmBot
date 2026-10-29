@@ -55,7 +55,7 @@ def _make_loop(
     )
     tool_registry = ToolRegistry(registry, system_state)
     approval_gate = ApprovalGate(registry)
-    context_builder = ContextBuilder(tool_registry, world=world)
+    context_builder = ContextBuilder(tool_registry)
     chat_model = base_model
     selected_model = model_name or cfg.model
     return AgentLoop(
@@ -147,6 +147,8 @@ def stream_chat(
         begins executing (the UI shows a running row).
       - ``{"type": "tool_call", "id", "name", "args", "result", "images"}``
         when a tool call finishes.
+      - ``{"type": "position", "xyz": {"x", "y", "z"}}`` after motion so
+        the UI can move the gantry on the map.
       - ``{"type": "meta", "tool_calls": [...], "proposed_actions": [...], "weave_url": "..."}``.
       - ``{"type": "thinking", "content": "..."}`` for reasoning traces.
       - ``{"type": "delta", "content": "..."}`` for the final answer text.

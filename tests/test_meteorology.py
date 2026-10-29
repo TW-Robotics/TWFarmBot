@@ -110,15 +110,13 @@ def test_introspection_tool_get_meteorology() -> None:
     assert res["weather"]["temperature_c"] == 23.0
 
 
-def test_context_builder_injects_meteorology_context() -> None:
-    """ContextBuilder injects solar position and weather into system prompt."""
+def test_context_builder_does_not_inject_meteorology_context() -> None:
+    """Weather is fetched via get_meteorology/get_forecast, never put in the prompt."""
     reg = ActionRegistry()
     tool_reg = ToolRegistry(reg, system_state=None)
     cb = ContextBuilder(tool_reg)
     prompt = cb.chat_system_prompt()
-    assert "Environment & Solar Context" in prompt
-    assert "Sun: altitude" in prompt
-    assert "Weather:" in prompt
+    assert "Environment & Solar Context" not in prompt
 
 
 def test_api_server_get_meteorology() -> None:
@@ -133,3 +131,50 @@ def test_api_server_get_meteorology() -> None:
     assert "sun" in body
     assert "weather" in body
     assert "agronomic_advice" in body
+
+
+def _hourly_points(start: float, rain_hour: int) -> list[dict]:
+    return [
+        {
+            "t": start + h * 3600,
+            "temperature_c": 10.0 + h,
+            "relative_humidity_pct": 80,
+            "cloud_cover_pct": 50,
+            "precipitation_mm": 1.5 if h == rain_hour else 0.0,
+            "total_radiation_w_m2": 100.0,
+        }
+        for h in range(12)
+    ]
+
+
+def test_get_forecast_blocks_keep_rain(monkeypatch) -> None:
+    """3-hour blocks sum rain (not sample it) and report when rain starts."""
+    import time
+
+    from planning_service import meteorology
+
+    start = time.time() + 3600
+    monkeypatch.setattr(
+        meteorology,
+        "fetch_meteorology_history",
+        lambda *args, **kwargs: {
+            "timezone": "Europe/Vienna",
+            "hourly": _hourly_points(start, rain_hour=4),
+            "daily": [],
+        },
+    )
+    forecast = meteorology.get_forecast(hours=12, step_hours=3)
+    assert len(forecast["hourly"]) == 4
+    # Hour 4 falls in the second block; a plain every-3rd-hour sample would miss it.
+    assert [b["precipitation_mm"] for b in forecast["hourly"]] == [0.0, 1.5, 0.0, 0.0]
+    assert forecast["rain_total_mm"] == 1.5
+    assert forecast["next_rain_at"] == start + 4 * 3600
+    assert sum(day["rain_mm"] for day in forecast["daily"]) == 1.5
+
+
+def test_introspection_tool_get_forecast_display_flag() -> None:
+    """get_forecast passes the display flag through so the chat can skip the chart."""
+    provider = InMemorySystemStateProvider(forecast={"hourly": [], "daily": []})
+    tools = {t.name: t for t in build_introspection_tools(provider)}
+    assert tools["get_forecast"].invoke({})["display"] is True
+    assert tools["get_forecast"].invoke({"display": False})["display"] is False

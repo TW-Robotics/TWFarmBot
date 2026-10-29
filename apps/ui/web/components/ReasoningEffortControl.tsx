@@ -48,11 +48,15 @@ export function ReasoningEffortSelector({
   budget,
   onChange,
   isDisabled,
+  isLabelHidden,
+  width,
 }: {
   model: string;
   budget: number;
   onChange: (budget: number) => void;
   isDisabled?: boolean;
+  isLabelHidden?: boolean;
+  width?: number;
 }) {
   const efforts = reasoningEffortsFor(model);
   if (!efforts.length) return null;
@@ -60,6 +64,8 @@ export function ReasoningEffortSelector({
   return (
     <Selector
       label="Reasoning"
+      isLabelHidden={isLabelHidden}
+      width={width}
       options={efforts.map((item) => item.label)}
       value={current?.label ?? "Medium"}
       isDisabled={isDisabled}

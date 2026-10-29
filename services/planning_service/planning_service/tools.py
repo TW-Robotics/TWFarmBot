@@ -37,6 +37,10 @@ class WaterArgs(BaseModel):
     )
 
 
+class SetLightArgs(BaseModel):
+    on: bool = Field(..., description="True to turn the bed light on, false to turn it off.")
+
+
 class FindHomeArgs(BaseModel):
     axis: str = Field(
         default="all",
@@ -171,9 +175,39 @@ class WaterZoneArgs(BaseModel):
     )
 
 
+class FindLocationsArgs(BaseModel):
+    predicate: str = Field(
+        ...,
+        description=(
+            "Bed-map query: 'plant', 'weed', 'soil', 'healthy', or 'stressed'. "
+            "Ripeness is not a map layer yet. Returns ranked gantry (x,y,z) "
+            "from the latest 250 mm cells. Then call move to the top result."
+        ),
+    )
+    cell_mm: float = Field(
+        default=250.0,
+        description="Bin size in millimetres (default 250).",
+    )
+
+
+class RunScriptArgs(BaseModel):
+    name: str = Field(
+        ...,
+        description=(
+            "Scripts-page sequence name, e.g. 'Get tool servo'. "
+            "Runs the saved waypoint list in order (tool pickup). "
+            "Not Python. Call get_scripts if you need the labels."
+        ),
+    )
+
+
 class GotoNamedArgs(BaseModel):
     name: str = Field(
-        ..., description="Zone, plant, or preset name, e.g. 'tomatoes' or 'Home'."
+        ...,
+        description=(
+            "Motion-page preset, zone, or plant name, e.g. 'Home', 'Cutting', "
+            "'Camera top'. Unset tool bays have no millimetres until saved in the UI."
+        ),
     )
     z: float | None = Field(
         default=None,
@@ -341,6 +375,7 @@ def tool_calls_to_actions(
             "move",
             "move_path",
             "water",
+            "set_light",
             "find_home",
             "read_pin",
             "write_pin",
@@ -355,6 +390,7 @@ def tool_calls_to_actions(
             "inspect_zone",
             "water_zone",
             "goto_named",
+            "run_script",
         }:
             out.append((name, args))
     return out

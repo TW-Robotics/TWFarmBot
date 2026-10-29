@@ -8,6 +8,7 @@ plus ``AgentTurnResult`` and the SSE event dicts); the turn plumbing lives in
 from __future__ import annotations
 
 import time
+import functools
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Iterator
@@ -33,7 +34,7 @@ from .graph import (
 from .metrics import Metrics
 from .reasoning_controller import ReasoningController
 from .tool_policy import ToolCategory
-from .tool_registry import ToolRegistry
+from .tool_registry import CORE_TOOLS, ToolRegistry
 from .tracing import call_url, finish_agent_call, log_span, start_agent_call
 
 # Default cap on model turns per call (API-compatible alias for the old const).
@@ -125,7 +126,26 @@ class AgentLoop:
             for d in tool_registry.descriptors()
             if d.policy.category == ToolCategory.ACT
         }
-        self._model = _bind_model_tools(model, tool_registry.langchain_tools())
+        tools = tool_registry.langchain_tools()
+        by_name = {t.name: t for t in tools}
+        core = [t for t in tools if t.name in CORE_TOOLS] or tools  # no core match: all
+        self._model = _bind_model_tools(model, core)
+
+        @functools.lru_cache(maxsize=32)
+        def bind(unlocked: tuple[str, ...]) -> Any:
+            extra = [by_name[n] for n in unlocked if n in by_name and n not in CORE_TOOLS]
+            return _bind_model_tools(model, core + extra)
+
+        self._bind = bind
+        # Non-thinking models skip deliberation; force one `think` call up front.
+        # Only `think` is bound and a call is `required`: local OpenAI-compatible
+        # servers honor that far more reliably than a named choice among many tools.
+        think_tool = next((t for t in tools if getattr(t, "name", "") == "think"), None)
+        self._think_model = (
+            _bind_model_tools(model, [think_tool], tool_choice="required")
+            if think_tool is not None
+            else None
+        )
 
     def _deps(
         self,
@@ -137,6 +157,8 @@ class AgentLoop:
     ) -> RunDeps:
         return RunDeps(
             model=self._model,
+            think_model=self._think_model if self._think_model is not self._model else None,
+            bind=self._bind,
             registry=self._tool_registry,
             gate=self._approval_gate,
             reasoning=self._reasoning,

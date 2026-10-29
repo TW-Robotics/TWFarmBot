@@ -40,6 +40,8 @@ def test_introspection_tools_are_built() -> None:
     tools = build_introspection_tools(p)
     names = {t.name for t in tools}
     assert "get_position" in names
+    assert "get_garden" in names
+    assert "find_locations" in names
     assert "list_zones" in names
     assert "list_endpoints" in names
     assert "read_pin" in names
@@ -78,3 +80,24 @@ def test_introspection_tool_swallows_provider_errors() -> None:
     result = tools["get_position"].invoke({})
     assert "error" in result
     assert "nope" in result["error"]
+
+
+def test_find_locations_resolves_saved_named_position() -> None:
+    """'carrot' is a Motion-page preset, not a bed-map predicate."""
+    from planning_service.introspection import InMemorySystemStateProvider, build_introspection_tools
+
+    provider = InMemorySystemStateProvider(
+        positions=[{"label": "Carrot", "group": "Travel", "x": 861, "y": 590, "z": -300}]
+    )
+    tools = {t.name: t for t in build_introspection_tools(provider)}
+    out = tools["find_locations"].invoke({"predicate": "the carrot"})
+    assert out["named_position"] == "Carrot"
+    assert "goto_named" in out["next"]
+
+
+def test_think_tool_is_a_noop_scratchpad() -> None:
+    from planning_service.introspection import InMemorySystemStateProvider, build_introspection_tools
+
+    tools = {t.name: t for t in build_introspection_tools(InMemorySystemStateProvider())}
+    out = tools["think"].invoke({"thought": "carrot is a saved preset"})
+    assert out["status"] == "ok" and "tool" in out["next"]

@@ -1,0 +1,16 @@
+[Unit]
+Description=TWFarmBot local LLM (LFM3 via llama.cpp)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/farmbot/TWFarmBot
+ExecStart=/home/farmbot/TWFarmBot/scripts/lfm3_server.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twfarmbot-llm
+
+[Install]
+WantedBy=default.target
