@@ -15,6 +15,8 @@ import { VStack } from "@astryxdesign/core/Stack";
 import { useToast } from "@astryxdesign/core/Toast";
 import {
   BeakerIcon,
+  ChartBarIcon,
+  MapIcon,
   CameraIcon,
   ChatBubbleLeftRightIcon,
   CircleStackIcon,
@@ -34,6 +36,8 @@ import { useThemeMode, type ColorMode } from "./theme";
 import { BedSidebar } from "./components/BedSidebar";
 import type { GardenCell, Pose, Workspace } from "./components/GantryMap";
 import { OverviewPage } from "./pages/OverviewPage";
+import { TrendsPage } from "./pages/TrendsPage";
+import { GardenPage } from "./pages/GardenPage";
 import { MotionPage } from "./pages/MotionPage";
 import { ScriptsPage } from "./pages/ScriptsPage";
 import { CameraPage } from "./pages/CameraPage";
@@ -45,6 +49,8 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 export type Tab =
   | "overview"
+  | "trends"
+  | "garden"
   | "motion"
   | "scripts"
   | "camera"
@@ -115,16 +121,19 @@ function SideNavFooterIcons({
   );
 }
 
-const TABS: { id: Tab; label: string; icon: typeof HomeIcon }[] = [
+// `desktopOnly` tabs are hidden in the tablet layout (switch back via ?device=desktop).
+const TABS: { id: Tab; label: string; icon: typeof HomeIcon; desktopOnly?: boolean }[] = [
   { id: "overview", label: "Overview", icon: HomeIcon },
+  { id: "trends", label: "Trends", icon: ChartBarIcon, desktopOnly: true },
+  { id: "garden", label: "Garden", icon: MapIcon, desktopOnly: true },
   { id: "motion", label: "Motion", icon: PlayIcon },
   { id: "scripts", label: "Scripts", icon: QueueListIcon },
   { id: "camera", label: "Camera", icon: CameraIcon },
   { id: "assistant", label: "Assistant", icon: ChatBubbleLeftRightIcon },
   { id: "io", label: "I/O", icon: BeakerIcon },
-  { id: "memory", label: "Memory", icon: CircleStackIcon },
-  { id: "diagnostics", label: "Diagnostics", icon: CubeTransparentIcon },
-  { id: "settings", label: "Settings", icon: Cog6ToothIcon },
+  { id: "memory", label: "Memory", icon: CircleStackIcon, desktopOnly: true },
+  { id: "diagnostics", label: "Diagnostics", icon: CubeTransparentIcon, desktopOnly: true },
+  { id: "settings", label: "Settings", icon: Cog6ToothIcon, desktopOnly: true },
 ];
 
 function tabFromUrl(): Tab {
@@ -169,6 +178,11 @@ export function App() {
     url.searchParams.set("tab", next);
     window.history.replaceState({}, "", url);
   }, []);
+
+  // A hidden tab (from the URL or a layout switch) falls back to Overview.
+  useEffect(() => {
+    if (isTablet && TABS.some((t) => t.id === tab && t.desktopOnly)) selectTab("overview");
+  }, [isTablet, tab, selectTab]);
 
   const refreshPose = useCallback(async () => {
     const ticket = ++poseTicket.current;
@@ -255,6 +269,10 @@ export function App() {
     switch (tab) {
       case "overview":
         return <OverviewPage pose={pose} farmbot={farmbot} />;
+      case "trends":
+        return <TrendsPage />;
+      case "garden":
+        return <GardenPage pose={pose} workspace={workspace} cells={cells} cellMm={cellMm} />;
       case "motion":
         return <MotionPage pose={pose} onMoved={() => refreshTelemetry(true)} />;
       case "scripts":
@@ -272,7 +290,7 @@ export function App() {
       case "settings":
         return <SettingsPage farmbot={farmbot} onSaved={refreshTelemetry} />;
     }
-  }, [tab, pose, farmbot, refreshTelemetry]);
+  }, [tab, pose, farmbot, refreshTelemetry, workspace, cells, cellMm]);
 
   return (
     <AppShell
@@ -302,7 +320,7 @@ export function App() {
           }
         >
           <SideNavSection title="Field robotics" isHeaderHidden>
-            {TABS.map((item) => (
+            {TABS.filter((item) => !(isTablet && item.desktopOnly)).map((item) => (
               <SideNavItem
                 key={item.id}
                 label={item.label}
@@ -319,7 +337,7 @@ export function App() {
         <div className="app-main">{page}</div>
         {/* Tablet motion tab already shows the bed map inline; the sidebar
             would only squeeze the jog UI. */}
-        {tab !== "settings" && !(isTablet && tab === "motion") ? (
+        {tab !== "settings" && tab !== "garden" && !(isTablet && tab === "motion") ? (
           <BedSidebar
             pose={pose}
             workspace={workspace}

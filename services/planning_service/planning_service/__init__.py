@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.language_models import BaseChatModel
+from pydantic_ai.models import Model
 from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 
@@ -32,7 +32,6 @@ from .harness import (
     AgentLoop,
     ApprovalGate,
     ContextBuilder,
-    ReasoningController,
     ToolRegistry,
 )
 from .introspection import (
@@ -83,7 +82,7 @@ def plan(
     *,
     world: Any = None,
     registry: ActionRegistry | None = None,
-    model: BaseChatModel | None = None,
+    model: Model | None = None,
     config: PlannerConfig | None = None,
     system_state: SystemStateProvider | None = None,
     model_name: str | None = None,
@@ -110,7 +109,6 @@ def plan(
         tool_registry=tool_registry,
         approval_gate=approval_gate,
         context_builder=context_builder,
-        reasoning=ReasoningController(),
         model_name=selected_model,
         propose_only=False,
         allow_actions=False,

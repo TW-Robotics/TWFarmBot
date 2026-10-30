@@ -21,14 +21,14 @@ def test_planner_prompt_is_tool_first() -> None:
     prompt = ContextBuilder(ToolRegistry(_make_registry())).planner_system_prompt()
     assert "JSON tool calls" in prompt
     assert "goto_named" in prompt and "find_locations" in prompt
-    assert "tool_search" in prompt
+    assert "search_tools" in prompt
     assert "Hard travel box" in prompt
 
 
 def test_chat_prompt_is_slim_no_catalog() -> None:
     prompt = ContextBuilder(ToolRegistry(_make_registry())).chat_system_prompt()
     assert "Available tools" not in prompt and "NDRE = (" not in prompt
-    assert "tool_search" in prompt and "get_help" in prompt
+    assert "search_tools" in prompt and "get_help" in prompt
 
 
 def test_ndre_notes_live_in_get_help_not_the_prompt() -> None:
@@ -69,14 +69,12 @@ def test_user_prompt_omits_world_when_none() -> None:
 def test_chat_prompt_injects_no_live_data_and_points_to_tools() -> None:
     """World model/weather/memories are never in the prompt; the model uses tools."""
     builder = ContextBuilder(ToolRegistry(_make_registry()))
-    msgs = builder.chat_messages([{"role": "user", "content": "hi"}])
-    text = str(msgs[0].content)
+    text = builder.chat_system_prompt()
     for bad in ("Current world model", "<background>", "Long-Term Memor", "Solar Context"):
         assert bad not in text
-    assert str(msgs[-1].content) == "hi"
-    for tool in ("get_positions", "goto_named", "tool_search"):
+    for tool in ("get_positions", "goto_named", "search_tools"):
         assert tool in text
-    assert builder.chat_messages([{"role": "user", "content": "hi"}])[0].content == msgs[0].content
+    assert builder.chat_system_prompt() == text  # identical every turn: prefix caching holds
 
 
 def test_chat_prompt_forces_fresh_tool_call_for_live_state() -> None:

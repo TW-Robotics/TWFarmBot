@@ -1,9 +1,8 @@
 """Optional W&B Weave tracing for the planning harness.
 
 Tracing is enabled by setting ``WEAVE_PROJECT`` or the YAML
-``planning.weave_project`` value. When enabled, every model call and tool
-invocation is logged to Weave, including token usage, latency, and
-reasoning traces.
+``planning.weave_project`` value. When enabled, every tool invocation and reasoning trace
+is logged to Weave under one parent call per chat stream.
 """
 
 from __future__ import annotations
@@ -11,14 +10,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from contextvars import ContextVar
-from typing import Any, Iterator
+from typing import Any
 
 import weave
-
-from .metrics import Metrics
-from .reasoning_controller import ReasoningController, content_text
 
 _log = logging.getLogger(__name__)
 
@@ -149,113 +144,3 @@ def log_tool_call(
         display_name=name,
         parent=parent,
     )
-
-
-def _summarize_model_output(response: Any) -> dict[str, Any]:
-    reasoning = ReasoningController()
-    thinking = reasoning.extract(response) or ""
-    text = reasoning.strip_from_text(content_text(getattr(response, "content", "")) or "")
-    calls: list[dict[str, Any]] = []
-    for call in getattr(response, "tool_calls", None) or []:
-        if isinstance(call, dict):
-            name = call.get("name")
-            args = call.get("args") or {}
-        else:
-            name = getattr(call, "name", None)
-            args = getattr(call, "args", None) or {}
-        if name:
-            calls.append({"name": str(name), "args": args if isinstance(args, dict) else {}})
-    return {"text": text, "thinking": thinking, "tool_calls": calls}
-
-
-def log_model_turn(
-    response: Any, *, latency_s: float, model: str, parent: Any | None = None
-) -> None:
-    summary = _summarize_model_output(response)
-    summary["latency_s"] = round(latency_s, 3)
-    summary["model"] = model
-    usage = _extract_usage(response)
-    if usage:
-        summary.update(usage)
-    log_span("twfarmbot.model", {"model": model}, summary, display_name=model, parent=parent)
-
-
-def _extract_usage(response: Any) -> dict[str, int] | None:
-    """Best-effort extraction of token usage from a LangChain response."""
-    if response is None:
-        return None
-    metadata = getattr(response, "response_metadata", {}) or {}
-    token_usage = metadata.get("token_usage") or metadata.get("usage")
-    if isinstance(token_usage, dict):
-        out: dict[str, int] = {}
-        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-            value = token_usage.get(key)
-            if isinstance(value, (int, float)):
-                out[key] = int(value)
-        return out or None
-    usage_metadata = getattr(response, "usage_metadata", None)
-    if isinstance(usage_metadata, dict):
-        out = {}
-        for key in ("input_tokens", "output_tokens", "total_tokens"):
-            value = usage_metadata.get(key)
-            if isinstance(value, (int, float)):
-                out[key] = int(value)
-        return out or None
-    return None
-
-
-def timed_invoke(
-    model: Any,
-    messages: Any,
-    model_name: str,
-    metrics: Metrics | None = None,
-    parent: Any | None = None,
-) -> Any:
-    """Invoke a model and trace it, returning the response."""
-    start = time.perf_counter()
-    try:
-        response = model.invoke(messages)
-    except Exception:
-        _log.exception("model invoke failed")
-        raise
-    latency = time.perf_counter() - start
-    if is_enabled():
-        log_model_turn(response, latency_s=latency, model=model_name, parent=parent)
-    if metrics is not None:
-        metrics.add_llm_usage(response, latency_s=latency)
-    return response
-
-
-def timed_stream(
-    model: Any,
-    messages: Any,
-    model_name: str,
-    metrics: Metrics | None = None,
-    parent: Any | None = None,
-) -> Iterator[Any]:
-    """Stream a model response and trace the aggregated result."""
-    start = time.perf_counter()
-    first_token_time: float | None = None
-    chunks: list[Any] = []
-    try:
-        for chunk in model.stream(messages):
-            if first_token_time is None:
-                first_token_time = time.perf_counter() - start
-            chunks.append(chunk)
-            yield chunk
-    except Exception:
-        _log.exception("model stream failed")
-        raise
-    latency = time.perf_counter() - start
-    if is_enabled() and chunks:
-        assembled = chunks[0]
-        for chunk in chunks[1:]:
-            try:
-                assembled = assembled + chunk
-            except TypeError:
-                assembled = chunk
-        log_model_turn(assembled, latency_s=latency, model=model_name, parent=parent)
-    if metrics is not None:
-        ttft = first_token_time or 0.0
-        usage_source = chunks[-1] if chunks else None
-        metrics.add_llm_usage(usage_source, latency_s=latency, ttft_s=ttft)

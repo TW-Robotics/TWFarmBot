@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.language_models import BaseChatModel
+from pydantic_ai.models import Model
 from langchain_core.tools import BaseTool
 from twfarmbot_core.actions import ActionRegistry
 
@@ -19,7 +19,7 @@ def build_base_model(
     model: Any | None = None,
     config: PlannerConfig | None = None,
     model_name: str | None = None,
-) -> tuple[PlannerConfig, BaseChatModel]:
+) -> tuple[PlannerConfig, Model]:
     """Resolve config and build the chat model.
 
     ``model_name`` overrides the configured model name for this call only.
@@ -28,7 +28,7 @@ def build_base_model(
     init_weave(cfg.weave_project)
     provider = get_provider(cfg.provider, permissive=cfg.permissive_provider)
     selected_model = model_name or cfg.model
-    base_model = model or provider.build_chat_model(selected_model, cfg)
+    base_model = model or provider.build_model(selected_model, cfg)
     return cfg, base_model
 
 

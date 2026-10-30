@@ -6,10 +6,10 @@ just wires it to the public ``chat()`` / ``stream_chat()`` signatures.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
-from langchain_core.language_models import BaseChatModel
 from twfarmbot_core.actions import ActionRegistry
 
 from .agent import build_base_model
@@ -18,9 +18,9 @@ from .harness import (
     AgentLoop,
     ApprovalGate,
     ContextBuilder,
-    ReasoningController,
     ToolRegistry,
 )
+from .harness.tool_registry import CORE_TOOLS
 from .introspection import SystemStateProvider
 
 
@@ -43,12 +43,13 @@ def _make_loop(
     registry: ActionRegistry,
     world: Any = None,
     system_state: SystemStateProvider | None = None,
-    model: BaseChatModel | None = None,
+    model: Any | None = None,
     config: PlannerConfig | None = None,
     allow_actions: bool = True,
     propose_only: bool = False,
     model_name: str | None = None,
     skip_approval: bool = False,
+    core_tools: frozenset[str] = frozenset(),
 ) -> AgentLoop:
     cfg, base_model = build_base_model(
         model=model, config=config, model_name=model_name
@@ -63,12 +64,14 @@ def _make_loop(
         tool_registry=tool_registry,
         approval_gate=approval_gate,
         context_builder=context_builder,
-        reasoning=ReasoningController(),
         model_name=selected_model,
         propose_only=propose_only,
         allow_actions=allow_actions,
         include_reasoning=_include_reasoning_for(selected_model),
         skip_approval=skip_approval,
+        core_tools=CORE_TOOLS | core_tools,
+        # Off by default: some local models ignore the forced call and ramble.
+        force_think=os.getenv("PLANNING_FORCE_THINK", "") == "1",
     )
 
 
@@ -82,12 +85,13 @@ def chat(
     registry: ActionRegistry,
     world: Any = None,
     system_state: SystemStateProvider | None = None,
-    model: BaseChatModel | None = None,
+    model: Any | None = None,
     config: PlannerConfig | None = None,
     allow_actions: bool = True,
     propose_only: bool = False,
     model_name: str | None = None,
     skip_approval: bool = False,
+    core_tools: frozenset[str] = frozenset(),
 ) -> ChatResult:
     """Run one conversational turn with JSON function/tool calling.
 
@@ -107,6 +111,7 @@ def chat(
         propose_only=propose_only,
         model_name=model_name,
         skip_approval=skip_approval,
+        core_tools=core_tools,
     )
     result = loop.run(messages)
     out_messages = list(messages)
@@ -128,7 +133,7 @@ def stream_chat(
     registry: ActionRegistry,
     world: Any = None,
     system_state: SystemStateProvider | None = None,
-    model: BaseChatModel | None = None,
+    model: Any | None = None,
     config: PlannerConfig | None = None,
     allow_actions: bool = True,
     propose_only: bool = False,

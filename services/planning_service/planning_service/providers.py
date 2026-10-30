@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import os
 from abc import ABC
+from typing import Any
 
 import requests
-from langchain_core.language_models import BaseChatModel
+from pydantic_ai.models import Model
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.providers.openai import OpenAIProvider as _PAIOpenAI
 
-from .client import build_chat_model
 from .config import DEFAULT_MODEL, PlannerConfig, resolve_vertex_settings
-from .reasoning import budget_from_effort, effort_from_budget
+from .reasoning import effort_from_budget, model_uses_reasoning, openai_effort
 
 
 class LLMProvider(ABC):
@@ -23,17 +25,36 @@ class LLMProvider(ABC):
 
     name: str
 
-    def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
-        """Return a configured LangChain chat model for ``model``."""
-        return build_chat_model(
-            base_url=config.base_url,
-            model=model,
-            api_key=config.api_key,
-            timeout_s=config.timeout_s,
-            temperature=config.temperature,
-            reasoning_budget=config.reasoning_budget,
-            extra_body=config.extra_body,
-        )
+    def build_model(self, model: str, config: PlannerConfig) -> Model:
+        """Return a Pydantic AI model for ``model`` on an OpenAI-compatible API."""
+        effort = effort_from_budget(config.reasoning_budget)
+        settings: dict[str, Any] = {
+            "temperature": config.temperature,
+            "timeout": config.timeout_s,
+        }
+        if config.extra_body:
+            settings["extra_body"] = dict(config.extra_body)
+        base_url = config.base_url.rstrip("/")
+        if "openrouter.ai" in base_url:
+            from pydantic_ai.models.openrouter import OpenRouterModel
+            from pydantic_ai.providers.openrouter import OpenRouterProvider as _PAIRouter
+
+            if model_uses_reasoning(model):
+                settings["thinking"] = False if effort == "none" else openai_effort(model, effort)
+            return OpenRouterModel(
+                model, provider=_PAIRouter(api_key=config.api_key), settings=settings
+            )
+        # No key is needed by local servers (Ollama/vLLM), but the client wants one.
+        provider = _PAIOpenAI(base_url=config.base_url, api_key=config.api_key or "not-required")
+        if (
+            base_url == "https://api.openai.com/v1"
+            and "gpt-5" in model.lower()
+            and "chat" not in model.lower()
+        ):
+            # GPT-5 needs Responses to combine reasoning with tools.
+            settings["thinking"] = False if effort == "none" else openai_effort(model, effort)
+            return OpenAIResponsesModel(model, provider=provider, settings=settings)
+        return OpenAIChatModel(model, provider=provider, settings=settings)
 
     def list_models(self, _config: PlannerConfig) -> list[str]:
         """Return a list of model ids available from this provider."""
@@ -111,7 +132,7 @@ class OpenAIProvider(LLMProvider):
 class VertexProvider(LLMProvider):
     """Google Vertex AI via the native Gemini endpoint.
 
-    Uses ``langchain_google_vertexai.ChatVertexAI`` (proper Gemini tool
+    Uses Pydantic AI's ``GoogleModel`` (proper Gemini tool
     calling) with Application Default Credentials — no API keys, no token
     plumbing. Auth is your gcloud login or a service-account key at
     ``GOOGLE_APPLICATION_CREDENTIALS``.
@@ -126,14 +147,10 @@ class VertexProvider(LLMProvider):
 
     name = "vertex"
 
-    def build_chat_model(self, model: str, config: PlannerConfig) -> BaseChatModel:
-        try:
-            from langchain_google_vertexai import ChatVertexAI
-        except ImportError as err:
-            raise RuntimeError(
-                "Vertex provider needs the 'langchain-google-vertexai' package: "
-                "uv sync"
-            ) from err
+    def build_model(self, model: str, config: PlannerConfig) -> Model:
+        from pydantic_ai.models.google import GoogleModel
+        from pydantic_ai.providers.google_cloud import GoogleCloudProvider
+
         settings = resolve_vertex_settings()
         if not settings["project"]:
             raise ValueError(
@@ -147,13 +164,15 @@ class VertexProvider(LLMProvider):
         elif "/" in native_model:
             native_model = native_model.rsplit("/", 1)[-1]
         effort = effort_from_budget(config.reasoning_budget)
-        return ChatVertexAI(
-            model_name=native_model,
-            project=str(settings["project"]),
-            location=str(settings["location"]),
-            temperature=config.temperature,
-            thinking_budget=budget_from_effort(effort),
-            include_thoughts=effort != "none",
+        return GoogleModel(
+            native_model,
+            provider=GoogleCloudProvider(
+                project=str(settings["project"]), location=str(settings["location"])
+            ),
+            settings={
+                "temperature": config.temperature,
+                "thinking": False if effort == "none" else effort,
+            },
         )
 
     def list_models(self, config: PlannerConfig) -> list[str]:

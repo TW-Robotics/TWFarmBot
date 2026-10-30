@@ -25,6 +25,7 @@ from .observations import (
     try_record_ndre,
     try_record_segment,
 )
+from .plantings import list_plantings, save_plantings
 from .positions import list_positions, save_positions
 from .scripts import list_scripts, resolve_script, save_scripts
 

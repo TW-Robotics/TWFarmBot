@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from langchain_core.language_models.fake_chat_models import FakeListChatModel
+from tests.fakes import ScriptModel
 
 from farmbot_gateway import farmbot
 from farmbot_gateway.farmbot import FarmBotBackend
@@ -118,7 +118,7 @@ def test_autonomy_homing_guard_homes_unhomed_bot(monkeypatch: pytest.MonkeyPatch
     registry.register("find_home", lambda a: dispatched.append("find_home") or farmbot.backend.find_home("all") or a)
     registry.register("capture_ndre", lambda a: dispatched.append("capture_ndre") or a)
 
-    fake_model = FakeListChatModel(
+    fake_model = ScriptModel(
         responses=[
             "Bed is healthy.",
         ]

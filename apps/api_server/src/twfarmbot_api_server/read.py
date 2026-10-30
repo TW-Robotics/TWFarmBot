@@ -21,8 +21,10 @@ from spatial_service import (
     DEFAULT_CELL_MM,
     find_locations,
     get_snapshot,
+    list_plantings,
     list_positions,
     list_scripts,
+    save_plantings,
     save_positions,
     save_scripts,
 )
@@ -190,6 +192,41 @@ class PositionItem(BaseModel):
 
 class PositionsPayload(BaseModel):
     positions: list[PositionItem]
+
+
+class PlantingItem(BaseModel):
+    id: str
+    crop: str
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    planted: str
+    note: str = ""
+
+
+class PlantingsPayload(BaseModel):
+    plantings: list[PlantingItem]
+
+
+@router.get("/plantings")
+def get_plantings() -> dict[str, Any]:
+    """What was planted where (Garden tab)."""
+    try:
+        return {"plantings": list_plantings()}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@router.put("/plantings")
+def put_plantings(payload: PlantingsPayload) -> dict[str, Any]:
+    """Replace the planting list."""
+    try:
+        return {"plantings": save_plantings([item.model_dump() for item in payload.plantings])}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except OSError as err:
+        raise HTTPException(status_code=500, detail=str(err)) from err
 
 
 @router.get("/positions")

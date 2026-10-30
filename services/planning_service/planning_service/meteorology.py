@@ -307,6 +307,14 @@ _HOURLY_VARS = {
     "precipitation_mm": "precipitation",
     "total_radiation_w_m2": "shortwave_radiation",
     "uv_index": "uv_index",
+    "wind_speed_kmh": "wind_speed_10m",
+    "wind_gusts_kmh": "wind_gusts_10m",
+    "pressure_hpa": "surface_pressure",
+    "dew_point_c": "dew_point_2m",
+    "vpd_kpa": "vapour_pressure_deficit",
+    "et0_mm": "et0_fao_evapotranspiration",
+    "soil_temperature_c": "soil_temperature_0cm",
+    "soil_moisture_m3_m3": "soil_moisture_0_to_1cm",
 }
 _DAILY_VARS = {
     "temperature_c": "temperature_2m_mean",
@@ -315,6 +323,14 @@ _DAILY_VARS = {
     "precipitation_mm": "precipitation_sum",
     "total_radiation_w_m2": "shortwave_radiation_sum",  # MJ/m²/day, converted below
     "uv_index": "uv_index_max",
+    "wind_speed_kmh": "wind_speed_10m_max",
+    "wind_gusts_kmh": "wind_gusts_10m_max",
+    "pressure_hpa": "surface_pressure_mean",
+    "dew_point_c": "dew_point_2m_mean",
+    "vpd_kpa": "vapour_pressure_deficit_max",
+    "et0_mm": "et0_fao_evapotranspiration",
+    "soil_temperature_c": "soil_temperature_0_to_7cm_mean",
+    "soil_moisture_m3_m3": "soil_moisture_0_to_7cm_mean",
 }
 _ARCHIVE_DAILY_VARS = {k: v for k, v in _DAILY_VARS.items() if k != "uv_index"}
 HISTORY_RANGES = ("day", "month", "year")

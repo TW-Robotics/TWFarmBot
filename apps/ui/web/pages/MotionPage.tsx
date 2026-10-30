@@ -1,5 +1,6 @@
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
+import { Divider } from "@astryxdesign/core/Divider";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { useToast } from "@astryxdesign/core/Toast";
@@ -38,9 +39,8 @@ export function MotionPage({
     return (
       <VStack gap={3}>
         <Button label="STOP" variant="primary" size="lg" width="100%" onClick={stop} />
-        <Card padding={4}>
-          <JogPad pose={pose} onMoved={onMoved} />
-        </Card>
+        <JogPad pose={pose} onMoved={onMoved} />
+        <Divider />
         <PositionPresets onMoved={onMoved} />
       </VStack>
     );

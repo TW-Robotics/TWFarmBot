@@ -7,94 +7,29 @@ with small fake models.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
-from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 
+from tests.fakes import AIMessage, ScriptModel
 from planning_service.harness import (
     AgentLoop,
     ApprovalGate,
     ContextBuilder,
-    ReasoningController,
     ToolCategory,
     ToolRegistry,
 )
-from planning_service.harness.reasoning_controller import content_text
+from planning_service.harness.tool_registry import CORE_TOOLS
 from planning_service.introspection import InMemorySystemStateProvider
 from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 
-
-class _ScriptFake(FakeListChatModel):
-    """Fake model that returns a sequence of AIMessage or string responses."""
-
-    _custom_responses: list[Any] | None = None
-    _custom_index: int = 0
-
-    def set_responses(self, responses: list[Any]) -> None:
-        self._custom_responses = responses
-        self._custom_index = 0
-
-    def invoke(self, *_args: Any, **_kwargs: Any) -> AIMessage:
-        custom_responses = getattr(self, "_custom_responses", None)
-        if not custom_responses:
-            return super().invoke(*_args, **_kwargs)
-        response = custom_responses[self._custom_index]
-        self._custom_index = min(self._custom_index + 1, len(custom_responses) - 1)
-        if isinstance(response, AIMessage):
-            return response
-        return AIMessage(content=str(response))
-
-    def stream(self, *_args: Any, **_kwargs: Any):
-        msg = self.invoke(*_args, **_kwargs)
-        content = str(msg.content or "")
-        tool_calls = list(getattr(msg, "tool_calls", None) or [])
-        if tool_calls:
-            chunks = []
-            for index, call in enumerate(tool_calls):
-                name = call["name"] if isinstance(call, dict) else call.name
-                args = call["args"] if isinstance(call, dict) else call.args
-                call_id = (
-                    call.get("id")
-                    if isinstance(call, dict)
-                    else getattr(call, "id", None)
-                ) or str(index)
-                chunks.append(
-                    {
-                        "name": name,
-                        "args": json.dumps(args or {}),
-                        "id": str(call_id),
-                        "index": index,
-                        "type": "tool_call_chunk",
-                    }
-                )
-            yield AIMessageChunk(content=content, tool_call_chunks=chunks)  # type: ignore[arg-type]
-            return
-        if not content:
-            yield AIMessageChunk(content="")
-            return
-        mid = max(1, len(content) // 2)
-        yield AIMessageChunk(content=content[:mid])
-        yield AIMessageChunk(content=content[mid:])
+_Call = tuple[str, dict[str, Any], str]
+_ScriptFake = ScriptModel
 
 
-def _tool_call(
-    name: str, args: dict[str, Any] | None = None, call_id: str = "call_1"
-) -> AIMessage:
-    return AIMessage(
-        content="",
-        tool_calls=[
-            {
-                "name": name,
-                "args": args or {},
-                "id": call_id,
-                "type": "tool_call",
-            }
-        ],
-    )
+def _tool_call(name: str, args: dict[str, Any] | None = None, call_id: str = "call_1") -> list[_Call]:
+    return [(name, args or {}, call_id)]
 
 
 def _make_registry(**handlers: Any) -> ActionRegistry:
@@ -171,96 +106,13 @@ def test_approval_gate_never_executes_in_planning_mode() -> None:
     assert result.status == "proposed"
 
 
-# ───────────────────────────── ReasoningController ───────────────────────────
-
-
-def test_reasoning_controller_extracts_think_tags() -> None:
-    rc = ReasoningController()
-    thinking = rc.extract(
-        type("Msg", (), {"content": "before <think>step 1</think> after"})()
-    )
-    assert thinking == "step 1"
-    assert rc.strip_from_text("before <think>x</think> after") == "before  after"
-
-
-def test_reasoning_controller_strips_thought_prefix() -> None:
-    rc = ReasoningController()
-    assert (
-        rc.strip_from_text("thought The NIR image shows soil.")
-        == "The NIR image shows soil."
-    )
-    assert rc.strip_from_text("<thought>plan</thought>\nLooks dry.") == "Looks dry."
-
-
-def test_content_text_skips_gemini_thought_blocks() -> None:
-    assert (
-        content_text(
-            [
-                {"thought": True, "text": "inspect the frame"},
-                {"type": "text", "text": "The NIR image shows soil."},
-            ]
-        )
-        == "The NIR image shows soil."
-    )
-    assert (
-        content_text(
-            [
-                {"type": "thought", "thought": "inspect the frame"},
-                {"type": "text", "text": "Looks dry."},
-            ]
-        )
-        == "Looks dry."
-    )
-
-
-def test_reasoning_controller_extracts_gemini_thought_blocks() -> None:
-    rc = ReasoningController()
-    msg = type(
-        "Msg",
-        (),
-        {
-            "content": [
-                {"thought": True, "text": "inspect the frame"},
-                {"type": "text", "text": "The NIR image shows soil."},
-            ],
-            "response_metadata": {},
-            "additional_kwargs": {},
-        },
-    )()
-    assert rc.extract(msg) == "inspect the frame"
-
-
-def test_reasoning_controller_extracts_provider_reasoning() -> None:
-    rc = ReasoningController()
-    msg = type(
-        "Msg",
-        (),
-        {
-            "content": "answer",
-            "response_metadata": {},
-            "additional_kwargs": {"reasoning": "step by step"},
-        },
-    )()
-    assert rc.extract(msg) == "step by step"
-
-
-def test_reasoning_controller_splits_text_events() -> None:
-    rc = ReasoningController()
-    events = list(rc.split_text("hi <think>reason</think> bye"))
-    assert events == [
-        {"type": "delta", "content": "hi "},
-        {"type": "thinking", "content": "reason"},
-        {"type": "delta", "content": " bye"},
-    ]
-
-
 # ─────────────────────────────── ContextBuilder ──────────────────────────────
 
 
 def test_context_builder_prompt_is_slim_and_points_to_tools() -> None:
     prompt = ContextBuilder(ToolRegistry(_make_registry())).chat_system_prompt()
     assert "Available tools" not in prompt  # schemas are sent with the request
-    assert "tool_search" in prompt and "get_help" in prompt
+    assert "search_tools" in prompt and "get_help" in prompt
     assert "get_position" in prompt  # verify moves
     assert len(prompt) < 4500
 
@@ -277,12 +129,16 @@ def _make_loop(
     max_turns: int = 100,
     max_consecutive_errors: int = 5,
     skip_approval: bool = False,
+    core_tools: frozenset[str] | None = None,
+    force_think: bool = False,
 ) -> AgentLoop:
     tool_registry = ToolRegistry(reg, system_state)
     approval_gate = ApprovalGate(reg)
     builder = ContextBuilder(tool_registry)
     return AgentLoop(
         model=model,
+        core_tools=core_tools if core_tools is not None else frozenset(tool_registry.by_name()),
+        force_think=force_think,
         tool_registry=tool_registry,
         approval_gate=approval_gate,
         context_builder=builder,
@@ -465,19 +321,22 @@ def test_max_turns_stops_endless_tool_loop() -> None:
 
 
 def test_consecutive_errors_stop_the_run() -> None:
-    reg = _make_registry()
+    def broken(_action: Any) -> Any:
+        raise RuntimeError("jammed")
+
     fake = _ScriptFake(responses=["unused"])
-    fake.set_responses(
-        [
-            _tool_call("no_such_tool", {}, "bad_1"),
-            _tool_call("no_such_tool", {}, "bad_2"),
-            _tool_call("no_such_tool", {}, "bad_3"),
-        ]
-    )
-    loop = _make_loop(fake, reg, max_consecutive_errors=2)
+    fake.set_responses([_tool_call("move", {"x": 1, "y": 2, "z": 0}, f"bad_{i}") for i in range(3)])
+    loop = _make_loop(fake, _make_registry(move=broken), max_consecutive_errors=2)
     result = loop.run([{"role": "user", "content": "do the thing"}])
     assert result.stop_reason == "max_errors"
     assert len(result.tool_calls) == 2
+
+
+def test_unknown_tool_is_retried_then_stops() -> None:
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses([_tool_call("no_such_tool", {}, f"bad_{i}") for i in range(5)])
+    result = _make_loop(fake, _make_registry()).run([{"role": "user", "content": "x"}])
+    assert result.stop_reason == "max_errors"
 
 
 def test_tool_names_are_unique_for_strict_providers() -> None:
@@ -495,91 +354,15 @@ def test_tool_names_are_unique_for_strict_providers() -> None:
 
 
 def test_silent_model_still_gets_closing_summary() -> None:
-    reg = _make_registry()
+    def broken(_action: Any) -> Any:
+        raise RuntimeError("jammed")
+
     fake = _ScriptFake(responses=["unused"])
-    fake.set_responses(
-        [
-            _tool_call("no_such_tool", {}, "bad_1"),
-            AIMessage(content=""),
-        ]
-    )
-    loop = _make_loop(fake, reg)
+    fake.set_responses([_tool_call("move", {"x": 1, "y": 2, "z": 0}, "bad_1"), ""])
+    loop = _make_loop(fake, _make_registry(move=broken))
     result = loop.run([{"role": "user", "content": "do the thing"}])
     assert result.stop_reason == "done"
-    assert result.response
-    assert "no_such_tool" in result.response
-
-
-def test_stream_emits_thinking_then_tool_call_then_meta() -> None:
-    reg = _make_registry()
-    fake = _ScriptFake(responses=["unused"])
-    fake.set_responses(
-        [
-            AIMessage(
-                content="<think>checking light</think>looking",
-                tool_calls=[
-                    {
-                        "name": "take_photo",
-                        "args": {},
-                        "id": "read_1",
-                        "type": "tool_call",
-                    }
-                ],
-            ),
-            "shot taken",
-        ]
-    )
-
-    loop = _make_loop(fake, reg)
-    events = list(loop.stream([{"role": "user", "content": "look around"}]))
-    by_type: dict[str, list[dict[str, Any]]] = {}
-    for event in events:
-        by_type.setdefault(str(event["type"]), []).append(event)
-    assert "checking light" in [
-        str(e.get("content", "")) for e in by_type.get("thinking", [])
-    ]
-    assert [e["name"] for e in by_type.get("tool_call", [])] == ["take_photo"]
-    metas = by_type.get("meta", [])
-    assert len(metas) == 1
-    assert metas[0]["stop_reason"] == "done"
-
-
-def test_gemini_block_content_flattens_to_text() -> None:
-    # Gemini returns content blocks; internal fields must never leak.
-    from planning_service.harness.graph import _last_ai_text
-
-    msg = AIMessage(
-        content=[
-            {
-                "type": "text",
-                "text": "Hello! How can I help you",
-                "thought_signature": "CnsBjz1rX/9m7==",
-            }
-        ]
-    )
-    assert _last_ai_text([msg]) == "Hello! How can I help you"
-
-
-def test_block_content_run_returns_clean_text() -> None:
-    reg = _make_registry()
-    fake = _ScriptFake(responses=["unused"])
-    fake.set_responses(
-        [
-            AIMessage(
-                content=[
-                    {
-                        "type": "text",
-                        "text": "hi there",
-                        "thought_signature": "s3cr3t",
-                    }
-                ]
-            ),
-        ]
-    )
-    loop = _make_loop(fake, reg)
-    result = loop.run([{"role": "user", "content": "hello"}])
-    assert result.response == "hi there"
-    assert "thought_signature" not in result.response
+    assert "move failed" in result.response
 
 
 def test_stream_pauses_water_for_approval() -> None:
@@ -632,15 +415,15 @@ def test_stream_includes_weave_url_when_traced(monkeypatch: pytest.MonkeyPatch) 
         ui_url = "https://wandb.ai/org/proj/r/call/abc"
 
     monkeypatch.setattr(
-        "planning_service.harness.agent_loop.start_agent_call",
+        "planning_service.harness.loop.start_agent_call",
         lambda **_: _Call(),
     )
     monkeypatch.setattr(
-        "planning_service.harness.agent_loop.call_url",
+        "planning_service.harness.loop.call_url",
         lambda call: getattr(call, "ui_url", None),
     )
     monkeypatch.setattr(
-        "planning_service.harness.agent_loop.finish_agent_call",
+        "planning_service.harness.loop.finish_agent_call",
         lambda *_, **__: None,
     )
     fake = _ScriptFake(responses=["unused"])
@@ -660,15 +443,15 @@ def test_stream_weave_output_includes_tools_and_response(monkeypatch: pytest.Mon
         ui_url = "https://wandb.ai/org/proj/r/call/abc"
 
     monkeypatch.setattr(
-        "planning_service.harness.agent_loop.start_agent_call",
+        "planning_service.harness.loop.start_agent_call",
         lambda **_: _Call(),
     )
     monkeypatch.setattr(
-        "planning_service.harness.agent_loop.call_url",
+        "planning_service.harness.loop.call_url",
         lambda call: getattr(call, "ui_url", None),
     )
     monkeypatch.setattr(
-        "planning_service.harness.agent_loop.finish_agent_call",
+        "planning_service.harness.loop.finish_agent_call",
         lambda _call, output=None, exception=None: captured.update({"output": output}),
     )
     fake = _ScriptFake(responses=["unused"])
@@ -826,7 +609,7 @@ def test_agent_loop_runs_tools_then_model_again() -> None:
             "moved",
         ]
     )
-    loop = _make_loop(fake, reg, propose_only=False)
+    loop = _make_loop(fake, reg, propose_only=False, system_state=InMemorySystemStateProvider())
     result = loop.run(
         [{"role": "user", "content": "move in y 100mm then take a photo"}]
     )
@@ -834,35 +617,6 @@ def test_agent_loop_runs_tools_then_model_again() -> None:
     assert result.response == "moved"
 
 
-def test_provider_tool_content_is_json_text_only(tmp_path, monkeypatch) -> None:
-    from planning_service.tool_results import provider_tool_content
-
-    monkeypatch.setattr(
-        "planning_service.tool_results._capture_file_uri",
-        lambda *_args: "data:image/jpeg;base64,abcd",
-    )
-    content = provider_tool_content(
-        "capture",
-        {"status": "ok", "params": {"band": "rgb", "artifact_id": "shot"}},
-    )
-    assert isinstance(content, str)
-    assert "image_url" not in content
-
-
-def test_provider_vision_message_follows_capture(monkeypatch) -> None:
-    from langchain_core.messages import HumanMessage
-    from planning_service.tool_results import provider_vision_message
-
-    monkeypatch.setattr(
-        "planning_service.tool_results._capture_file_uri",
-        lambda *_args: "data:image/jpeg;base64,abcd",
-    )
-    msg = provider_vision_message(
-        "capture",
-        {"status": "ok", "params": {"band": "rgb", "artifact_id": "shot"}},
-    )
-    assert isinstance(msg, HumanMessage)
-    assert msg.content[1]["type"] == "image_url"
 
 
 def test_agent_hides_resi_except_segment() -> None:
@@ -876,55 +630,10 @@ def test_agent_hides_resi_except_segment() -> None:
     assert "estimate_traversability" not in names
 
 
-def test_capture_still_is_user_turn_for_model(monkeypatch) -> None:
-    from langchain_core.messages import HumanMessage
-
-    seen: list[Any] = []
-
-    class RecordingFake(_ScriptFake):
-        def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> AIMessage:
-            seen.append(input)
-            return super().invoke(input, config=config, **kwargs)
-
-    monkeypatch.setattr(
-        "planning_service.tool_results._capture_file_uri",
-        lambda *_args: "data:image/jpeg;base64,abcd",
-    )
-    fake = RecordingFake(responses=["unused"])
-    fake.set_responses(
-        [
-            _tool_call("capture", {"band": "rgb"}, "c1"),
-            "coverage looks patchy",
-        ]
-    )
-
-    def capture(action: Any) -> Any:
-        action.params["artifact_id"] = "shot"
-        return action
-
-    loop = _make_loop(fake, _make_registry(capture=capture), propose_only=False)
-    result = loop.run([{"role": "user", "content": "check coverage"}])
-    assert "coverage looks patchy" in result.response
-    assert len(seen) >= 2
-    second = seen[1]
-    messages = second if isinstance(second, list) else list(second)
-    vision = [
-        m
-        for m in messages
-        if isinstance(m, HumanMessage) and isinstance(m.content, list)
-    ]
-    assert vision
-    assert vision[-1].content[1]["type"] == "image_url"
 
 
-def _batch_tool_calls(*calls: tuple[str, dict[str, Any], str]) -> AIMessage:
-    return AIMessage(
-        content="",
-        tool_calls=[
-            {"name": name, "args": args, "id": call_id, "type": "tool_call"}
-            for name, args, call_id in calls
-        ],
-    )
+def _batch_tool_calls(*calls: _Call) -> list[_Call]:
+    return list(calls)
 
 
 def test_followup_mailbox_rejects_without_active_run() -> None:
@@ -955,6 +664,7 @@ def test_followup_mailbox_rejects_without_active_run() -> None:
     end_run("t1")
 
 
+# Motion tools run one at a time in order; read tools may overlap.
 def test_stream_followup_skips_remaining_tools() -> None:
     ran: list[str] = []
 
@@ -969,23 +679,23 @@ def test_stream_followup_skips_remaining_tools() -> None:
         ran.append("capture")
         return action
 
-    reg = _make_registry(take_photo=photo, capture=capture)
+    reg = _make_registry(e_stop=photo, move=capture)
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
             _batch_tool_calls(
-                ("take_photo", {}, "p1"),
-                ("capture", {"band": "rgb"}, "c1"),
+                ("e_stop", {}, "p1"),
+                ("move", {"x": 0, "y": 0, "z": 0}, "c1"),
             ),
             "got the follow-up",
         ]
     )
-    loop = _make_loop(fake, reg, propose_only=False)
+    loop = _make_loop(fake, reg, propose_only=False, skip_approval=True)
     events = list(loop.stream([{"role": "user", "content": "photo then capture"}]))
     assert ran == ["photo"]
     results = {e["name"]: e["result"] for e in events if e["type"] == "tool_call"}
-    assert results["take_photo"]["status"] == "ok"
-    assert results["capture"]["status"] == "skipped"
+    assert results["e_stop"]["status"] == "ok"
+    assert results["move"]["status"] == "skipped"
     follow = next(e for e in events if e["type"] == "followup")
     assert follow["text"] == "do not capture"
     text = "".join(e.get("content") or "" for e in events if e["type"] == "delta")
@@ -995,26 +705,28 @@ def test_stream_followup_skips_remaining_tools() -> None:
 def test_stream_followup_before_tools_skips_batch() -> None:
     ran: list[str] = []
     reg = _make_registry(
-        take_photo=lambda action: ran.append("photo") or action,
-        capture=lambda action: ran.append("capture") or action,
+        e_stop=lambda action: ran.append("photo") or action,
+        move=lambda action: ran.append("capture") or action,
     )
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
             _batch_tool_calls(
-                ("take_photo", {}, "p1"),
-                ("capture", {"band": "rgb"}, "c1"),
+                ("e_stop", {}, "p1"),
+                ("move", {"x": 0, "y": 0, "z": 0}, "c1"),
             ),
             "ready",
         ]
     )
-    loop = _make_loop(fake, reg, propose_only=False)
-    gen = loop.stream([{"role": "user", "content": "photo and capture"}])
-    thread = next(gen)
+    loop = _make_loop(fake, reg, propose_only=False, skip_approval=True)
+    thread: dict[str, str] = {}
     from planning_service.harness.cancel import enqueue_followup
 
-    enqueue_followup(thread["thread_id"], "just say ready")
-    events = [thread, *gen]
+    fake.on_call = lambda i: i == 0 and enqueue_followup(thread["id"], "just say ready")
+    events = []
+    for e in loop.stream([{"role": "user", "content": "photo and capture"}]):
+        thread.setdefault("id", e.get("thread_id", ""))
+        events.append(e)
     assert ran == []
     skipped = [e for e in events if e["type"] == "tool_call"]
     assert {e["result"]["status"] for e in skipped} == {"skipped"}
@@ -1038,18 +750,18 @@ def test_cancel_discards_followup_and_stops() -> None:
         ran.append("capture")
         return action
 
-    reg = _make_registry(take_photo=photo, capture=capture)
+    reg = _make_registry(e_stop=photo, move=capture)
     fake = _ScriptFake(responses=["unused"])
     fake.set_responses(
         [
             _batch_tool_calls(
-                ("take_photo", {}, "p1"),
-                ("capture", {"band": "rgb"}, "c1"),
+                ("e_stop", {}, "p1"),
+                ("move", {"x": 0, "y": 0, "z": 0}, "c1"),
             ),
             "should not run",
         ]
     )
-    loop = _make_loop(fake, reg, propose_only=False)
+    loop = _make_loop(fake, reg, propose_only=False, skip_approval=True)
     events = list(loop.stream([{"role": "user", "content": "photo then capture"}]))
     assert ran == ["photo"]
     assert not any(e["type"] == "followup" for e in events)
@@ -1057,24 +769,6 @@ def test_cancel_discards_followup_and_stops() -> None:
     assert meta["stop_reason"] == "cancelled"
 
 
-def test_goal_update_is_reinjected_without_persisting_in_messages() -> None:
-    from planning_service.harness.goal import GOAL_MARKER, apply_goal_update, messages_with_goal
-
-    goal = apply_goal_update(
-        None, {"objective": "survey the bed", "remaining": ["y=200", "y=300"]}
-    )
-    goal = apply_goal_update(goal, {"completed": "y=200"})
-    assert goal["remaining"] == ["y=300"]
-    assert goal["done"] == ["y=200"]
-    injected = messages_with_goal(
-        [SystemMessage(content="sys"), HumanMessage(content="go")], goal
-    )
-    assert injected[1].content.startswith(GOAL_MARKER)
-    assert "y=300" in injected[1].content
-    assert not any(
-        isinstance(m, SystemMessage) and str(m.content).startswith(GOAL_MARKER)
-        for m in [SystemMessage(content="sys"), HumanMessage(content="go")]
-    )
 
 
 def test_record_tool_fact_stores_water_and_ndre_observations() -> None:
@@ -1303,28 +997,46 @@ def test_water_runs_even_when_a_watering_fact_exists() -> None:
     assert texts.count("Pump ran") >= 2
 
 
-def test_think_is_forced_on_first_turn_and_after_errors() -> None:
-    from types import SimpleNamespace
-
-    from planning_service.harness.graph import _model_for_turn
-
-    deps = SimpleNamespace(model="free", think_model="forced")
-    assert _model_for_turn({"turn": 0}, deps) == "forced"
-    assert _model_for_turn({"turn": 2, "consecutive_errors": 0}, deps) == "free"
-    assert _model_for_turn({"turn": 2, "consecutive_errors": 1}, deps) == "forced"
-    assert _model_for_turn({"turn": 0}, SimpleNamespace(model="free", think_model=None)) == "free"
 
 
-def test_tool_search_unlocks_deferred_tools_and_core_stays_bound() -> None:
-    from types import SimpleNamespace
 
-    from planning_service.harness.graph import _model_for_turn, _tool_search
-    from planning_service.harness.tool_registry import CORE_TOOLS
+def test_forced_think_runs_first_then_model_is_free() -> None:
+    fake = _ScriptFake(answer_think=True)
+    fake.set_responses(["hi"])
+    loop = _make_loop(fake, _make_registry(), system_state=InMemorySystemStateProvider(), force_think=True)
+    result = loop.run([{"role": "user", "content": "hello"}])
+    assert [tc["name"] for tc in result.tool_calls] == ["think"]
+    assert result.response == "hi"
 
-    tool_registry = ToolRegistry(_make_registry())
-    deps = SimpleNamespace(registry=tool_registry, model="all", think_model=None,
-                           bind=lambda unlocked: ("bound", unlocked))
-    out = _tool_search(deps, {"query": "ndre"})
-    names = [m["name"] for m in out["matches"]]
-    assert "capture_ndre" in names and not set(names) & CORE_TOOLS
-    assert _model_for_turn({"turn": 3, "unlocked": names + names}, deps) == ("bound", tuple(dict.fromkeys(names)))
+
+def test_deferred_tools_hidden_until_searched() -> None:
+    seen: list[set[str]] = []
+
+    class Spy(_ScriptFake):
+        pass
+
+    fake = _ScriptFake()
+    fake.set_responses(["hi"])
+    loop = _make_loop(fake, _make_registry(), system_state=InMemorySystemStateProvider(), core_tools=CORE_TOOLS)
+    visible = {t.name for t in loop._tools if not t.defer_loading}
+    deferred = {t.name for t in loop._tools if t.defer_loading}
+    assert "capture_ndre" in deferred and not (deferred & CORE_TOOLS)
+    assert {"think", "move", "get_position"} <= visible
+
+
+def test_capture_still_reaches_model_as_image(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "planning_service.tool_results._capture_file_uri",
+        lambda *_args: "data:image/jpeg;base64,/9j/4AAQ",
+    )
+    fake = _ScriptFake()
+    fake.set_responses([_tool_call("capture", {"band": "rgb"}, "c1"), "coverage looks patchy"])
+
+    def capture(action: Any) -> Any:
+        action.params["artifact_id"] = "shot"
+        return action
+
+    loop = _make_loop(fake, _make_registry(capture=capture), propose_only=False)
+    result = loop.run([{"role": "user", "content": "check coverage"}])
+    assert "coverage looks patchy" in result.response
+    assert "BinaryImage" in repr(fake.seen[-1]) or "BinaryContent" in repr(fake.seen[-1])

@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from twfarmbot_ui.server import create_app
+from twfarmbot_ui import tls
 from twfarmbot_ui.tls import ensure_certs
 
 
@@ -15,6 +16,14 @@ def test_ensure_certs_reuses_existing_files(tmp_path) -> None:
     first = cert.read_bytes()
     again, _ = ensure_certs(tmp_path)
     assert again.read_bytes() == first
+
+
+def test_ensure_certs_prefers_tailscale(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cert, key = tmp_path / "tailscale.crt", tmp_path / "tailscale.key"
+    cert.write_text("cert")
+    key.write_text("key")
+    monkeypatch.setattr(tls, "_tailscale_certs", lambda folder: (cert, key))
+    assert ensure_certs(tmp_path) == (cert, key)
 
 
 def test_api_proxy_forwards_json(monkeypatch: pytest.MonkeyPatch) -> None:

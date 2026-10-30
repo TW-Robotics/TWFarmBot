@@ -228,6 +228,15 @@ textarea,
   gap: 16px;
 }
 
+/* Tablet Overview: the graph grid fills the page; only a status line below. */
+.overview-tablet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
 .trend-cell {
   min-width: 0;
   min-height: 0;
@@ -266,6 +275,8 @@ textarea,
   --chart-aqua: light-dark(#1baf7a, #199e70);
   --chart-yellow: light-dark(#eda100, #c98500);
   --chart-violet: light-dark(#6250d6, #9085e9);
+  --chart-red: light-dark(#d03b3b, #e5605f);
+  --chart-gray: light-dark(#6b7280, #9ca3af);
 }
 
 /* Bed sidebar ------------------------------------------------------------- */
@@ -380,4 +391,109 @@ textarea,
   padding: 8px 10px;
   border-radius: 10px;
   background: var(--color-background-muted);
+}
+
+.trends-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 16px;
+}
+
+.gantry-area {
+  fill: var(--chart-aqua);
+  fill-opacity: 0.35;
+  stroke: var(--chart-aqua);
+  stroke-width: 1.5;
+}
+.gantry-area--pending {
+  fill: var(--chart-orange);
+  stroke: var(--chart-orange);
+  stroke-dasharray: 4 3;
+}
+.gantry-area-label {
+  fill: var(--color-text-primary);
+  font-size: 8px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.gantry-map--draw svg {
+  cursor: crosshair;
+  touch-action: none;
+}
+.garden-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden !important;
+}
+.garden-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.2fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 24px;
+}
+.garden-map,
+.garden-side {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.garden-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.planting-pinned {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+.planting-body {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  max-height: calc(90dvh - 380px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.planting-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.planting-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.planting-two,
+.planting-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+.planting-fields {
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+.planting-care {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 32px;
+}
+.planting-care-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }

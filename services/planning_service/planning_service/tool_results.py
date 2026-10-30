@@ -8,8 +8,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import HumanMessage
-
 _IMAGE_DATA_RE = re.compile(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+")
 _MAX_PROVIDER_IMAGE_BYTES = 800_000
 _MAX_PROVIDER_IMAGE_SIDE = 1280
@@ -55,35 +53,6 @@ def compact_tool_result(value: Any) -> Any:
     if isinstance(value, str) and value.startswith("data:image/"):
         return "[image available to the user]"
     return value
-
-
-def provider_tool_content(name: str, result: Any) -> str:
-    """JSON for the ``role: tool`` message. Stills go in ``provider_vision_message``."""
-    del name
-    return json.dumps(compact_tool_result(result), default=str)
-
-
-def provider_vision_message(name: str, result: Any) -> HumanMessage | None:
-    """User-turn still so Chat Completions actually sees the capture.
-
-    OpenAI ignores ``image_url`` on ``role: tool``. Put the JPEG on a
-    following user message after all tool results for this batch.
-    """
-    image = _provider_image_url(name, result)
-    if not image:
-        return None
-    return HumanMessage(
-        content=[
-            {
-                "type": "text",
-                "text": (
-                    f"{name} still — inspect this image yourself and answer "
-                    "from what you see. Do not tell the user to look at it."
-                ),
-            },
-            {"type": "image_url", "image_url": {"url": image}},
-        ]
-    )
 
 
 def _provider_image_url(name: str, result: Any) -> str | None:
