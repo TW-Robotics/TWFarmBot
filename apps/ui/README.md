@@ -6,8 +6,15 @@ ReSiReg vision, session listing).
 
 ```bash
 cd apps/ui && npm install && npm run build   # once, or after frontend changes
-uv run twfarmbot-ui                          # https://localhost:8501 (self-signed TLS)
+uv run twfarmbot-ui                          # https://localhost:8501
 ```
+
+Remote (no Safari/Chrome cert warning): open the Tailscale MagicDNS name,
+`https://<host>.<tailnet>.ts.net:8501` — the UI auto-fetches a trusted
+`tailscale cert` for it (one-time setup: `sudo tailscale set --operator=$USER`
+and enable HTTPS in the Tailscale admin console). Opening the raw Tailscale/LAN
+IP always warns: certificates are issued for names, and the fallback
+self-signed cert is untrusted by design.
 
 Frontend HMR during development (same port):
 

@@ -1,10 +1,8 @@
-"""Run-scoped goal checklist kept in LangGraph state."""
+"""Run-scoped goal checklist, re-read by the model every turn."""
 
 from __future__ import annotations
 
 from typing import Any
-
-from langchain_core.messages import SystemMessage
 
 GOAL_MARKER = "[goal]"
 
@@ -44,21 +42,3 @@ def format_goal(goal: dict[str, Any] | None) -> str:
     if done:
         lines.append("- Done: " + "; ".join(done))
     return "\n".join(lines)
-
-
-def messages_with_goal(messages: list[Any], goal: dict[str, Any] | None) -> list[Any]:
-    cleaned = [
-        message
-        for message in messages
-        if not (
-            isinstance(message, SystemMessage)
-            and str(getattr(message, "content", "")).startswith(GOAL_MARKER)
-        )
-    ]
-    text = format_goal(goal)
-    if not text:
-        return cleaned
-    note = SystemMessage(content=text)
-    if cleaned and isinstance(cleaned[0], SystemMessage):
-        return [cleaned[0], note, *cleaned[1:]]
-    return [note, *cleaned]

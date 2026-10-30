@@ -6,6 +6,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import { api, fmt } from "../api";
+import { useDevice } from "../device";
 import { Metric, PageHeader } from "../components/PageHeader";
 import {
   MetricChartDialog,
@@ -52,12 +53,20 @@ type HourlyPoint = {
   precipitation_mm: number | null;
   total_radiation_w_m2: number | null;
   uv_index: number | null;
+  wind_speed_kmh: number | null;
+  wind_gusts_kmh: number | null;
+  pressure_hpa: number | null;
+  dew_point_c: number | null;
+  vpd_kpa: number | null;
+  et0_mm: number | null;
+  soil_temperature_c: number | null;
+  soil_moisture_m3_m3: number | null;
   altitude_deg: number;
   azimuth_deg: number;
   clear_sky_irradiance_w_m2: number;
 };
 
-type MeteoHistory = {
+export type MeteoHistory = {
   range?: ChartRange;
   hourly: HourlyPoint[];
   daily: { t: number; sunrise: number; sunset: number }[];
@@ -65,7 +74,7 @@ type MeteoHistory = {
 
 type HourlyKey = keyof Omit<HourlyPoint, "t">;
 
-const CHARTS = {
+export const CHARTS = {
   temperature: hourlyRequest("Air temperature", "°C", "temperature_c", {
     color: "var(--chart-orange)",
     dailyNote: "Daily mean",
@@ -92,6 +101,39 @@ const CHARTS = {
     color: "var(--chart-violet)",
     dailyNote: "Daily maximum · not available in the yearly archive",
   }),
+  wind: hourlyRequest("Wind speed", "km/h", "wind_speed_kmh", {
+    color: "var(--chart-aqua)",
+    dailyNote: "Daily maximum",
+  }),
+  gusts: hourlyRequest("Wind gusts", "km/h", "wind_gusts_kmh", {
+    color: "var(--chart-blue)",
+    dailyNote: "Daily maximum",
+  }),
+  pressure: hourlyRequest("Air pressure", "hPa", "pressure_hpa", {
+    color: "var(--chart-violet)",
+    dailyNote: "Daily mean",
+  }),
+  dewPoint: hourlyRequest("Dew point", "°C", "dew_point_c", {
+    color: "var(--chart-aqua)",
+    dailyNote: "Daily mean",
+  }),
+  vpd: hourlyRequest("Vapour pressure deficit", "kPa", "vpd_kpa", {
+    color: "var(--chart-orange)",
+    dailyNote: "Daily maximum",
+  }),
+  et0: hourlyRequest("Evapotranspiration", "mm", "et0_mm", {
+    mark: "bar",
+    color: "var(--chart-blue)",
+    dailyNote: "Daily total (reference ET₀)",
+  }),
+  soilTemp: hourlyRequest("Soil temperature", "°C", "soil_temperature_c", {
+    color: "var(--chart-orange)",
+    dailyNote: "Daily mean · 0–7 cm",
+  }),
+  soilMoisture: hourlyRequest("Soil moisture", "m³/m³", "soil_moisture_m3_m3", {
+    color: "var(--chart-blue)",
+    dailyNote: "Daily mean · 0–7 cm",
+  }),
   altitude: hourlyRequest("Sun altitude", "°", "altitude_deg", {
     color: "var(--chart-orange)",
     dailyNote: "Noon peak altitude",
@@ -117,7 +159,7 @@ const POSE_SUBTITLE: Record<ChartRange, string> = {
 const TRENDS = [CHARTS.temperature, CHARTS.humidity, CHARTS.solar, CHARTS.rain];
 
 /** How to build one chart's series from any range's history payload. */
-type ChartRequest = Omit<ChartSpec, "points" | "axis"> & {
+export type ChartRequest = Omit<ChartSpec, "points" | "axis"> & {
   points: (data: MeteoHistory) => SeriesPoint[];
   /** Explains how the daily (month/year) value is aggregated. */
   dailyNote?: string;
@@ -154,7 +196,7 @@ function sunTimeRequest(title: string, key: "sunrise" | "sunset"): ChartRequest 
 
 const RANGE_AXIS: Record<ChartRange, ChartSpec["axis"]> = { day: "hour", month: "day", year: "month" };
 
-function buildSpec(request: ChartRequest, data: MeteoHistory, range: ChartRange): ChartSpec {
+export function buildSpec(request: ChartRequest, data: MeteoHistory, range: ChartRange): ChartSpec {
   return {
     ...request,
     axis: request.kind === "time" && range === "day" ? "day" : RANGE_AXIS[range],
@@ -204,6 +246,7 @@ export function OverviewPage({
   farmbot: string;
 }) {
   const toast = useToast();
+  const { isTablet } = useDevice();
   const [meteo, setMeteo] = useState<Meteorology | null>(null);
   const [histories, setHistories] = useState<Partial<Record<ChartRange, MeteoHistory>>>({});
   const [chart, setChart] = useState<ChartRequest | null>(null);
@@ -299,6 +342,58 @@ export function OverviewPage({
   const sun = meteo?.sun;
   const weather = meteo?.weather;
   const advice = meteo?.agronomic_advice;
+
+  const dialogs = (
+    <>
+      <MetricChartDialog
+        title={poseOpen ? "Gantry position" : null}
+        spec={null}
+        range={poseRange}
+        subtitle={POSE_SUBTITLE[poseRange]}
+        note="Click X, Y or Z in the legend to hide or show an axis."
+        content={
+          <PoseChart
+            samples={withLivePose(poseHistories[poseRange])}
+            height={360}
+            axis={poseRange === "day" ? "hour" : poseRange === "month" ? "day" : "month"}
+          />
+        }
+        onRangeChange={setPoseRange}
+        onClose={() => setPoseOpen(false)}
+      />
+      <MetricChartDialog
+        title={chart?.title ?? null}
+        spec={chartSpec}
+        range={chartRange}
+        note={chartRange !== "day" ? chart?.dailyNote : undefined}
+        onRangeChange={setChartRange}
+        onClose={() => setChart(null)}
+      />
+    </>
+  );
+
+  // Tablet: just the four trend graphs filling the page, plus one status line.
+  // No header or robot row (the bed sidebar already shows the pose). Tap a
+  // graph for its history dialog.
+  if (isTablet) {
+    return (
+      <div className="overview-tablet">
+        <div className="trend-grid">
+          {trends.map((spec, index) => (
+            <TrendCard key={spec.title} spec={spec} onOpen={openChart(TRENDS[index])} />
+          ))}
+        </div>
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <Badge variant={adviceTone(advice?.watering_suitability)} label={`Watering · ${labelize(advice?.watering_suitability)}`} />
+          <Badge variant={adviceTone(advice?.camera_lighting_quality)} label={`Camera · ${labelize(advice?.camera_lighting_quality)}`} />
+          <Text type="supporting" color="secondary">
+            Sun {clock(weather?.sunrise)} – {clock(weather?.sunset)}
+          </Text>
+        </HStack>
+        {dialogs}
+      </div>
+    );
+  }
 
   return (
     <VStack gap={5}>
@@ -408,30 +503,7 @@ export function OverviewPage({
       ) : (
         <Text color="secondary">Weather is unavailable. Restart the API if GET /meteorology is missing.</Text>
       )}
-      <MetricChartDialog
-        title={poseOpen ? "Gantry position" : null}
-        spec={null}
-        range={poseRange}
-        subtitle={POSE_SUBTITLE[poseRange]}
-        note="Click X, Y or Z in the legend to hide or show an axis."
-        content={
-          <PoseChart
-            samples={withLivePose(poseHistories[poseRange])}
-            height={360}
-            axis={poseRange === "day" ? "hour" : poseRange === "month" ? "day" : "month"}
-          />
-        }
-        onRangeChange={setPoseRange}
-        onClose={() => setPoseOpen(false)}
-      />
-      <MetricChartDialog
-        title={chart?.title ?? null}
-        spec={chartSpec}
-        range={chartRange}
-        note={chartRange !== "day" ? chart?.dailyNote : undefined}
-        onRangeChange={setChartRange}
-        onClose={() => setChart(null)}
-      />
+      {dialogs}
     </VStack>
   );
 }

@@ -1,7 +1,7 @@
 """Build system prompts and conversation context for the agent loop.
 
 pi-style: a short prompt, a small core tool set, everything else looked up with
-tools (``tool_search`` for more tools, ``get_help`` for reference notes). Tool
+tools (``search_tools`` for more tools, ``get_help`` for reference notes). Tool
 schemas are sent with the request, so they are not repeated here.
 """
 
@@ -9,11 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-
 from safety_service import format_workspace_box
 
-from ..tool_results import compact_input_text
 from .tool_registry import ToolRegistry
 
 _CHAT_HEADER = """You are TWFarmBot Assistant, a concise farm-robot operator. Reply in the user's language.
@@ -22,7 +19,7 @@ You act through tools (JSON tool calls). Nothing about the robot, weather, bed
 map, saved positions or memories is preloaded: look it up with tools every time,
 never from memory or earlier answers in this chat.
 
-Only core tools are listed. For anything else call `tool_search(query)`: it
+Only core tools are listed. For anything else call `search_tools(queries)`: it
 returns matching tools and unlocks them for your next call (scanning/NDRE,
 images and vision, zones and paths, GPIO pins and light, scripts, goals, homing
 and axis jogs, memory edits). `get_help(topic)` loads reference notes
@@ -40,6 +37,12 @@ Guidelines:
   plan), gather with read tools (group independent reads), act, verify (after a
   move call `get_position`), then answer. If a result did not answer the
   question, `think` again and try a different tool. Never give up after one call.
+- Multi-step requests (several moves, scans or tools, "then", "and then",
+  moving or checking more than one thing): first call `set_goal` with the
+  objective and the ordered steps, then keep calling tools until every step is
+  done, passing `completed` as you finish each. Do not stop after the first
+  tool and do not end the turn with steps left; chain the next call straight
+  away. Stop early only when blocked or unsafe, and say exactly what is needed.
 - Always call a tool in the current turn before stating anything live
   (position, status, weather, memories, saved positions). Re-run it even when
   asked "are you sure?". The origin (0,0,0) is a reference point, not where the
@@ -57,7 +60,7 @@ Guidelines:
 _PLANNER_HEADER = """You are a task planner for an autonomous farm robot.
 
 Translate the request into an ordered plan with JSON tool calls. Nothing is
-preloaded: gather live state with read tools first (`tool_search(query)` unlocks
+preloaded: gather live state with read tools first (`search_tools(queries)` unlocks
 more tools, `get_help(topic)` loads notes). Physical actions stay
 safety-validated proposals. Do not write scripts or a JSON plan as the answer.
 """
@@ -65,7 +68,7 @@ safety-validated proposals. Do not write scripts or a JSON plan as the answer.
 _PLANNER_FOOTER = """
 - A named place: `goto_named(name)` (`get_positions` lists labels). Map
   attributes (plant/weed/soil/healthy/stressed): `find_locations` via
-  `tool_search`. If the map is empty, plan a scan or ask for millimetres; never
+  `search_tools`. If the map is empty, plan a scan or ask for millimetres; never
   invent coordinates.
 - Default to producing a plan; return no actions only if impossible.
 - Stay inside the hard travel box from the origin (0,0,0).
@@ -73,7 +76,7 @@ _PLANNER_FOOTER = """
 
 
 class ContextBuilder:
-    """Build prompts and LangChain message lists.
+    """Build the chat and planner system prompts.
 
     No live state (world model, weather, memories) is ever injected into
     the prompt — the model gathers it with tool calls instead.
@@ -99,52 +102,3 @@ class ContextBuilder:
         parts.append(format_workspace_box())
         parts.append(_PLANNER_FOOTER)
         return "\n".join(parts)
-
-    def chat_messages(
-        self,
-        messages: list[dict[str, Any]],
-        *,
-        include_reasoning: bool = False,
-        voice: bool = False,
-    ) -> list[SystemMessage | HumanMessage | AIMessage | ToolMessage]:
-        # No live data is injected: weather, memories, and the bed map are
-        # gathered by the model via tool calls (get_meteorology, get_forecast,
-        # recall_memories, get_garden, find_locations, …). This keeps the
-        # system prompt identical every turn so prefix caching holds.
-        system = self.chat_system_prompt(voice=voice)
-        out: list[SystemMessage | HumanMessage | AIMessage | ToolMessage] = [
-            SystemMessage(content=system)
-        ]
-        for msg in messages:
-            role = msg.get("role", "")
-            content = str(msg.get("content", "") or "")
-            if role == "user":
-                out.append(HumanMessage(content=compact_input_text(content)))
-            elif role == "assistant":
-                kwargs: dict[str, Any] = {}
-                if include_reasoning:
-                    thinking = msg.get("thinking")
-                    if thinking:
-                        kwargs["additional_kwargs"] = {
-                            "reasoning_content": str(thinking)
-                        }
-                out.append(AIMessage(content=compact_input_text(content), **kwargs))
-            elif role == "tool":
-                # Preserve tool results across multi-turn conversation.
-                out.append(
-                    ToolMessage(
-                        content=content,
-                        tool_call_id=str(msg.get("tool_call_id", "")),
-                        name=str(msg.get("name", "")),
-                    )
-                )
-        return out
-
-    def planner_messages(
-        self, request: str
-    ) -> list[SystemMessage | HumanMessage | ToolMessage]:
-        system = self.planner_system_prompt()
-        return [
-            SystemMessage(content=system),
-            HumanMessage(content=request),
-        ]

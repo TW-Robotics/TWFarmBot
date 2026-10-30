@@ -274,3 +274,13 @@ def test_get_meteorology(client: TestClient, monkeypatch: pytest.MonkeyPatch) ->
     assert r.status_code == 200
     assert r.json()["sun"]["sun_phase"] == "day"
     assert r.json()["weather"]["temperature_c"] == 18.4
+
+
+def test_plantings_roundtrip(client: TestClient) -> None:
+    assert client.get("/plantings").json() == {"plantings": []}
+    row = {"id": "a1", "crop": "Lettuce", "x1": 400, "y1": 800, "x2": 200, "y2": 900, "planted": "2026-10-01", "note": ""}
+    r = client.put("/plantings", json={"plantings": [row]})
+    assert r.status_code == 200
+    assert client.get("/plantings").json()["plantings"] == [{**row, "x1": 200.0, "y1": 800.0, "x2": 400.0, "y2": 900.0}]
+    bad = client.put("/plantings", json={"plantings": [{**row, "planted": "not-a-date"}]})
+    assert bad.status_code == 400

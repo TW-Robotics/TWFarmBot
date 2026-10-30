@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from langchain_core.language_models import BaseChatModel
+from pydantic_ai.models import Model
 from twfarmbot_core.actions import ActionRegistry
 
 from .chat import ChatResult, chat
@@ -173,7 +173,7 @@ def run_autonomous_cycle(
     goal: str | None = None,
     world: Any = None,
     system_state: SystemStateProvider | None = None,
-    model: BaseChatModel | None = None,
+    model: Model | None = None,
     config: PlannerConfig | None = None,
     model_name: str | None = None,
     save_session: bool = True,
@@ -211,6 +211,7 @@ def run_autonomous_cycle(
             allow_actions=True,
             skip_approval=True,
             model_name=model_name,
+            core_tools=frozenset({"capture_ndre", "find_home"}),  # the cycle's fixed workflow
         )
     except Exception as err:
         log.exception("Autonomous cycle failed")

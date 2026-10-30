@@ -8,29 +8,14 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import AIMessage
 
 from planning_service import AutonomousCycleResult, run_autonomous_cycle
 from safety_service import validate as safety_validate
+from tests.fakes import AIMessage, ScriptModel
 from twfarmbot_api_server.app import create_app
 from twfarmbot_core.actions import ActionRegistry
 from twfarmbot_core.domain import Action
 from twfarmbot_worker.inspect_job import run_autonomous_loop
-
-
-class _SequentialChatModel(FakeListChatModel):
-    def __init__(self, turns: list[AIMessage | str]) -> None:
-        super().__init__(responses=["unused"])
-        self._turns = turns
-        self._step = 0
-
-    def invoke(self, *_args: Any, **_kwargs: Any) -> AIMessage:
-        item = self._turns[min(self._step, len(self._turns) - 1)]
-        self._step += 1
-        if isinstance(item, AIMessage):
-            return item
-        return AIMessage(content=str(item))
 
 
 def _make_test_registry() -> tuple[ActionRegistry, list[Action]]:
@@ -71,7 +56,7 @@ def test_autonomous_cycle_sees_reasons_acts_reasons_when_stressed(tmp_path: Path
 
     registry, dispatched = _make_test_registry()
 
-    fake_model = _SequentialChatModel(
+    fake_model = ScriptModel(
         turns=[
             # 1. SEE
             AIMessage(
@@ -146,7 +131,7 @@ def test_autonomous_cycle_sees_reasons_does_not_water_when_healthy(tmp_path: Pat
     registry.register("capture_ndre", fake_capture_ndre)
     registry.register("water", lambda a: dispatched.append(a) or a)
 
-    fake_model = _SequentialChatModel(
+    fake_model = ScriptModel(
         turns=[
             # 1. SEE
             AIMessage(
@@ -180,7 +165,7 @@ def test_autonomous_cycle_safety_rejection(tmp_path: Path, monkeypatch: pytest.M
 
     registry, _ = _make_test_registry()
 
-    fake_model = _SequentialChatModel(
+    fake_model = ScriptModel(
         turns=[
             # 1. SEE
             AIMessage(
@@ -220,7 +205,7 @@ def test_autonomous_api_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     app = create_app(registry=registry)
     client = TestClient(app)
 
-    fake_model = _SequentialChatModel(
+    fake_model = ScriptModel(
         turns=[
             AIMessage(content="Bed is in optimal condition."),
         ]
@@ -296,7 +281,8 @@ def test_autonomous_cycle_with_memory_recall_and_remember(
     provider = InMemorySystemStateProvider(memory_store=mem_store)
     registry, _ = _make_test_registry()
 
-    fake_model = _SequentialChatModel(
+    fake_model = ScriptModel(
+        answer_think=True,  # this cycle has a `think` tool, so the first step is forced
         turns=[
             # Step 1: Recall
             AIMessage(
@@ -357,8 +343,9 @@ def test_autonomous_cycle_with_memory_recall_and_remember(
     )
 
     assert result.status == "ok"
-    assert len(result.perceptions) == 1
-    assert result.perceptions[0]["name"] == "capture_ndre"
+    seen = [p for p in result.perceptions if p["name"] != "think"]
+    assert len(seen) == 1
+    assert seen[0]["name"] == "capture_ndre"
     assert len(result.actions) == 1
     assert result.actions[0]["name"] == "water"
     assert len(result.memories) == 2

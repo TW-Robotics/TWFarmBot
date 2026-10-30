@@ -18,7 +18,12 @@ import {
   YAxis,
 } from "recharts";
 
-export type SeriesPoint = { t: number; value: number | null; reference?: number | null };
+export type SeriesPoint = { t: number; value: number | null; reference?: number | null } & {
+  /** Extra series (e.g. regression fits) keyed by `Overlay.key`. */
+  [overlay: string]: number | null | undefined;
+};
+
+export type Overlay = { key: string; label: string; color: string };
 
 export type ChartSpec = {
   title: string;
@@ -86,10 +91,15 @@ export function MetricLineChart({
   spec,
   height,
   isCompact,
+  overlays,
+  baseOpacity = 1,
 }: {
   spec: ChartSpec;
   height: number | string;
   isCompact?: boolean;
+  overlays?: Overlay[];
+  /** Opacity of the underlying series, so overlays can stand out. */
+  baseOpacity?: number;
 }) {
   const isTime = spec.kind === "time";
   const color = spec.color ?? LINE;
@@ -126,7 +136,9 @@ export function MetricLineChart({
             labelFormatter={(t) => tooltipLabel(Number(t))}
             formatter={(v, name) => [
               formatValue(spec, Number(v)),
-              name === "reference" ? spec.referenceLabel ?? "Reference" : spec.title,
+              name === "reference"
+                ? spec.referenceLabel ?? "Reference"
+                : overlays?.find((o) => o.key === name)?.label ?? spec.title,
             ]}
             contentStyle={{
               background: "var(--color-background-popover)",
@@ -156,12 +168,13 @@ export function MetricLineChart({
             />
           ) : null}
           {spec.mark === "bar" ? (
-            <Bar dataKey="value" fill={color} radius={[2, 2, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="value" fill={color} fillOpacity={baseOpacity} radius={[2, 2, 0, 0]} isAnimationActive={false} />
           ) : (
             <Line
               dataKey="value"
               type="monotone"
               stroke={color}
+              strokeOpacity={baseOpacity}
               strokeWidth={2}
               dot={isTime ? { r: 4, fill: color, stroke: color } : false}
               activeDot={{ r: 5, fill: color, stroke: "var(--color-background-card)", strokeWidth: 2 }}
@@ -169,6 +182,19 @@ export function MetricLineChart({
               isAnimationActive={false}
             />
           )}
+          {overlays?.map((o) => (
+            <Line
+              key={o.key}
+              dataKey={o.key}
+              type="monotone"
+              stroke={o.color}
+              strokeWidth={2}
+              strokeDasharray="6 3"
+              dot={false}
+              connectNulls
+              isAnimationActive={false}
+            />
+          ))}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

@@ -131,7 +131,7 @@ cmd_start() {
   done
   echo
   echo "OS      http://localhost:3001"
-  echo "UI      https://localhost:8501  (self-signed; use https:// so remote mic works)"
+  echo "UI      https://localhost:8501  (remote, warning-free: https://$(hostname).<tailnet>.ts.net:8501 via Tailscale)"
   echo "API     http://localhost:8000/docs"
 }
 

@@ -1,7 +1,7 @@
 [project]
 name = "twfarmbot-planning-service"
 version = "0.1.0"
-description = "LLM task planner: natural language -> typed Action[] via LangChain."
+description = "LLM task planner: natural language -> typed Action[] via Pydantic AI."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -10,17 +10,15 @@ dependencies = [
     "twfarmbot-gateway",
     "twfarmbot-ml-utils",
     "langchain-core>=0.3",
-    "langchain-openai>=0.2",
-    "langgraph>=0.6",
     "pydantic>=2",
     "pyyaml>=6",
     "httpx>=0.27",
     "openai>=2.43",
     "google-auth>=2",
-    "langchain-google-vertexai>=2",
     "weave>=0.50",
     "python-dotenv>=1",
     "av>=17.1.0",
+    "pydantic-ai-slim[google,openai]>=2.31.1",
 ]
 
 [build-system]

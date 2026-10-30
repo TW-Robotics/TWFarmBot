@@ -223,7 +223,7 @@ _INTROSPECTION_CATEGORIES: dict[str, ToolCategory] = {
 # (pi-style deferred tools) so the schema payload and the choice stay small.
 CORE_TOOLS = frozenset(
     {
-        "think", "tool_search", "get_help",
+        "think", "set_goal", "tool_search", "get_help",
         "get_position", "get_status", "get_positions", "goto_named", "move",
         "capture", "water", "e_stop",
         "get_meteorology", "get_forecast", "recall_memories", "remember",

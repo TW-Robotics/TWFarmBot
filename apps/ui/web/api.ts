@@ -44,6 +44,10 @@ async function parseBody(response: Response): Promise<any> {
 
 function errorMessage(body: any, status: number): string {
   if (body && typeof body === "object") {
+    if (Array.isArray(body.detail)) {
+      // FastAPI validation errors: [{loc, msg}, ...]
+      return body.detail.map((e: any) => `${(e.loc || []).slice(1).join(".")}: ${e.msg}`).join("; ");
+    }
     if ("detail" in body) return String(body.detail);
     if ("error" in body) return String(body.error);
   }

@@ -39,13 +39,13 @@ def test_providers_build_chat_completions_models() -> None:
         temperature=0.0,
     )
     openai = OpenAIProvider()
-    openai_model = openai.build_chat_model("gpt-5.6", openai_cfg)
+    openai_model = openai.build_model("gpt-5.6", openai_cfg)
     assert openai_model is not None
     assert openai_model.model_name == "gpt-5.6"  # type: ignore[attr-defined]
-    assert openai_model.reasoning == {"effort": "medium", "summary": "auto"}  # type: ignore[attr-defined]
-    assert openai_model.use_responses_api is True  # type: ignore[attr-defined]
+    assert openai_model.settings["thinking"] == "medium"  # type: ignore[index]
+    assert type(openai_model).__name__ == "OpenAIResponsesModel"  # GPT-5 needs Responses for tools
 
-    silent = OpenAIProvider().build_chat_model(
+    silent = OpenAIProvider().build_model(
         "gpt-5.6",
         PlannerConfig(
             provider="openai",
@@ -57,9 +57,7 @@ def test_providers_build_chat_completions_models() -> None:
             reasoning_budget=0,
         ),
     )
-    assert silent.reasoning == {"effort": "none"}  # type: ignore[attr-defined]
-    assert hasattr(openai_model, "bind_tools")
-    assert not hasattr(openai_model, "configure_tools")
+    assert silent.settings["thinking"] is False  # type: ignore[index]
 
     cfg = PlannerConfig(
         provider="openrouter",
@@ -70,13 +68,13 @@ def test_providers_build_chat_completions_models() -> None:
         temperature=0.0,
     )
     openrouter = OpenRouterProvider()
-    model = openrouter.build_chat_model("openai/gpt-4o", cfg)
+    model = openrouter.build_model("openai/gpt-4o", cfg)
     assert model is not None
     assert model.model_name == "openai/gpt-4o"  # type: ignore[attr-defined]
-    assert not (getattr(model, "extra_body", None) or {}).get("reasoning")
+    assert "thinking" not in model.settings  # type: ignore[operator]
 
-    glm = openrouter.build_chat_model("z-ai/glm-5.3-flash", cfg)
-    assert glm.extra_body == {"reasoning": {"effort": "medium"}}  # type: ignore[attr-defined]
+    glm = openrouter.build_model("z-ai/glm-5.3-flash", cfg)
+    assert glm.settings["thinking"] == "medium"  # type: ignore[index]
 
     local_cfg = PlannerConfig(
         provider="local",
@@ -87,7 +85,7 @@ def test_providers_build_chat_completions_models() -> None:
         temperature=0.0,
     )
     local = OpenAICompatibleProvider()
-    local_model = local.build_chat_model("qwen2.5", local_cfg)
+    local_model = local.build_model("qwen2.5", local_cfg)
     assert local_model is not None
     assert local_model.model_name == "qwen2.5"  # type: ignore[attr-defined]
 
@@ -161,7 +159,7 @@ def test_vertex_needs_project(monkeypatch, tmp_path) -> None:
         temperature=0.0,
     )
     with pytest.raises(ValueError, match="GOOGLE_CLOUD_PROJECT"):
-        VertexProvider().build_chat_model("gpt-5.6", cfg)
+        VertexProvider().build_model("gpt-5.6", cfg)
 
 
 def test_vertex_builds_native_model(monkeypatch, tmp_path) -> None:
@@ -177,12 +175,9 @@ def test_vertex_builds_native_model(monkeypatch, tmp_path) -> None:
         timeout_s=30.0,
         temperature=0.0,
     )
-    model = VertexProvider().build_chat_model("gpt-5.6", cfg)
+    model = VertexProvider().build_model("gpt-5.6", cfg)
     assert model.model_name == "gemini-3.8-flash"  # type: ignore[attr-defined]
-    assert getattr(model, "project", None) == "demo-project"
-    assert getattr(model, "location", None) == "europe-west3"
-    assert getattr(model, "thinking_budget", None) == 8192
-    assert getattr(model, "include_thoughts", None) is True
+    assert model.settings["thinking"] == "medium"  # type: ignore[index]
 
 
 def test_vertex_strips_google_prefix(monkeypatch, tmp_path) -> None:
@@ -196,5 +191,5 @@ def test_vertex_strips_google_prefix(monkeypatch, tmp_path) -> None:
         timeout_s=30.0,
         temperature=0.0,
     )
-    model = VertexProvider().build_chat_model("google/gemini-2.5-flash", cfg)
+    model = VertexProvider().build_model("google/gemini-2.5-flash", cfg)
     assert model.model_name == "gemini-2.5-flash"  # type: ignore[attr-defined]
