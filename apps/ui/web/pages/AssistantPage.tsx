@@ -569,7 +569,14 @@ export function AssistantPage({
               incoming.every((item: { id: string }) => ids.includes(item.id));
             if (!replay) {
               threadIdRef.current = event.thread_id || threadIdRef.current;
-              setPendingApprovals(incoming);
+              if (voiceOnRef.current) {
+                autoApproveRef.current = [
+                  ...(autoApproveRef.current ?? []),
+                  ...incoming.map((item: { id: string }) => item.id),
+                ];
+              } else {
+                setPendingApprovals(incoming);
+              }
               assistant.streaming = false;
             }
           } else if (event.type === "meta") {
@@ -600,6 +607,12 @@ export function AssistantPage({
       stopRef.current = null;
       setBusy(false);
       busyRef.current = false;
+      const autoIds = autoApproveRef.current;
+      autoApproveRef.current = null;
+      if (autoIds?.length) {
+        void resumeApprovals(autoIds);
+        return;
+      }
       const next = leftoverRef.current.shift();
       if (next) void send(next);
     }
@@ -633,7 +646,7 @@ export function AssistantPage({
         }
         composer={
           <VStack gap={2} style={{ width: "100%" }}>
-            {voice.listening ? null : (
+            {voice.listening && pendingApprovals.length === 0 ? null : (
               <GoalBubble
                 goal={goal}
                 approvals={pendingApprovals}
