@@ -35,10 +35,11 @@ export class ApiError extends Error {
 }
 
 async function parseBody(response: Response): Promise<any> {
+  const text = await response.text();
   try {
-    return await response.json();
+    return JSON.parse(text);
   } catch {
-    return await response.text();
+    return text;
   }
 }
 
