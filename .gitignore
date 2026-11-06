@@ -35,3 +35,7 @@ data/llm_keys.json
 
 # Gantry position log (Overview chart)
 data/gantry_pose_history.jsonl
+# Tailscale node certs/keys must never be committed (leaked Oct 2026, purged)
+*.ts.net.crt
+*.ts.net.key
+*.key
