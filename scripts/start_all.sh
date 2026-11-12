@@ -116,10 +116,9 @@ cmd_start() {
       echo "installing UI dependencies..."
       (cd "$ROOT/apps/ui" && npm install)
     fi
-    local src="$ROOT/apps/ui/web/pages/MotionPage.tsx"
     local bundle
     bundle="$(ls -t "$ROOT/apps/ui/src/twfarmbot_ui/static/assets"/index-*.js 2>/dev/null | head -1 || true)"
-    if [[ -f "$src" ]] && { [[ -z "$bundle" ]] || [[ "$src" -nt "$bundle" ]]; }; then
+    if [[ -z "$bundle" ]] || [[ -n "$(find "$ROOT/apps/ui/web" "$ROOT/apps/ui/package.json" -newer "$bundle" -print -quit)" ]]; then
       echo "rebuilding UI (frontend newer than bundle)..."
       (cd "$ROOT/apps/ui" && npm run build)
     fi
