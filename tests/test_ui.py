@@ -141,6 +141,88 @@ def test_vision_processor_calls_local_server(
     )
 
 
+def test_tablet_motion_tab_has_unlock_and_find_home() -> None:
+    """The tablet Motion layout must offer Unlock + Find home like desktop.
+
+    There is no JS test harness in this repo, so this guards the TSX source:
+    both buttons, wired to the ``unlock`` / ``find_home`` actions, must render
+    inside the ``isTablet`` branch of ``MotionPage`` (not only on desktop).
+    """
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent
+        / "apps" / "ui" / "web" / "pages" / "MotionPage.tsx"
+    ).read_text(encoding="utf-8")
+    tablet = source.split("if (isTablet)", 1)[1].split("return (", 1)[1]
+    tablet = tablet.split("\n  return (", 1)[0]
+    assert 'label="Unlock"' in tablet
+    assert 'label="Find home"' in tablet
+    assert 'run("unlock"' in tablet
+    assert 'run("find_home", { axis: "all" }' in tablet
+
+
+def test_tablet_assistant_is_transcribe_only_no_live_voice() -> None:
+    """Tablet Assistant keeps record-and-send but must not offer Live voice.
+
+    ``VoiceDock`` is only rendered in the tablet branch, so guard its source
+    plus that branch: no Live voice control, and the record button is labeled
+    "Speak" (not the jargon "Transcribe") for a broad audience.
+    Desktop keeps its separate Voice mode button (out of scope here).
+    """
+    from pathlib import Path
+
+    web = Path(__file__).resolve().parent.parent / "apps" / "ui" / "web"
+    dock = (web / "components" / "VoiceDock.tsx").read_text(encoding="utf-8")
+    assert "Live voice" not in dock
+    assert "onLive" not in dock
+    assert 'label={recording ? "Done" : "Speak"}' in dock
+    assert '"Transcribe"' not in dock
+    assert '"Transcribing…"' not in dock
+    # Transcribed text waits in a confirmation bubble: "You said:" + Send /
+    # Discard, instead of being sent to the assistant automatically.
+    assert '"You said:"' in dock
+    assert 'label="Send"' in dock
+    assert 'label="Discard"' in dock
+    assert "pendingText" in dock
+    # An Edit button opens an inline text field so the text can be fixed
+    # by typing before sending.
+    assert '"Edit"' in dock
+    assert "TextArea" in dock
+    assert "onEditPending" in dock
+
+    page = (web / "pages" / "AssistantPage.tsx").read_text(encoding="utf-8")
+    tablet = page.split("{isTablet ? (", 1)[1].split(") : (", 1)[0]
+    assert "VoiceDock" in tablet
+    assert "onLive" not in tablet
+    assert "onSpeak" in tablet
+    assert "setPendingSpeech(text)" in tablet
+    assert "(text) => void send(text)" not in tablet
+    assert "onSendPending" in tablet
+    assert "onDiscardPending" in tablet
+    assert "onEditPending" in tablet
+    # Empty-state hint must not tell tablet users to tap Live voice or
+    # Transcribe, and the desktop Voice mode control must survive this change.
+    assert "Tap Live voice" not in page
+    assert "Tap Transcribe" not in page
+    assert "Tap Speak and say what you need. You can check it before it sends." in page
+    assert '"Voice mode"' in page
+
+
+def test_tablet_hides_overview_and_lands_on_assistant() -> None:
+    """Tablets skip the Overview tab and land straight on the Assistant."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent
+        / "apps" / "ui" / "web" / "App.tsx"
+    ).read_text(encoding="utf-8")
+    assert '{ id: "overview", label: "Overview", icon: HomeIcon, tabletHidden: true }' in source
+    assert 'if (isTablet && isHiddenOnTablet(next)) return "assistant";' in source
+    assert 'if (isTablet && isHiddenOnTablet(tab)) selectTab("assistant");' in source
+    assert "item.desktopOnly || item.tabletHidden" in source
+
+
 def test_parse_segmentation_labels() -> None:
     from twfarmbot_ml_utils import parse_segmentation_labels
 

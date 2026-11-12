@@ -1,0 +1,93 @@
+{"seq": 0, "ts": "2026-11-09T11:32:33.866625+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "run_start", "model": "lfm3", "prompt": "what can you do?", "planner": false, "resume": false}
+{"seq": 1, "ts": "2026-11-09T11:32:35.165458+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "I"}
+{"seq": 2, "ts": "2026-11-09T11:32:35.172296+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " can"}
+{"seq": 3, "ts": "2026-11-09T11:32:35.179198+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " help"}
+{"seq": 4, "ts": "2026-11-09T11:32:35.186123+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " you"}
+{"seq": 5, "ts": "2026-11-09T11:32:35.193048+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " with"}
+{"seq": 6, "ts": "2026-11-09T11:32:35.199978+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " farm"}
+{"seq": 7, "ts": "2026-11-09T11:32:35.206713+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "\u2011"}
+{"seq": 8, "ts": "2026-11-09T11:32:35.212971+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "robot"}
+{"seq": 9, "ts": "2026-11-09T11:32:35.219247+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " tasks"}
+{"seq": 10, "ts": "2026-11-09T11:32:35.225466+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " such"}
+{"seq": 11, "ts": "2026-11-09T11:32:35.231685+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " as"}
+{"seq": 12, "ts": "2026-11-09T11:32:35.237947+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " loc"}
+{"seq": 13, "ts": "2026-11-09T11:32:35.244159+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "ating"}
+{"seq": 14, "ts": "2026-11-09T11:32:35.250341+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " the"}
+{"seq": 15, "ts": "2026-11-09T11:32:35.256484+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " robot"}
+{"seq": 16, "ts": "2026-11-09T11:32:35.262687+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ","}
+{"seq": 17, "ts": "2026-11-09T11:32:35.269779+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " moving"}
+{"seq": 18, "ts": "2026-11-09T11:32:35.275971+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " it"}
+{"seq": 19, "ts": "2026-11-09T11:32:35.282237+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " to"}
+{"seq": 20, "ts": "2026-11-09T11:32:35.288356+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " pres"}
+{"seq": 21, "ts": "2026-11-09T11:32:35.294483+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "et"}
+{"seq": 22, "ts": "2026-11-09T11:32:35.311227+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " positions"}
+{"seq": 23, "ts": "2026-11-09T11:32:35.323818+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " ("}
+{"seq": 24, "ts": "2026-11-09T11:32:35.324481+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "e"}
+{"seq": 25, "ts": "2026-11-09T11:32:35.325680+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ".g"}
+{"seq": 26, "ts": "2026-11-09T11:32:35.327161+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ".,"}
+{"seq": 27, "ts": "2026-11-09T11:32:35.331638+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " Home"}
+{"seq": 28, "ts": "2026-11-09T11:32:35.337796+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ","}
+{"seq": 29, "ts": "2026-11-09T11:32:35.344045+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " Camera"}
+{"seq": 30, "ts": "2026-11-09T11:32:35.350256+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " top"}
+{"seq": 31, "ts": "2026-11-09T11:32:35.356456+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ","}
+{"seq": 32, "ts": "2026-11-09T11:32:35.362650+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " Car"}
+{"seq": 33, "ts": "2026-11-09T11:32:35.368835+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "rot"}
+{"seq": 34, "ts": "2026-11-09T11:32:35.375025+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "),"}
+{"seq": 35, "ts": "2026-11-09T11:32:35.381235+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " checking"}
+{"seq": 36, "ts": "2026-11-09T11:32:35.387439+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " its"}
+{"seq": 37, "ts": "2026-11-09T11:32:35.393602+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " status"}
+{"seq": 38, "ts": "2026-11-09T11:32:35.399789+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " and"}
+{"seq": 39, "ts": "2026-11-09T11:32:35.405981+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " position"}
+{"seq": 40, "ts": "2026-11-09T11:32:35.412169+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ","}
+{"seq": 41, "ts": "2026-11-09T11:32:35.418333+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " starting"}
+{"seq": 42, "ts": "2026-11-09T11:32:35.424503+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " the"}
+{"seq": 43, "ts": "2026-11-09T11:32:35.430720+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " bed"}
+{"seq": 44, "ts": "2026-11-09T11:32:35.436942+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " spray"}
+{"seq": 45, "ts": "2026-11-09T11:32:35.443151+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "ers"}
+{"seq": 46, "ts": "2026-11-09T11:32:35.449346+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ","}
+{"seq": 47, "ts": "2026-11-09T11:32:35.455500+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " scanning"}
+{"seq": 48, "ts": "2026-11-09T11:32:35.461678+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " the"}
+{"seq": 49, "ts": "2026-11-09T11:32:35.467959+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " bed"}
+{"seq": 50, "ts": "2026-11-09T11:32:35.474149+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " with"}
+{"seq": 51, "ts": "2026-11-09T11:32:35.480333+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " N"}
+{"seq": 52, "ts": "2026-11-09T11:32:35.486508+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "IR"}
+{"seq": 53, "ts": "2026-11-09T11:32:35.492692+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "/"}
+{"seq": 54, "ts": "2026-11-09T11:32:35.498871+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "red"}
+{"seq": 55, "ts": "2026-11-09T11:32:35.505110+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "\u2011"}
+{"seq": 56, "ts": "2026-11-09T11:32:35.511312+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "edge"}
+{"seq": 57, "ts": "2026-11-09T11:32:35.517500+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " cameras"}
+{"seq": 58, "ts": "2026-11-09T11:32:35.523786+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ","}
+{"seq": 59, "ts": "2026-11-09T11:32:35.530026+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " getting"}
+{"seq": 60, "ts": "2026-11-09T11:32:35.536314+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " weather"}
+{"seq": 61, "ts": "2026-11-09T11:32:35.542596+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " and"}
+{"seq": 62, "ts": "2026-11-09T11:32:35.549150+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " agr"}
+{"seq": 63, "ts": "2026-11-09T11:32:35.555451+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "onomic"}
+{"seq": 64, "ts": "2026-11-09T11:32:35.562634+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " advice"}
+{"seq": 65, "ts": "2026-11-09T11:32:35.569107+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ","}
+{"seq": 66, "ts": "2026-11-09T11:32:35.575610+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " setting"}
+{"seq": 67, "ts": "2026-11-09T11:32:35.582085+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " long"}
+{"seq": 68, "ts": "2026-11-09T11:32:35.588371+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "\u2011"}
+{"seq": 69, "ts": "2026-11-09T11:32:35.594625+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "term"}
+{"seq": 70, "ts": "2026-11-09T11:32:35.601219+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " goals"}
+{"seq": 71, "ts": "2026-11-09T11:32:35.607383+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " or"}
+{"seq": 72, "ts": "2026-11-09T11:32:35.615262+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " treatment"}
+{"seq": 73, "ts": "2026-11-09T11:32:35.621434+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " records"}
+{"seq": 74, "ts": "2026-11-09T11:32:35.627621+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": ","}
+{"seq": 75, "ts": "2026-11-09T11:32:35.633748+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " and"}
+{"seq": 76, "ts": "2026-11-09T11:32:35.639987+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " retrieving"}
+{"seq": 77, "ts": "2026-11-09T11:32:35.646223+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " past"}
+{"seq": 78, "ts": "2026-11-09T11:32:35.652497+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " observations"}
+{"seq": 79, "ts": "2026-11-09T11:32:35.659239+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "."}
+{"seq": 80, "ts": "2026-11-09T11:32:35.666079+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " Let"}
+{"seq": 81, "ts": "2026-11-09T11:32:35.672378+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " me"}
+{"seq": 82, "ts": "2026-11-09T11:32:35.678538+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " know"}
+{"seq": 83, "ts": "2026-11-09T11:32:35.684547+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " what"}
+{"seq": 84, "ts": "2026-11-09T11:32:35.690756+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " you"}
+{"seq": 85, "ts": "2026-11-09T11:32:35.696935+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "\u2019d"}
+{"seq": 86, "ts": "2026-11-09T11:32:35.703140+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " like"}
+{"seq": 87, "ts": "2026-11-09T11:32:35.709667+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " to"}
+{"seq": 88, "ts": "2026-11-09T11:32:35.722011+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " do"}
+{"seq": 89, "ts": "2026-11-09T11:32:35.734674+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": " next"}
+{"seq": 90, "ts": "2026-11-09T11:32:35.735596+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "delta", "content": "!"}
+{"seq": 91, "ts": "2026-11-09T11:32:35.739666+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "messages", "messages": [{"parts": [{"content": "what can you do?", "timestamp": "2026-11-09T11:32:33.878934Z", "part_kind": "user-prompt"}], "timestamp": "2026-11-09T11:32:33.879224Z", "instructions": "You are TWFarmBot Assistant, a concise farm-robot operator. Reply in the user's language.\n\nYou act through tools (JSON tool calls). Nothing about the robot, weather, bed\nmap, saved positions or memories is preloaded: look it up with tools every time,\nnever from memory or earlier answers in this chat.\n\nOnly core tools are listed. For anything else call `search_tools(queries)`: it\nreturns matching tools and unlocks them for your next call (scanning/NDRE,\nimages and vision, zones and paths, GPIO pins and light, scripts, goals, homing\nand axis jogs, memory edits). `get_help(topic)` loads reference notes\n(topics: spectral).\n\nHome is (0,0,0) after find_home. Hard travel box (mm): x 0..2000, y 0..650, z unconstrained. Do not request poses outside it; tools reject them.\n\nGuidelines:\n- Work in short turns like a coding agent: `think` (what is meant, which tools,\n  plan), gather with read tools (group independent reads), act, verify (after a\n  move call `get_position`), then answer. If a result did not answer the\n  question, `think` again and try a different tool. Never give up after one call.\n- Multi-step requests (several moves, scans or tools, \"then\", \"and then\",\n  moving or checking more than one thing): first call `set_goal` with the\n  objective and the ordered steps, then keep calling tools until every step is\n  done, passing `completed` as you finish each. Do not stop after the first\n  tool and do not end the turn with steps left; chain the next call straight\n  away. Stop early only when blocked or unsafe, and say exactly what is needed.\n- Always call a tool in the current turn before stating anything live\n  (position, status, weather, memories, saved positions). Re-run it even when\n  asked \"are you sure?\". The origin (0,0,0) is a reference point, not where the\n  robot is.\n- A named place (\"carrot\", \"home\", a tool bay): call `goto_named(name)`; if it\n  errors, `get_positions` for the exact label. Never scan just to guess.\n- Do what the user asked; do not merely describe it. Stay inside the travel box.\n  Moves over 50 mm, water, homing and paths pause for operator approval.\n- Answers: one to three sentences, what you did plus relevant readings; no menu\n  of offers. Weather or forecast: `get_forecast` shows a chart, add one sentence.\n- After `capture`/`take_photo` the still is attached: inspect it yourself. For\n  NDRE reply with one sentence from `interpretation.advice` (`get_help` spectral).", "kind": "request", "run_id": "01a1c014-d7d5-76ae-8845-d2798532c94f", "conversation_id": "01a1c014-d7d5-76ae-8845-d27abde5744f", "metadata": null, "state": "complete"}, {"parts": [{"content": "I can help you with farm\u2011robot tasks such as locating the robot, moving it to preset positions (e.g., Home, Camera top, Carrot), checking its status and position, starting the bed sprayers, scanning the bed with NIR/red\u2011edge cameras, getting weather and agronomic advice, setting long\u2011term goals or treatment records, and retrieving past observations. Let me know what you\u2019d like to do next!", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}], "usage": {"input_tokens": 3513, "cache_write_tokens": 0, "cache_read_tokens": 3186, "output_tokens": 92, "input_audio_tokens": 0, "cache_audio_read_tokens": 0, "output_audio_tokens": 0, "details": {}, "cost": null}, "model_name": "lfm3", "timestamp": "2026-11-09T11:32:35.157132Z", "kind": "response", "provider_name": "openai", "provider_url": "http://127.0.0.1:8090/v1/", "provider_details": {"timestamp": "2026-11-09T11:32:35Z", "finish_reason": "stop"}, "provider_response_id": "chatcmpl-Lc75jmYi92kP3kn9SCKNeJjPM2cFmEBX", "finish_reason": "stop", "run_id": "01a1c014-d7d5-76ae-8845-d2798532c94f", "conversation_id": "01a1c014-d7d5-76ae-8845-d27abde5744f", "metadata": null, "state": "complete"}]}
+{"seq": 92, "ts": "2026-11-09T11:32:35.739821+00:00", "thread_id": "6a5184914fc846cd8607316e7356b0d4", "type": "run_end", "stop_reason": "done", "response": "I can help you with farm\u2011robot tasks such as locating the robot, moving it to preset positions (e.g., Home, Camera top, Carrot), checking its status and position, starting the bed sprayers, scanning the bed with NIR/red\u2011edge cameras, getting weather and agronomic advice, setting long\u2011term goals or treatment records, and retrieving past observations. Let me know what you\u2019d like to do next!", "thinking": "", "metrics": {"total_latency_s": 1.87, "llm_latency_s": 1.87, "ttft_s": 0.0, "tokens_per_s": 49.1, "prompt_tokens": 3513, "completion_tokens": 92, "total_tokens": 3605, "resireg_latency_s": 0.0, "turn_count": 1}, "goal": {}}

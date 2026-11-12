@@ -284,3 +284,30 @@ def test_plantings_roundtrip(client: TestClient) -> None:
     assert client.get("/plantings").json()["plantings"] == [{**row, "x1": 200.0, "y1": 800.0, "x2": 400.0, "y2": 900.0}]
     bad = client.put("/plantings", json={"plantings": [{**row, "planted": "not-a-date"}]})
     assert bad.status_code == 400
+
+
+def test_tool_endpoints_drive_configured_end_effector(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import watering_service
+
+    state = {"active": 0}
+
+    class _FakeEndEffectors:
+        def status(self, name: str) -> dict[str, int]:
+            assert name == "tool"
+            return dict(state)
+
+        def run(self, name: str, command: str) -> dict[str, object]:
+            assert name == "tool"
+            state["active"] = 1 if command == "on" else 0
+            return {"device": name, "command": command, "status": dict(state)}
+
+    monkeypatch.setattr(watering_service, "end_effectors", _FakeEndEffectors())
+
+    assert client.get("/tool").json()["on"] is False
+    r = client.post("/tool", json={"on": True})
+    assert r.status_code == 200
+    assert r.json()["on"] is True
+    assert client.get("/tool").json()["on"] is True
+    assert client.post("/tool", json={"on": False}).json()["on"] is False

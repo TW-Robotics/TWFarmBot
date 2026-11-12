@@ -32,13 +32,22 @@ export function MotionPage({
       .then(() => toast({ body: "STOP sent" }))
       .catch((e) => toast({ body: e instanceof Error ? e.message : "STOP failed", type: "error" }));
 
-  // Tablet: STOP + jog + presets, nothing else. No metric cards, no bed map
-  // (tap-to-move proved too easy to fat-finger next to a live gantry), no
-  // extra rows — everything must fit without hunting through cards.
+  // Tablet: STOP + unlock/find-home + jog + presets, nothing else. No metric
+  // cards, no bed map (tap-to-move proved too easy to fat-finger next to a
+  // live gantry), no extra rows — everything must fit without hunting.
   if (isTablet) {
     return (
       <VStack gap={3}>
         <Button label="STOP" variant="primary" size="lg" width="100%" onClick={stop} />
+        <HStack gap={2} wrap="wrap">
+          <Button label="Unlock" size="lg" onClick={() => run("unlock", {}, "Unlocked")} />
+          <Button
+            label="Find home"
+            variant="primary"
+            size="lg"
+            onClick={() => run("find_home", { axis: "all" }, "Homing complete")}
+          />
+        </HStack>
         <JogPad pose={pose} onMoved={onMoved} />
         <Divider />
         <PositionPresets onMoved={onMoved} />

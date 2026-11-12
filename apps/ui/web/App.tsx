@@ -122,9 +122,10 @@ function SideNavFooterIcons({
 }
 
 // `desktopOnly` tabs are hidden in the tablet layout (switch back via ?device=desktop).
-const TABS: { id: Tab; label: string; icon: typeof HomeIcon; desktopOnly?: boolean }[] = [
-  { id: "overview", label: "Overview", icon: HomeIcon },
-  { id: "trends", label: "Trends", icon: ChartBarIcon, desktopOnly: true },
+// `tabletHidden` tabs are hidden on tablets only (Overview: tablets land on Assistant).
+const TABS: { id: Tab; label: string; icon: typeof HomeIcon; desktopOnly?: boolean; tabletHidden?: boolean }[] = [
+  { id: "overview", label: "Overview", icon: HomeIcon, tabletHidden: true },
+  { id: "trends", label: "Trends", icon: ChartBarIcon },
   { id: "garden", label: "Garden", icon: MapIcon, desktopOnly: true },
   { id: "motion", label: "Motion", icon: PlayIcon },
   { id: "scripts", label: "Scripts", icon: QueueListIcon },
@@ -136,17 +137,25 @@ const TABS: { id: Tab; label: string; icon: typeof HomeIcon; desktopOnly?: boole
   { id: "settings", label: "Settings", icon: Cog6ToothIcon, desktopOnly: true },
 ];
 
-function tabFromUrl(): Tab {
+function isHiddenOnTablet(tab: Tab): boolean {
+  const entry = TABS.find((t) => t.id === tab);
+  return Boolean(entry && (entry.desktopOnly || entry.tabletHidden));
+}
+
+function tabFromUrl(isTablet: boolean): Tab {
   const raw = (new URLSearchParams(window.location.search).get("tab") || "").toLowerCase();
   if (raw === "garden") return "overview";
-  return TABS.some((t) => t.id === raw) ? (raw as Tab) : "overview";
+  const next = TABS.some((t) => t.id === raw) ? (raw as Tab) : "overview";
+  // Tablets land on the Assistant; Overview is not in the tablet nav.
+  if (isTablet && isHiddenOnTablet(next)) return "assistant";
+  return next;
 }
 
 export function App() {
   const toast = useToast();
   const { mode, toggle } = useThemeMode();
-  const [tab, setTab] = useState<Tab>(tabFromUrl);
   const { isTablet } = useDevice();
+  const [tab, setTab] = useState<Tab>(() => tabFromUrl(isTablet));
   // Tablets start with the nav collapsed to its icon rail; follow the device class
   // if it changes (e.g. the layout is switched in Settings).
   const [navCollapsed, setNavCollapsed] = useState(isTablet);
@@ -179,9 +188,10 @@ export function App() {
     window.history.replaceState({}, "", url);
   }, []);
 
-  // A hidden tab (from the URL or a layout switch) falls back to Overview.
+  // A hidden tab (from the URL or a layout switch) falls back to Assistant on
+  // tablets, Overview on desktop.
   useEffect(() => {
-    if (isTablet && TABS.some((t) => t.id === tab && t.desktopOnly)) selectTab("overview");
+    if (isTablet && isHiddenOnTablet(tab)) selectTab("assistant");
   }, [isTablet, tab, selectTab]);
 
   const refreshPose = useCallback(async () => {
@@ -320,7 +330,7 @@ export function App() {
           }
         >
           <SideNavSection title="Field robotics" isHeaderHidden>
-            {TABS.filter((item) => !(isTablet && item.desktopOnly)).map((item) => (
+            {TABS.filter((item) => !(isTablet && (item.desktopOnly || item.tabletHidden))).map((item) => (
               <SideNavItem
                 key={item.id}
                 label={item.label}

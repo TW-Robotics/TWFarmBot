@@ -446,3 +446,28 @@ def post_lighting(payload: LightingPayload) -> dict[str, Any]:
         return set_light(payload.on)
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"lighting control failed: {err}") from err
+
+
+def _tool_state(status: dict[str, Any]) -> dict[str, Any]:
+    return {"on": any(bool(v) for v in status.values()), "status": status}
+
+
+@router.get("/tool")
+def get_tool() -> dict[str, Any]:
+    from watering_service import end_effectors
+
+    try:
+        return _tool_state(end_effectors.status("tool"))
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"tool status failed: {err}") from err
+
+
+@router.post("/tool")
+def post_tool(payload: WateringPayload) -> dict[str, Any]:
+    from watering_service import end_effectors
+
+    try:
+        result = end_effectors.run("tool", "on" if payload.on else "off")
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"tool control failed: {err}") from err
+    return _tool_state(result["status"])

@@ -1040,3 +1040,192 @@ def test_capture_still_reaches_model_as_image(monkeypatch) -> None:
     result = loop.run([{"role": "user", "content": "check coverage"}])
     assert "coverage looks patchy" in result.response
     assert "BinaryImage" in repr(fake.seen[-1]) or "BinaryContent" in repr(fake.seen[-1])
+
+
+def test_ungrounded_live_claim_is_retried_with_a_tool_call() -> None:
+    state = InMemorySystemStateProvider(position={"x": 11, "y": 22, "z": 33})
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            "I am at (0,0,0) mm as indicated by the `find_home` tool.",
+            _tool_call("get_position", {}, "read_1"),
+            "At x 11 mm, y 22 mm.",
+        ]
+    )
+    result = _make_loop(fake, _make_registry(), system_state=state).run(
+        [{"role": "user", "content": "where are you rn"}]
+    )
+    assert [tc["name"] for tc in result.tool_calls] == ["get_position"]
+    assert result.response == "At x 11 mm, y 22 mm."
+
+
+def test_small_talk_is_not_forced_into_a_tool_call() -> None:
+    fake = _ScriptFake(responses=["Hello! What would you like to do?"])
+    result = _make_loop(fake, _make_registry()).run([{"role": "user", "content": "hello!"}])
+    assert result.tool_calls == []
+    assert result.response == "Hello! What would you like to do?"
+
+
+def test_next_turn_sees_previous_tool_calls_not_just_text() -> None:
+    from pydantic_ai.messages import ToolCallPart
+
+    state = InMemorySystemStateProvider(position={"x": 11, "y": 22, "z": 33})
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses([_tool_call("get_position", {}, "read_1"), "At x 11 mm.", "You're welcome."])
+    loop = _make_loop(fake, _make_registry(), system_state=state)
+    first = [{"role": "user", "content": "where is the robot? (history test)"}]
+    loop.run(first)
+    fake.seen.clear()
+    loop.run(first + [{"role": "assistant", "content": "At x 11 mm."}, {"role": "user", "content": "thanks"}])
+    parts = [p for m in fake.seen[0] for p in m.parts]
+    assert any(isinstance(p, ToolCallPart) and p.tool_name == "get_position" for p in parts)
+
+
+def test_unknown_conversation_falls_back_to_text_history() -> None:
+    fake = _ScriptFake(responses=["ok"])
+    loop = _make_loop(fake, _make_registry())
+    loop.run([{"role": "user", "content": "never seen (fallback test)"}, {"role": "assistant", "content": "hi"}, {"role": "user", "content": "next"}])
+    texts = [getattr(p, "content", None) for m in fake.seen[0] for p in m.parts]
+    assert "hi" in texts
+
+
+def test_grounding_retry_is_logged_to_trajectory(tmp_path) -> None:
+    import json
+
+    state = InMemorySystemStateProvider(position={"x": 11, "y": 22, "z": 33})
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(["I am at (0,0,0) mm.", _tool_call("get_position", {}, "read_1"), "At x 11 mm."])
+    loop = _make_loop(fake, _make_registry(), system_state=state)
+    loop._trajectory_dir = tmp_path
+    loop.run([{"role": "user", "content": "where are you"}])
+    records = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines()]
+    retries = [r for r in records if r["type"] == "retry"]
+    assert len(retries) == 1 and "[grounding]" in retries[0]["content"]
+
+
+def test_goal_nudge_skips_a_question_to_the_operator() -> None:
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("set_goal", {"objective": "plan", "remaining": ["identify task"]}, "g1"),
+            "Which task should I plan for?",
+            "should not be reached",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), skip_approval=True)
+    result = loop.run([{"role": "user", "content": "can you make a plan?"}])
+    assert result.response == "Which task should I plan for?"
+
+
+def test_goal_nudge_stops_when_the_reply_repeats() -> None:
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("set_goal", {"objective": "plan", "remaining": ["identify task"]}, "g1"),
+            "I need more details.",
+            "I need more details.",
+            "should not be reached",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), skip_approval=True)
+    result = loop.run([{"role": "user", "content": "can you make a plan?"}])
+    assert result.response == "I need more details."
+
+
+class _StubRunner:
+    def __init__(self) -> None:
+        self.started: list[tuple[str, list[str]]] = []
+        self.active: str | None = None
+
+    def start(self, objective: str, steps: list[str]) -> dict:
+        self.started.append((objective, steps))
+        self.active = "t1"
+        return {"id": "t1", "steps": [{"text": s} for s in steps]}
+
+    def active_task_id(self) -> str | None:
+        return self.active
+
+
+def test_approved_chat_plan_runs_as_background_task(monkeypatch) -> None:
+    from planning_service import tasks
+
+    runner = _StubRunner()
+    monkeypatch.setattr(tasks, "_RUNNER", runner)
+    state = InMemorySystemStateProvider(position={"x": 0, "y": 0, "z": 0})
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("set_goal", {"objective": "carrot photo", "remaining": ["Go to Carrot", "Take a photo"]}, "g1"),
+            _tool_call("move", {"x": 10, "y": 0, "z": 0}, "m1"),
+            "Started.",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state, propose_only=False)
+    first = list(loop.stream([{"role": "user", "content": "carrot photo job"}]))
+    pending = next(e for e in first if e["type"] == "approval")
+    resumed = list(
+        loop.stream([], thread_id=pending["thread_id"], resume={"approved_ids": [pending["pending_approvals"][0]["id"]]})
+    )
+    assert runner.started == [("carrot photo", ["Go to Carrot", "Take a photo"])]
+    assert {"type": "task", "task_id": "t1"} in resumed
+    # the chat turn ends at the hand-off: no more tool calls, no new approvals
+    assert [e["name"] for e in resumed if e["type"] == "tool_call"] == ["set_goal"]
+    assert "approval" not in [e["type"] for e in resumed]
+
+
+def test_chained_request_is_offered_only_set_goal_first(monkeypatch) -> None:
+    from planning_service import tasks
+
+    monkeypatch.setattr(tasks, "_RUNNER", _StubRunner())
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [_tool_call("set_goal", {"objective": "o", "remaining": ["Go to Carrot", "Go home"]}, "g1"), "ok"]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=InMemorySystemStateProvider(), propose_only=False)
+    events = list(loop.stream([{"role": "user", "content": "go to the carrot, then go home"}]))
+    assert next(e for e in events if e["type"] == "approval")["pending_approvals"][0]["name"] == "set_goal"
+    assert fake.choices[0] == ("required", ["set_goal"])
+
+
+def test_approving_one_move_does_not_approve_a_different_one() -> None:
+    state = InMemorySystemStateProvider(position={"x": 0, "y": 0, "z": 0})
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [
+            _tool_call("move", {"x": 0, "y": 200, "z": 0}, "m1"),
+            _tool_call("move", {"x": 900, "y": 300, "z": 0}, "m2"),
+            "done",
+        ]
+    )
+    loop = _make_loop(fake, _make_registry(), system_state=state, propose_only=False)
+    first = list(loop.stream([{"role": "user", "content": "move to y200"}]))
+    pending = next(e for e in first if e["type"] == "approval")
+    resumed = list(
+        loop.stream([], thread_id=pending["thread_id"], resume={"approved_ids": [pending["pending_approvals"][0]["id"]]})
+    )
+    second = next(e for e in resumed if e["type"] == "approval")
+    assert second["pending_approvals"][0]["args"] == {"x": 900, "y": 300, "z": 0}
+
+
+def test_coordinate_given_as_place_name_is_sent_back_as_move() -> None:
+    state = InMemorySystemStateProvider(position={"x": 0, "y": 0, "z": 0})
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses(
+        [_tool_call("goto_named", {"name": "y200"}, "g1"), _tool_call("move", {"x": 0, "y": 200, "z": 0}, "m1"), "Moved."]
+    )
+    result = _make_loop(fake, _make_registry(), system_state=state).run([{"role": "user", "content": "move to y200"}])
+    assert [tc["name"] for tc in result.tool_calls] == ["move"]
+
+
+def test_chat_motion_is_refused_while_a_task_drives(monkeypatch) -> None:
+    from planning_service import tasks
+
+    runner = _StubRunner()
+    runner.active = "t1"
+    monkeypatch.setattr(tasks, "_RUNNER", runner)
+    fake = _ScriptFake(responses=["unused"])
+    fake.set_responses([_tool_call("move", {"x": 10, "y": 0, "z": 0}, "m1"), "blocked"])
+    loop = _make_loop(fake, _make_registry(), system_state=InMemorySystemStateProvider(), skip_approval=True)
+    events = list(loop.stream([{"role": "user", "content": "nudge x"}]))
+    move = next(e for e in events if e["type"] == "tool_call")
+    assert "background task" in str(move["result"])

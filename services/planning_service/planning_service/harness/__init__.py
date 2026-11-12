@@ -12,6 +12,7 @@ from .context_builder import ContextBuilder
 from .farm_script import FarmScriptError, FarmScriptRuntime, extract_farm_scripts
 from .tool_policy import ToolCategory, ToolDescriptor, ToolPolicy
 from .tool_registry import ToolRegistry
+from .trajectory import TrajectoryLog, list_trajectories, read_trajectory, trajectory_dir
 
 __all__ = [
     "AgentLoop",
@@ -31,4 +32,8 @@ __all__ = [
     "ToolPolicy",
     "ToolRegistry",
     "ToolResult",
+    "TrajectoryLog",
+    "list_trajectories",
+    "read_trajectory",
+    "trajectory_dir",
 ]

@@ -78,6 +78,11 @@ class WritePinArgs(BaseModel):
     )
 
 
+class EndEffectorArgs(BaseModel):
+    name: str = Field(..., description="Configured end effector, e.g. 'gripper'.")
+    command: str = Field(..., description="One of that end effector's commands, e.g. 'grip' or 'release'.")
+
+
 class MountToolArgs(BaseModel):
     tool_name: str = Field(..., description="Name of the tool to mount.")
 
@@ -376,6 +381,7 @@ def tool_calls_to_actions(
             "move_path",
             "water",
             "set_light",
+            "end_effector",
             "find_home",
             "read_pin",
             "write_pin",

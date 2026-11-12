@@ -1,0 +1,330 @@
+{"seq": 0, "ts": "2026-11-10T21:27:27.277516+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "run_start", "model": "lfm3", "prompt": "what tools do you have?", "planner": false, "resume": false}
+{"seq": 1, "ts": "2026-11-10T21:27:27.882288+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "I"}
+{"seq": 2, "ts": "2026-11-10T21:27:27.889515+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " have"}
+{"seq": 3, "ts": "2026-11-10T21:27:27.896326+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " a"}
+{"seq": 4, "ts": "2026-11-10T21:27:27.903160+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " set"}
+{"seq": 5, "ts": "2026-11-10T21:27:27.909181+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " of"}
+{"seq": 6, "ts": "2026-11-10T21:27:27.915865+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " core"}
+{"seq": 7, "ts": "2026-11-10T21:27:27.922457+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " tools"}
+{"seq": 8, "ts": "2026-11-10T21:27:27.929026+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " to"}
+{"seq": 9, "ts": "2026-11-10T21:27:27.935871+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " interact"}
+{"seq": 10, "ts": "2026-11-10T21:27:27.942167+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " with"}
+{"seq": 11, "ts": "2026-11-10T21:27:27.960649+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " the"}
+{"seq": 12, "ts": "2026-11-10T21:27:27.967201+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " farm"}
+{"seq": 13, "ts": "2026-11-10T21:27:27.975594+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " robot"}
+{"seq": 14, "ts": "2026-11-10T21:27:27.976761+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ":\n\n"}
+{"seq": 15, "ts": "2026-11-10T21:27:27.977526+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 16, "ts": "2026-11-10T21:27:27.981955+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 17, "ts": "2026-11-10T21:27:27.988499+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "move"}
+{"seq": 18, "ts": "2026-11-10T21:27:27.995051+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 19, "ts": "2026-11-10T21:27:28.001623+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 20, "ts": "2026-11-10T21:27:28.008230+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Move"}
+{"seq": 21, "ts": "2026-11-10T21:27:28.015327+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " the"}
+{"seq": 22, "ts": "2026-11-10T21:27:28.022169+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " g"}
+{"seq": 23, "ts": "2026-11-10T21:27:28.028666+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ant"}
+{"seq": 24, "ts": "2026-11-10T21:27:28.035468+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ry"}
+{"seq": 25, "ts": "2026-11-10T21:27:28.042199+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " to"}
+{"seq": 26, "ts": "2026-11-10T21:27:28.048703+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " specific"}
+{"seq": 27, "ts": "2026-11-10T21:27:28.055308+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " X"}
+{"seq": 28, "ts": "2026-11-10T21:27:28.062041+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 29, "ts": "2026-11-10T21:27:28.068635+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Y"}
+{"seq": 30, "ts": "2026-11-10T21:27:28.075246+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 31, "ts": "2026-11-10T21:27:28.081829+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Z"}
+{"seq": 32, "ts": "2026-11-10T21:27:28.088426+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " coordinates"}
+{"seq": 33, "ts": "2026-11-10T21:27:28.095006+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " ("}
+{"seq": 34, "ts": "2026-11-10T21:27:28.101606+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "with"}
+{"seq": 35, "ts": "2026-11-10T21:27:28.108279+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " optional"}
+{"seq": 36, "ts": "2026-11-10T21:27:28.114734+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " speed"}
+{"seq": 37, "ts": "2026-11-10T21:27:28.121380+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ").\n"}
+{"seq": 38, "ts": "2026-11-10T21:27:28.127839+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 39, "ts": "2026-11-10T21:27:28.134771+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 40, "ts": "2026-11-10T21:27:28.141464+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "get"}
+{"seq": 41, "ts": "2026-11-10T21:27:28.148037+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "_position"}
+{"seq": 42, "ts": "2026-11-10T21:27:28.154775+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 43, "ts": "2026-11-10T21:27:28.161203+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 44, "ts": "2026-11-10T21:27:28.167766+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Retrie"}
+{"seq": 45, "ts": "2026-11-10T21:27:28.174300+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ve"}
+{"seq": 46, "ts": "2026-11-10T21:27:28.180995+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " the"}
+{"seq": 47, "ts": "2026-11-10T21:27:28.187571+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " robot"}
+{"seq": 48, "ts": "2026-11-10T21:27:28.194178+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "'s"}
+{"seq": 49, "ts": "2026-11-10T21:27:28.200774+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " current"}
+{"seq": 50, "ts": "2026-11-10T21:27:28.208042+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " mill"}
+{"seq": 51, "ts": "2026-11-10T21:27:28.214927+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "imet"}
+{"seq": 52, "ts": "2026-11-10T21:27:28.221745+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "re"}
+{"seq": 53, "ts": "2026-11-10T21:27:28.228563+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " position"}
+{"seq": 54, "ts": "2026-11-10T21:27:28.235403+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".\n"}
+{"seq": 55, "ts": "2026-11-10T21:27:28.242223+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 56, "ts": "2026-11-10T21:27:28.249005+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 57, "ts": "2026-11-10T21:27:28.255417+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "get"}
+{"seq": 58, "ts": "2026-11-10T21:27:28.262533+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "_status"}
+{"seq": 59, "ts": "2026-11-10T21:27:28.269220+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 60, "ts": "2026-11-10T21:27:28.276070+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 61, "ts": "2026-11-10T21:27:28.282822+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Get"}
+{"seq": 62, "ts": "2026-11-10T21:27:28.289829+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " a"}
+{"seq": 63, "ts": "2026-11-10T21:27:28.296578+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " full"}
+{"seq": 64, "ts": "2026-11-10T21:27:28.303361+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " status"}
+{"seq": 65, "ts": "2026-11-10T21:27:28.309926+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " tree"}
+{"seq": 66, "ts": "2026-11-10T21:27:28.316735+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " ("}
+{"seq": 67, "ts": "2026-11-10T21:27:28.323636+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "location"}
+{"seq": 68, "ts": "2026-11-10T21:27:28.330542+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 69, "ts": "2026-11-10T21:27:28.337219+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " pins"}
+{"seq": 70, "ts": "2026-11-10T21:27:28.343988+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 71, "ts": "2026-11-10T21:27:28.350727+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " sensors"}
+{"seq": 72, "ts": "2026-11-10T21:27:28.358859+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 73, "ts": "2026-11-10T21:27:28.366083+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " etc"}
+{"seq": 74, "ts": "2026-11-10T21:27:28.385527+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".).\n"}
+{"seq": 75, "ts": "2026-11-10T21:27:28.386617+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 76, "ts": "2026-11-10T21:27:28.387673+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 77, "ts": "2026-11-10T21:27:28.390300+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "goto"}
+{"seq": 78, "ts": "2026-11-10T21:27:28.397003+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "_n"}
+{"seq": 79, "ts": "2026-11-10T21:27:28.403624+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "amed"}
+{"seq": 80, "ts": "2026-11-10T21:27:28.410181+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 81, "ts": "2026-11-10T21:27:28.416980+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 82, "ts": "2026-11-10T21:27:28.423525+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Move"}
+{"seq": 83, "ts": "2026-11-10T21:27:28.430097+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " to"}
+{"seq": 84, "ts": "2026-11-10T21:27:28.436647+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " a"}
+{"seq": 85, "ts": "2026-11-10T21:27:28.444998+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " pres"}
+{"seq": 86, "ts": "2026-11-10T21:27:28.451999+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "et"}
+{"seq": 87, "ts": "2026-11-10T21:27:28.459248+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " location"}
+{"seq": 88, "ts": "2026-11-10T21:27:28.465772+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " ("}
+{"seq": 89, "ts": "2026-11-10T21:27:28.472590+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "Home"}
+{"seq": 90, "ts": "2026-11-10T21:27:28.479642+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 91, "ts": "2026-11-10T21:27:28.486769+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " End"}
+{"seq": 92, "ts": "2026-11-10T21:27:28.493160+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 93, "ts": "2026-11-10T21:27:28.500060+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Car"}
+{"seq": 94, "ts": "2026-11-10T21:27:28.506822+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "rot"}
+{"seq": 95, "ts": "2026-11-10T21:27:28.513200+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 96, "ts": "2026-11-10T21:27:28.520156+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Camera"}
+{"seq": 97, "ts": "2026-11-10T21:27:28.526776+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " top"}
+{"seq": 98, "ts": "2026-11-10T21:27:28.532822+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 99, "ts": "2026-11-10T21:27:28.539422+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " etc"}
+{"seq": 100, "ts": "2026-11-10T21:27:28.545642+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".).\n"}
+{"seq": 101, "ts": "2026-11-10T21:27:28.552165+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 102, "ts": "2026-11-10T21:27:28.558440+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 103, "ts": "2026-11-10T21:27:28.564845+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "get"}
+{"seq": 104, "ts": "2026-11-10T21:27:28.571391+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "_"}
+{"seq": 105, "ts": "2026-11-10T21:27:28.577801+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "positions"}
+{"seq": 106, "ts": "2026-11-10T21:27:28.584357+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 107, "ts": "2026-11-10T21:27:28.590687+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 108, "ts": "2026-11-10T21:27:28.597107+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " List"}
+{"seq": 109, "ts": "2026-11-10T21:27:28.603723+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " known"}
+{"seq": 110, "ts": "2026-11-10T21:27:28.609889+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " g"}
+{"seq": 111, "ts": "2026-11-10T21:27:28.616457+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ant"}
+{"seq": 112, "ts": "2026-11-10T21:27:28.622601+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ry"}
+{"seq": 113, "ts": "2026-11-10T21:27:28.629060+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " pres"}
+{"seq": 114, "ts": "2026-11-10T21:27:28.635378+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ets"}
+{"seq": 115, "ts": "2026-11-10T21:27:28.641831+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".\n"}
+{"seq": 116, "ts": "2026-11-10T21:27:28.648088+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 117, "ts": "2026-11-10T21:27:28.654595+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 118, "ts": "2026-11-10T21:27:28.660420+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "c"}
+{"seq": 119, "ts": "2026-11-10T21:27:28.667090+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "apture"}
+{"seq": 120, "ts": "2026-11-10T21:27:28.673578+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 121, "ts": "2026-11-10T21:27:28.680049+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 122, "ts": "2026-11-10T21:27:28.686351+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Take"}
+{"seq": 123, "ts": "2026-11-10T21:27:28.692828+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " a"}
+{"seq": 124, "ts": "2026-11-10T21:27:28.699291+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " still"}
+{"seq": 125, "ts": "2026-11-10T21:27:28.705728+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " image"}
+{"seq": 126, "ts": "2026-11-10T21:27:28.712046+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " from"}
+{"seq": 127, "ts": "2026-11-10T21:27:28.718460+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " the"}
+{"seq": 128, "ts": "2026-11-10T21:27:28.724823+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " payload"}
+{"seq": 129, "ts": "2026-11-10T21:27:28.731307+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " USB"}
+{"seq": 130, "ts": "2026-11-10T21:27:28.737181+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " camera"}
+{"seq": 131, "ts": "2026-11-10T21:27:28.744057+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " ("}
+{"seq": 132, "ts": "2026-11-10T21:27:28.750533+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "rgb"}
+{"seq": 133, "ts": "2026-11-10T21:27:28.757188+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 134, "ts": "2026-11-10T21:27:28.763472+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " n"}
+{"seq": 135, "ts": "2026-11-10T21:27:28.770146+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ir"}
+{"seq": 136, "ts": "2026-11-10T21:27:28.781517+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 137, "ts": "2026-11-10T21:27:28.800303+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " or"}
+{"seq": 138, "ts": "2026-11-10T21:27:28.801317+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " red"}
+{"seq": 139, "ts": "2026-11-10T21:27:28.802023+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "edge"}
+{"seq": 140, "ts": "2026-11-10T21:27:28.802716+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ").\n"}
+{"seq": 141, "ts": "2026-11-10T21:27:28.807507+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 142, "ts": "2026-11-10T21:27:28.813920+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 143, "ts": "2026-11-10T21:27:28.820197+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "water"}
+{"seq": 144, "ts": "2026-11-10T21:27:28.826470+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 145, "ts": "2026-11-10T21:27:28.832799+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 146, "ts": "2026-11-10T21:27:28.839175+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Start"}
+{"seq": 147, "ts": "2026-11-10T21:27:28.845483+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " the"}
+{"seq": 148, "ts": "2026-11-10T21:27:28.851765+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " bed"}
+{"seq": 149, "ts": "2026-11-10T21:27:28.858070+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " spray"}
+{"seq": 150, "ts": "2026-11-10T21:27:28.864568+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "er"}
+{"seq": 151, "ts": "2026-11-10T21:27:28.870830+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " pump"}
+{"seq": 152, "ts": "2026-11-10T21:27:28.877161+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".\n"}
+{"seq": 153, "ts": "2026-11-10T21:27:28.883696+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 154, "ts": "2026-11-10T21:27:28.890039+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 155, "ts": "2026-11-10T21:27:28.896352+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "rem"}
+{"seq": 156, "ts": "2026-11-10T21:27:28.902722+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ember"}
+{"seq": 157, "ts": "2026-11-10T21:27:28.909051+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 158, "ts": "2026-11-10T21:27:28.915364+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 159, "ts": "2026-11-10T21:27:28.921615+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Save"}
+{"seq": 160, "ts": "2026-11-10T21:27:28.927963+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " noteworthy"}
+{"seq": 161, "ts": "2026-11-10T21:27:28.934290+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " observations"}
+{"seq": 162, "ts": "2026-11-10T21:27:28.940716+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " or"}
+{"seq": 163, "ts": "2026-11-10T21:27:28.947041+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " rules"}
+{"seq": 164, "ts": "2026-11-10T21:27:28.953827+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " for"}
+{"seq": 165, "ts": "2026-11-10T21:27:28.960429+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " long"}
+{"seq": 166, "ts": "2026-11-10T21:27:28.967012+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-term"}
+{"seq": 167, "ts": "2026-11-10T21:27:28.973495+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " memory"}
+{"seq": 168, "ts": "2026-11-10T21:27:28.980033+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".\n"}
+{"seq": 169, "ts": "2026-11-10T21:27:28.986666+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 170, "ts": "2026-11-10T21:27:28.992378+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 171, "ts": "2026-11-10T21:27:28.998653+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "rec"}
+{"seq": 172, "ts": "2026-11-10T21:27:29.004996+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "all"}
+{"seq": 173, "ts": "2026-11-10T21:27:29.011137+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "_mem"}
+{"seq": 174, "ts": "2026-11-10T21:27:29.017643+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ories"}
+{"seq": 175, "ts": "2026-11-10T21:27:29.024200+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 176, "ts": "2026-11-10T21:27:29.030445+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 177, "ts": "2026-11-10T21:27:29.036701+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Search"}
+{"seq": 178, "ts": "2026-11-10T21:27:29.043924+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " past"}
+{"seq": 179, "ts": "2026-11-10T21:27:29.050037+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " memories"}
+{"seq": 180, "ts": "2026-11-10T21:27:29.056446+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " by"}
+{"seq": 181, "ts": "2026-11-10T21:27:29.062860+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " coordinates"}
+{"seq": 182, "ts": "2026-11-10T21:27:29.069281+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 183, "ts": "2026-11-10T21:27:29.075693+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " text"}
+{"seq": 184, "ts": "2026-11-10T21:27:29.082064+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 185, "ts": "2026-11-10T21:27:29.088445+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " category"}
+{"seq": 186, "ts": "2026-11-10T21:27:29.094857+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 187, "ts": "2026-11-10T21:27:29.101364+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " or"}
+{"seq": 188, "ts": "2026-11-10T21:27:29.108655+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " radius"}
+{"seq": 189, "ts": "2026-11-10T21:27:29.115152+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".\n"}
+{"seq": 190, "ts": "2026-11-10T21:27:29.121569+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 191, "ts": "2026-11-10T21:27:29.127992+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 192, "ts": "2026-11-10T21:27:29.134281+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "set"}
+{"seq": 193, "ts": "2026-11-10T21:27:29.140740+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "_"}
+{"seq": 194, "ts": "2026-11-10T21:27:29.147076+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "go"}
+{"seq": 195, "ts": "2026-11-10T21:27:29.153632+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "al"}
+{"seq": 196, "ts": "2026-11-10T21:27:29.160070+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 197, "ts": "2026-11-10T21:27:29.166558+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 198, "ts": "2026-11-10T21:27:29.183626+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Define"}
+{"seq": 199, "ts": "2026-11-10T21:27:29.196206+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " a"}
+{"seq": 200, "ts": "2026-11-10T21:27:29.198527+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " multi"}
+{"seq": 201, "ts": "2026-11-10T21:27:29.199754+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-step"}
+{"seq": 202, "ts": "2026-11-10T21:27:29.200600+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " task"}
+{"seq": 203, "ts": "2026-11-10T21:27:29.203646+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " checklist"}
+{"seq": 204, "ts": "2026-11-10T21:27:29.209953+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " ("}
+{"seq": 205, "ts": "2026-11-10T21:27:29.216182+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "e"}
+{"seq": 206, "ts": "2026-11-10T21:27:29.222433+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".g"}
+{"seq": 207, "ts": "2026-11-10T21:27:29.228660+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".,"}
+{"seq": 208, "ts": "2026-11-10T21:27:29.234859+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " survey"}
+{"seq": 209, "ts": "2026-11-10T21:27:29.241084+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 210, "ts": "2026-11-10T21:27:29.247334+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " water"}
+{"seq": 211, "ts": "2026-11-10T21:27:29.253562+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 212, "ts": "2026-11-10T21:27:29.259814+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " scan"}
+{"seq": 213, "ts": "2026-11-10T21:27:29.266124+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ").\n"}
+{"seq": 214, "ts": "2026-11-10T21:27:29.272364+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 215, "ts": "2026-11-10T21:27:29.278614+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 216, "ts": "2026-11-10T21:27:29.284841+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "think"}
+{"seq": 217, "ts": "2026-11-10T21:27:29.291041+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 218, "ts": "2026-11-10T21:27:29.297295+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 219, "ts": "2026-11-10T21:27:29.303638+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Scr"}
+{"seq": 220, "ts": "2026-11-10T21:27:29.309852+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "atch"}
+{"seq": 221, "ts": "2026-11-10T21:27:29.316215+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "pad"}
+{"seq": 222, "ts": "2026-11-10T21:27:29.322445+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " reasoning"}
+{"seq": 223, "ts": "2026-11-10T21:27:29.328837+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " to"}
+{"seq": 224, "ts": "2026-11-10T21:27:29.334758+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " plan"}
+{"seq": 225, "ts": "2026-11-10T21:27:29.340997+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " actions"}
+{"seq": 226, "ts": "2026-11-10T21:27:29.347224+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " before"}
+{"seq": 227, "ts": "2026-11-10T21:27:29.353544+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " acting"}
+{"seq": 228, "ts": "2026-11-10T21:27:29.359706+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".\n"}
+{"seq": 229, "ts": "2026-11-10T21:27:29.365940+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 230, "ts": "2026-11-10T21:27:29.373858+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 231, "ts": "2026-11-10T21:27:29.379827+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "get"}
+{"seq": 232, "ts": "2026-11-10T21:27:29.386062+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "_m"}
+{"seq": 233, "ts": "2026-11-10T21:27:29.392181+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "eteor"}
+{"seq": 234, "ts": "2026-11-10T21:27:29.398481+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "ology"}
+{"seq": 235, "ts": "2026-11-10T21:27:29.404559+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 236, "ts": "2026-11-10T21:27:29.410793+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 237, "ts": "2026-11-10T21:27:29.417102+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Query"}
+{"seq": 238, "ts": "2026-11-10T21:27:29.423223+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " solar"}
+{"seq": 239, "ts": "2026-11-10T21:27:29.429498+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " position"}
+{"seq": 240, "ts": "2026-11-10T21:27:29.435747+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 241, "ts": "2026-11-10T21:27:29.441984+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " weather"}
+{"seq": 242, "ts": "2026-11-10T21:27:29.448173+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 243, "ts": "2026-11-10T21:27:29.454391+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " temperature"}
+{"seq": 244, "ts": "2026-11-10T21:27:29.460610+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 245, "ts": "2026-11-10T21:27:29.466798+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " precipitation"}
+{"seq": 246, "ts": "2026-11-10T21:27:29.473129+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 247, "ts": "2026-11-10T21:27:29.479382+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " cloud"}
+{"seq": 248, "ts": "2026-11-10T21:27:29.485634+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " cover"}
+{"seq": 249, "ts": "2026-11-10T21:27:29.491895+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 250, "ts": "2026-11-10T21:27:29.498189+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " and"}
+{"seq": 251, "ts": "2026-11-10T21:27:29.504460+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " agr"}
+{"seq": 252, "ts": "2026-11-10T21:27:29.510668+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "onomic"}
+{"seq": 253, "ts": "2026-11-10T21:27:29.517021+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " advice"}
+{"seq": 254, "ts": "2026-11-10T21:27:29.523299+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".\n"}
+{"seq": 255, "ts": "2026-11-10T21:27:29.529586+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "-"}
+{"seq": 256, "ts": "2026-11-10T21:27:29.535802+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " **"}
+{"seq": 257, "ts": "2026-11-10T21:27:29.542113+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "get"}
+{"seq": 258, "ts": "2026-11-10T21:27:29.548378+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "_"}
+{"seq": 259, "ts": "2026-11-10T21:27:29.554556+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "fore"}
+{"seq": 260, "ts": "2026-11-10T21:27:29.560811+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "cast"}
+{"seq": 261, "ts": "2026-11-10T21:27:29.567100+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "**"}
+{"seq": 262, "ts": "2026-11-10T21:27:29.573370+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " \u2013"}
+{"seq": 263, "ts": "2026-11-10T21:27:29.579618+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " View"}
+{"seq": 264, "ts": "2026-11-10T21:27:29.596580+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " "}
+{"seq": 265, "ts": "2026-11-10T21:27:29.612126+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "3"}
+{"seq": 266, "ts": "2026-11-10T21:27:29.612856+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "\u2011"}
+{"seq": 267, "ts": "2026-11-10T21:27:29.614295+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "hour"}
+{"seq": 268, "ts": "2026-11-10T21:27:29.614604+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " blocks"}
+{"seq": 269, "ts": "2026-11-10T21:27:29.617162+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " and"}
+{"seq": 270, "ts": "2026-11-10T21:27:29.623364+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " per"}
+{"seq": 271, "ts": "2026-11-10T21:27:29.629604+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "\u2011"}
+{"seq": 272, "ts": "2026-11-10T21:27:29.635845+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "day"}
+{"seq": 273, "ts": "2026-11-10T21:27:29.642093+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " summ"}
+{"seq": 274, "ts": "2026-11-10T21:27:29.648278+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "aries"}
+{"seq": 275, "ts": "2026-11-10T21:27:29.654474+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " for"}
+{"seq": 276, "ts": "2026-11-10T21:27:29.660651+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " the"}
+{"seq": 277, "ts": "2026-11-10T21:27:29.666877+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " next"}
+{"seq": 278, "ts": "2026-11-10T21:27:29.673132+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " days"}
+{"seq": 279, "ts": "2026-11-10T21:27:29.679378+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 280, "ts": "2026-11-10T21:27:29.685630+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " including"}
+{"seq": 281, "ts": "2026-11-10T21:27:29.691947+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " rain"}
+{"seq": 282, "ts": "2026-11-10T21:27:29.698193+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 283, "ts": "2026-11-10T21:27:29.704441+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " sun"}
+{"seq": 284, "ts": "2026-11-10T21:27:29.710678+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 285, "ts": "2026-11-10T21:27:29.716894+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " and"}
+{"seq": 286, "ts": "2026-11-10T21:27:29.723155+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " best"}
+{"seq": 287, "ts": "2026-11-10T21:27:29.729352+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " scan"}
+{"seq": 288, "ts": "2026-11-10T21:27:29.735586+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " windows"}
+{"seq": 289, "ts": "2026-11-10T21:27:29.741816+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ".\n\n"}
+{"seq": 290, "ts": "2026-11-10T21:27:29.748114+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "These"}
+{"seq": 291, "ts": "2026-11-10T21:27:29.754306+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " tools"}
+{"seq": 292, "ts": "2026-11-10T21:27:29.760523+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " let"}
+{"seq": 293, "ts": "2026-11-10T21:27:29.766785+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " me"}
+{"seq": 294, "ts": "2026-11-10T21:27:29.773183+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " move"}
+{"seq": 295, "ts": "2026-11-10T21:27:29.779682+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " the"}
+{"seq": 296, "ts": "2026-11-10T21:27:29.786013+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " robot"}
+{"seq": 297, "ts": "2026-11-10T21:27:29.792307+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 298, "ts": "2026-11-10T21:27:29.798775+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " check"}
+{"seq": 299, "ts": "2026-11-10T21:27:29.805158+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " its"}
+{"seq": 300, "ts": "2026-11-10T21:27:29.811473+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " state"}
+{"seq": 301, "ts": "2026-11-10T21:27:29.817794+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 302, "ts": "2026-11-10T21:27:29.824130+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " capture"}
+{"seq": 303, "ts": "2026-11-10T21:27:29.830519+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " images"}
+{"seq": 304, "ts": "2026-11-10T21:27:29.836831+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 305, "ts": "2026-11-10T21:27:29.843192+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " get"}
+{"seq": 306, "ts": "2026-11-10T21:27:29.849860+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " weather"}
+{"seq": 307, "ts": "2026-11-10T21:27:29.856233+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " and"}
+{"seq": 308, "ts": "2026-11-10T21:27:29.862512+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " agr"}
+{"seq": 309, "ts": "2026-11-10T21:27:29.868809+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "onomic"}
+{"seq": 310, "ts": "2026-11-10T21:27:29.875155+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " guidance"}
+{"seq": 311, "ts": "2026-11-10T21:27:29.881405+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": ","}
+{"seq": 312, "ts": "2026-11-10T21:27:29.887659+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " and"}
+{"seq": 313, "ts": "2026-11-10T21:27:29.893932+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " store"}
+{"seq": 314, "ts": "2026-11-10T21:27:29.900336+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " or"}
+{"seq": 315, "ts": "2026-11-10T21:27:29.906803+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " recall"}
+{"seq": 316, "ts": "2026-11-10T21:27:29.913131+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " information"}
+{"seq": 317, "ts": "2026-11-10T21:27:29.919450+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "."}
+{"seq": 318, "ts": "2026-11-10T21:27:29.925753+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " Let"}
+{"seq": 319, "ts": "2026-11-10T21:27:29.932119+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " me"}
+{"seq": 320, "ts": "2026-11-10T21:27:29.938345+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " know"}
+{"seq": 321, "ts": "2026-11-10T21:27:29.945012+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " what"}
+{"seq": 322, "ts": "2026-11-10T21:27:29.951316+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " you"}
+{"seq": 323, "ts": "2026-11-10T21:27:29.957621+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "'d"}
+{"seq": 324, "ts": "2026-11-10T21:27:29.963829+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " like"}
+{"seq": 325, "ts": "2026-11-10T21:27:29.970079+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " to"}
+{"seq": 326, "ts": "2026-11-10T21:27:29.976369+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": " do"}
+{"seq": 327, "ts": "2026-11-10T21:27:29.982527+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "delta", "content": "!"}
+{"seq": 328, "ts": "2026-11-10T21:27:30.004176+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "messages", "messages": [{"parts": [{"content": "hallo", "timestamp": "2026-11-10T21:27:13.920034Z", "part_kind": "user-prompt"}], "timestamp": null, "instructions": null, "kind": "request", "run_id": null, "conversation_id": null, "metadata": null, "state": "complete"}, {"parts": [{"content": "Hello! How can I help you today?", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}], "usage": {"input_tokens": 0, "cache_write_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0, "input_audio_tokens": 0, "cache_audio_read_tokens": 0, "output_audio_tokens": 0, "details": {}, "cost": null}, "model_name": null, "timestamp": "2026-11-10T21:27:13.920052Z", "kind": "response", "provider_name": null, "provider_url": null, "provider_details": null, "provider_response_id": null, "finish_reason": null, "run_id": null, "conversation_id": null, "metadata": null, "state": "complete"}, {"parts": [{"content": "Hallo.", "timestamp": "2026-11-10T21:27:13.920057Z", "part_kind": "user-prompt"}], "timestamp": null, "instructions": null, "kind": "request", "run_id": null, "conversation_id": null, "metadata": null, "state": "complete"}, {"parts": [{"content": "Hello! What would you like to do?", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}], "usage": {"input_tokens": 0, "cache_write_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0, "input_audio_tokens": 0, "cache_audio_read_tokens": 0, "output_audio_tokens": 0, "details": {}, "cost": null}, "model_name": null, "timestamp": "2026-11-10T21:27:13.920062Z", "kind": "response", "provider_name": null, "provider_url": null, "provider_details": null, "provider_response_id": null, "finish_reason": null, "run_id": null, "conversation_id": null, "metadata": null, "state": "complete"}, {"parts": [{"content": "Please move home.", "timestamp": "2026-11-10T21:27:13.920066Z", "part_kind": "user-prompt"}], "timestamp": null, "instructions": null, "kind": "request", "run_id": null, "conversation_id": null, "metadata": null, "state": "complete"}, {"parts": [{"content": "I've moved the robot to the Home position (0, 0, 0 mm). Let me know if there's anything else you'd like to do!", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}], "usage": {"input_tokens": 0, "cache_write_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0, "input_audio_tokens": 0, "cache_audio_read_tokens": 0, "output_audio_tokens": 0, "details": {}, "cost": null}, "model_name": null, "timestamp": "2026-11-10T21:27:13.920071Z", "kind": "response", "provider_name": null, "provider_url": null, "provider_details": null, "provider_response_id": null, "finish_reason": null, "run_id": null, "conversation_id": null, "metadata": null, "state": "complete"}, {"parts": [{"content": "please move to the carrot, then move home, then move to y200", "timestamp": "2026-11-10T21:27:13.920074Z", "part_kind": "user-prompt"}], "timestamp": null, "instructions": null, "kind": "request", "run_id": null, "conversation_id": null, "metadata": null, "state": "complete"}, {"parts": [{"content": "Started. The steps run in the background; progress shows above.", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}, {"content": "**Task done:** Go to Carrot, then go to Home, then move to y200\n\n1. \u2713 Go to Carrot \u2014 The goto_named tool returned a successful status and the get_position tool confirmed the robot is at (x=861.0, y=590.0, z=-300.0), matching the Carrot preset.\n2. \u2713 Go to Home \u2014 The go_to_named tool returned status ok for 'Home' and get_position confirmed the robot's current position is (0, 0, 0) mm.\n3. \u2713 Move to y200 \u2014 The move tool returned status 'ok' with coordinates x=0, y=200, z=0, and a subsequent get_position confirmed the robot's position at y200 (y=200, x=0, z=0).", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}], "usage": {"input_tokens": 0, "cache_write_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0, "input_audio_tokens": 0, "cache_audio_read_tokens": 0, "output_audio_tokens": 0, "details": {}, "cost": null}, "model_name": null, "timestamp": "2026-11-10T21:27:13.920079Z", "kind": "response", "provider_name": null, "provider_url": null, "provider_details": null, "provider_response_id": null, "finish_reason": null, "run_id": null, "conversation_id": null, "metadata": null, "state": "complete"}, {"parts": [{"content": "hello!", "timestamp": "2026-11-10T21:27:13.936761Z", "part_kind": "user-prompt"}], "timestamp": "2026-11-10T21:27:13.936995Z", "instructions": "You are TWFarmBot Assistant, a concise farm-robot operator. Reply in the user's language.\n\nYou act through tools (JSON tool calls). Nothing about the robot, weather, bed\nmap, saved positions or memories is preloaded: look it up with tools every time,\nnever from memory or earlier answers in this chat.\n\nOnly core tools are listed. For anything else call `search_tools(queries)`: it\nreturns matching tools and unlocks them for your next call (scanning/NDRE,\nimages and vision, zones and paths, GPIO pins and light, scripts, goals, homing\nand axis jogs, memory edits). `get_help(topic)` loads reference notes\n(topics: spectral).\n\nHome is (0,0,0) after find_home. Hard travel box (mm): x 0..2000, y 0..650, z unconstrained. Do not request poses outside it; tools reject them.\n\nGuidelines:\n- Work in short turns like a coding agent: `think` (what is meant, which tools,\n  plan), gather with read tools (group independent reads), act, verify (after a\n  move call `get_position`), then answer. If a result did not answer the\n  question, `think` again and try a different tool. Never give up after one call.\n- Multi-step requests (several moves, scans or tools, \"then\", \"and then\",\n  moving or checking more than one thing): call `set_goal` with the objective\n  and the ordered steps, one robot action each (\"Go to Carrot\", \"Take a\n  photo\"). Once the operator approves, the job runs step by step in the\n  background; just tell them it started. If the request is unclear, ask first\n  instead of setting a goal.\n- Always call a tool in the current turn before stating anything live\n  (position, status, weather, memories, saved positions). Re-run it even when\n  asked \"are you sure?\". The origin (0,0,0) is a reference point, not where the\n  robot is.\n- A named place (\"carrot\", \"home\", a tool bay): call `goto_named(name)`; if it\n  errors, `get_positions` for the exact label. If no label matches, ask; never\n  go to a different place instead. Never scan just to guess.\n- Coordinates (\"y200\", \"x 100\", \"z -50\") are millimetres, not names: call\n  `get_position`, then `move` with that axis changed and the others kept.\n- Do what the user asked; do not merely describe it. Stay inside the travel box.\n  Moves over 50 mm, water, homing and paths pause for operator approval.\n- Answers: one to three sentences, what you did plus relevant readings; no menu\n  of offers. Weather or forecast: `get_forecast` shows a chart, add one sentence.\n- After `capture`/`take_photo` the still is attached: inspect it yourself. For\n  NDRE reply with one sentence from `interpretation.advice` (`get_help` spectral).", "kind": "request", "run_id": "01a1c75b-a30f-720b-af2f-56167de723e9", "conversation_id": "01a1c75b-a30f-720b-af2f-561782b9f01f", "metadata": null, "state": "complete"}, {"parts": [{"content": "Hello! How can I assist you today?", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}], "usage": {"input_tokens": 4013, "cache_write_tokens": 0, "cache_read_tokens": 0, "output_tokens": 11, "input_audio_tokens": 0, "cache_audio_read_tokens": 0, "output_audio_tokens": 0, "details": {}, "cost": null}, "model_name": "lfm3", "timestamp": "2026-11-10T21:27:16.484172Z", "kind": "response", "provider_name": "openai", "provider_url": "http://127.0.0.1:8090/v1/", "provider_details": {"timestamp": "2026-11-10T21:27:16Z", "finish_reason": "stop"}, "provider_response_id": "chatcmpl-xOE7bvTQHOXRNvprIOW9vpf3bs8BLbLd", "finish_reason": "stop", "run_id": "01a1c75b-a30f-720b-af2f-56167de723e9", "conversation_id": "01a1c75b-a30f-720b-af2f-561782b9f01f", "metadata": null, "state": "complete"}, {"parts": [{"content": "what can you do with the farmbot?", "timestamp": "2026-11-10T21:27:21.751086Z", "part_kind": "user-prompt"}], "timestamp": "2026-11-10T21:27:21.751309Z", "instructions": "You are TWFarmBot Assistant, a concise farm-robot operator. Reply in the user's language.\n\nYou act through tools (JSON tool calls). Nothing about the robot, weather, bed\nmap, saved positions or memories is preloaded: look it up with tools every time,\nnever from memory or earlier answers in this chat.\n\nOnly core tools are listed. For anything else call `search_tools(queries)`: it\nreturns matching tools and unlocks them for your next call (scanning/NDRE,\nimages and vision, zones and paths, GPIO pins and light, scripts, goals, homing\nand axis jogs, memory edits). `get_help(topic)` loads reference notes\n(topics: spectral).\n\nHome is (0,0,0) after find_home. Hard travel box (mm): x 0..2000, y 0..650, z unconstrained. Do not request poses outside it; tools reject them.\n\nGuidelines:\n- Work in short turns like a coding agent: `think` (what is meant, which tools,\n  plan), gather with read tools (group independent reads), act, verify (after a\n  move call `get_position`), then answer. If a result did not answer the\n  question, `think` again and try a different tool. Never give up after one call.\n- Multi-step requests (several moves, scans or tools, \"then\", \"and then\",\n  moving or checking more than one thing): call `set_goal` with the objective\n  and the ordered steps, one robot action each (\"Go to Carrot\", \"Take a\n  photo\"). Once the operator approves, the job runs step by step in the\n  background; just tell them it started. If the request is unclear, ask first\n  instead of setting a goal.\n- Always call a tool in the current turn before stating anything live\n  (position, status, weather, memories, saved positions). Re-run it even when\n  asked \"are you sure?\". The origin (0,0,0) is a reference point, not where the\n  robot is.\n- A named place (\"carrot\", \"home\", a tool bay): call `goto_named(name)`; if it\n  errors, `get_positions` for the exact label. If no label matches, ask; never\n  go to a different place instead. Never scan just to guess.\n- Coordinates (\"y200\", \"x 100\", \"z -50\") are millimetres, not names: call\n  `get_position`, then `move` with that axis changed and the others kept.\n- Do what the user asked; do not merely describe it. Stay inside the travel box.\n  Moves over 50 mm, water, homing and paths pause for operator approval.\n- Answers: one to three sentences, what you did plus relevant readings; no menu\n  of offers. Weather or forecast: `get_forecast` shows a chart, add one sentence.\n- After `capture`/`take_photo` the still is attached: inspect it yourself. For\n  NDRE reply with one sentence from `interpretation.advice` (`get_help` spectral).", "kind": "request", "run_id": "01a1c75b-c195-727a-83cb-3718b7b9995e", "conversation_id": "01a1c75b-a30f-720b-af2f-561782b9f01f", "metadata": null, "state": "complete"}, {"parts": [{"content": "I can help you navigate the farm robot, move it to specific locations (like Home, Carrot, or y200), check its current position, and provide agronomic advice based on weather and solar conditions. I also can capture stills from its camera and retrieve detailed status information about its sensors and pins.", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}], "usage": {"input_tokens": 4043, "cache_write_tokens": 0, "cache_read_tokens": 3695, "output_tokens": 64, "input_audio_tokens": 0, "cache_audio_read_tokens": 0, "output_audio_tokens": 0, "details": {}, "cost": null}, "model_name": "lfm3", "timestamp": "2026-11-10T21:27:22.272707Z", "kind": "response", "provider_name": "openai", "provider_url": "http://127.0.0.1:8090/v1/", "provider_details": {"timestamp": "2026-11-10T21:27:22Z", "finish_reason": "stop"}, "provider_response_id": "chatcmpl-riEsvP2upKxTSMgPx15WurZ19ojYKL4K", "finish_reason": "stop", "run_id": "01a1c75b-c195-727a-83cb-3718b7b9995e", "conversation_id": "01a1c75b-a30f-720b-af2f-561782b9f01f", "metadata": null, "state": "complete"}, {"parts": [{"content": "what tools do you have?", "timestamp": "2026-11-10T21:27:27.291681Z", "part_kind": "user-prompt"}], "timestamp": "2026-11-10T21:27:27.291921Z", "instructions": "You are TWFarmBot Assistant, a concise farm-robot operator. Reply in the user's language.\n\nYou act through tools (JSON tool calls). Nothing about the robot, weather, bed\nmap, saved positions or memories is preloaded: look it up with tools every time,\nnever from memory or earlier answers in this chat.\n\nOnly core tools are listed. For anything else call `search_tools(queries)`: it\nreturns matching tools and unlocks them for your next call (scanning/NDRE,\nimages and vision, zones and paths, GPIO pins and light, scripts, goals, homing\nand axis jogs, memory edits). `get_help(topic)` loads reference notes\n(topics: spectral).\n\nHome is (0,0,0) after find_home. Hard travel box (mm): x 0..2000, y 0..650, z unconstrained. Do not request poses outside it; tools reject them.\n\nGuidelines:\n- Work in short turns like a coding agent: `think` (what is meant, which tools,\n  plan), gather with read tools (group independent reads), act, verify (after a\n  move call `get_position`), then answer. If a result did not answer the\n  question, `think` again and try a different tool. Never give up after one call.\n- Multi-step requests (several moves, scans or tools, \"then\", \"and then\",\n  moving or checking more than one thing): call `set_goal` with the objective\n  and the ordered steps, one robot action each (\"Go to Carrot\", \"Take a\n  photo\"). Once the operator approves, the job runs step by step in the\n  background; just tell them it started. If the request is unclear, ask first\n  instead of setting a goal.\n- Always call a tool in the current turn before stating anything live\n  (position, status, weather, memories, saved positions). Re-run it even when\n  asked \"are you sure?\". The origin (0,0,0) is a reference point, not where the\n  robot is.\n- A named place (\"carrot\", \"home\", a tool bay): call `goto_named(name)`; if it\n  errors, `get_positions` for the exact label. If no label matches, ask; never\n  go to a different place instead. Never scan just to guess.\n- Coordinates (\"y200\", \"x 100\", \"z -50\") are millimetres, not names: call\n  `get_position`, then `move` with that axis changed and the others kept.\n- Do what the user asked; do not merely describe it. Stay inside the travel box.\n  Moves over 50 mm, water, homing and paths pause for operator approval.\n- Answers: one to three sentences, what you did plus relevant readings; no menu\n  of offers. Weather or forecast: `get_forecast` shows a chart, add one sentence.\n- After `capture`/`take_photo` the still is attached: inspect it yourself. For\n  NDRE reply with one sentence from `interpretation.advice` (`get_help` spectral).", "kind": "request", "run_id": "01a1c75b-d73a-7529-9270-5bb82b25cb7e", "conversation_id": "01a1c75b-a30f-720b-af2f-561782b9f01f", "metadata": null, "state": "complete"}, {"parts": [{"content": "I have a set of core tools to interact with the farm robot:\n\n- **move** \u2013 Move the gantry to specific X, Y, Z coordinates (with optional speed).\n- **get_position** \u2013 Retrieve the robot's current millimetre position.\n- **get_status** \u2013 Get a full status tree (location, pins, sensors, etc.).\n- **goto_named** \u2013 Move to a preset location (Home, End, Carrot, Camera top, etc.).\n- **get_positions** \u2013 List known gantry presets.\n- **capture** \u2013 Take a still image from the payload USB camera (rgb, nir, or rededge).\n- **water** \u2013 Start the bed sprayer pump.\n- **remember** \u2013 Save noteworthy observations or rules for long-term memory.\n- **recall_memories** \u2013 Search past memories by coordinates, text, category, or radius.\n- **set_goal** \u2013 Define a multi-step task checklist (e.g., survey, water, scan).\n- **think** \u2013 Scratchpad reasoning to plan actions before acting.\n- **get_meteorology** \u2013 Query solar position, weather, temperature, precipitation, cloud cover, and agronomic advice.\n- **get_forecast** \u2013 View 3\u2011hour blocks and per\u2011day summaries for the next days, including rain, sun, and best scan windows.\n\nThese tools let me move the robot, check its state, capture images, get weather and agronomic guidance, and store or recall information. Let me know what you'd like to do!", "id": null, "provider_name": null, "provider_details": null, "part_kind": "text"}], "usage": {"input_tokens": 4123, "cache_write_tokens": 0, "cache_read_tokens": 3695, "output_tokens": 329, "input_audio_tokens": 0, "cache_audio_read_tokens": 0, "output_audio_tokens": 0, "details": {}, "cost": null}, "model_name": "lfm3", "timestamp": "2026-11-10T21:27:27.873806Z", "kind": "response", "provider_name": "openai", "provider_url": "http://127.0.0.1:8090/v1/", "provider_details": {"timestamp": "2026-11-10T21:27:27Z", "finish_reason": "stop"}, "provider_response_id": "chatcmpl-k37i758d2z2GCXeHElQOdOM3lwQl89Zh", "finish_reason": "stop", "run_id": "01a1c75b-d73a-7529-9270-5bb82b25cb7e", "conversation_id": "01a1c75b-a30f-720b-af2f-561782b9f01f", "metadata": null, "state": "complete"}]}
+{"seq": 329, "ts": "2026-11-10T21:27:30.016366+00:00", "thread_id": "73745c3e12f54d35a124e4d4a180825b", "type": "run_end", "stop_reason": "done", "response": "I have a set of core tools to interact with the farm robot:\n\n- **move** \u2013 Move the gantry to specific X, Y, Z coordinates (with optional speed).\n- **get_position** \u2013 Retrieve the robot's current millimetre position.\n- **get_status** \u2013 Get a full status tree (location, pins, sensors, etc.).\n- **goto_named** \u2013 Move to a preset location (Home, End, Carrot, Camera top, etc.).\n- **get_positions** \u2013 List known gantry presets.\n- **capture** \u2013 Take a still image from the payload USB camera (rgb, nir, or rededge).\n- **water** \u2013 Start the bed sprayer pump.\n- **remember** \u2013 Save noteworthy observations or rules for long-term memory.\n- **recall_memories** \u2013 Search past memories by coordinates, text, category, or radius.\n- **set_goal** \u2013 Define a multi-step task checklist (e.g., survey, water, scan).\n- **think** \u2013 Scratchpad reasoning to plan actions before acting.\n- **get_meteorology** \u2013 Query solar position, weather, temperature, precipitation, cloud cover, and agronomic advice.\n- **get_forecast** \u2013 View 3\u2011hour blocks and per\u2011day summaries for the next days, including rain, sun, and best scan windows.\n\nThese tools let me move the robot, check its state, capture images, get weather and agronomic guidance, and store or recall information. Let me know what you'd like to do!", "thinking": "", "metrics": {"total_latency_s": 2.73, "llm_latency_s": 2.73, "ttft_s": 0.0, "tokens_per_s": 120.6, "prompt_tokens": 4123, "completion_tokens": 329, "total_tokens": 4452, "resireg_latency_s": 0.0, "turn_count": 1}, "goal": {}}

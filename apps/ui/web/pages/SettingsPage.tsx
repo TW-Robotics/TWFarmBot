@@ -429,7 +429,7 @@ export function SettingsPage({
       <SettingsGroup title="This device">
         <SettingRow
           label="Layout"
-          description={`Tablet layout collapses the sidebars and makes the Assistant voice-only. Detected: ${device.detectedTablet ? "tablet (touch only)" : "desktop"}.`}
+          description={`Tablet layout collapses the sidebars and gives the Assistant a single Speak button instead of a text box. Detected: ${device.detectedTablet ? "tablet (touch only)" : "desktop"}.`}
         >
           <Selector
             label="Layout"

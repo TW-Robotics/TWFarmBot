@@ -9,6 +9,7 @@ import {
 } from "@astryxdesign/core/Chat";
 import { Markdown } from "@astryxdesign/core/Markdown";
 import { Button } from "@astryxdesign/core/Button";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -36,6 +37,7 @@ import {
   type TranscriptItem,
 } from "../components/chat";
 import { ReasoningEffortMenu } from "../components/ReasoningEffortControl";
+import { TrajectoryView, type TrajectoryStats } from "../components/TrajectoryView";
 import {
   SETTINGS_CHANGED_EVENT,
   getActiveLlmProfile,
@@ -51,6 +53,14 @@ function applyTrace(assistant: ChatMsg, event: { weave_url?: string; metrics?: C
     assistant.metrics = event.metrics;
   }
 }
+
+type TaskState = {
+  id: string;
+  objective: string;
+  status: string;
+  error: string;
+  steps: { text: string; status: string; evidence: string; threads: string[] }[];
+};
 
 function applyRunGoal(event: { type?: string; name?: string; goal?: unknown; result?: unknown }, setGoal: (goal: ReturnType<typeof normalizeGoal>) => void) {
   if (event.type === "goal") {
@@ -198,13 +208,21 @@ export function AssistantPage({
     return Number.isFinite(stored) ? stored : getActiveLlmProfile()?.reasoningBudget ?? 8192;
   });
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<"chat" | "trajectory">("chat");
+  const [sessionThreads, setSessionThreads] = useState<string[]>([]);
+  const [trajStats, setTrajStats] = useState<TrajectoryStats | null>(null);
   const stopRef = useRef<AbortController | null>(null);
   const threadIdRef = useRef<string | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [goal, setGoal] = useState<RunGoal | null>(null);
   const [goalCollapsed, setGoalCollapsed] = useState(false);
+  // An approved multi-step plan runs server-side as a background task.
+  const [taskId, setTaskId] = useState<string | null>(null);
   const [activeProfileName, setActiveProfileName] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  // Tablet: transcribed speech waits here for a check (Send / Discard)
+  // instead of being sent to the assistant automatically.
+  const [pendingSpeech, setPendingSpeech] = useState<string | null>(null);
   const mic = useMicTranscribe();
   const { isTablet } = useDevice();
   const voice = useRealtimeVoice();
@@ -293,7 +311,53 @@ export function AssistantPage({
     localStorage.setItem(storageKey, JSON.stringify(messages));
   }, [messages, storageKey]);
 
+  useEffect(() => {
+    void api<{ tasks?: TaskState[] }>("/tasks")
+      .then((data) => setTaskId(data.tasks?.find((task) => task.status === "running")?.id ?? null))
+      .catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    if (!taskId) return;
+    const poll = async () => {
+      const task = await api<TaskState>(`/tasks/${taskId}`).catch(() => null);
+      if (!task) return;
+      const done = task.steps.filter((step) => step.status === "done");
+      const threads = task.steps.flatMap((step) => step.threads);
+      setSessionThreads((prev) => [...prev, ...threads.filter((id) => !prev.includes(id))]);
+      if (task.status === "running") {
+        setGoal({
+          objective: task.objective,
+          remaining: task.steps.filter((step) => step.status !== "done").map((step) => step.text),
+          done: done.map((step) => step.text),
+          steps: task.steps.map((step) => ({ text: step.text, status: step.status })),
+        });
+        return;
+      }
+      setTaskId(null);
+      setGoal(null);
+      const lines = task.steps.map(
+        (step, index) =>
+          `${index + 1}. ${step.status === "done" ? "✓" : "✗"} ${step.text}${step.evidence ? ` — ${step.evidence}` : ""}`,
+      );
+      const content = [
+        `**Task ${task.status}:** ${task.objective}`,
+        lines.join("\n"),
+        task.error || "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      setMessages((prev) => [...prev, { role: "assistant", content, ts: Date.now() }]);
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), 2000);
+    return () => window.clearInterval(id);
+  }, [taskId]);
+
   const stopRun = async () => {
+    if (taskId) {
+      await api(`/tasks/${taskId}/cancel`, { method: "POST" }).catch(() => null);
+    }
     voiceApiRef.current.cancelSpeak();
     const threadId = threadIdRef.current;
     stopRef.current?.abort();
@@ -369,6 +433,7 @@ export function AssistantPage({
         },
         (event) => {
           applyRunGoal(event, setGoal);
+          if (event.type === "task" && event.task_id) setTaskId(event.task_id);
           if (
             (event.type === "goal" || (event.type === "tool_call" && event.name === "set_goal")) &&
             voiceOnRef.current
@@ -396,6 +461,9 @@ export function AssistantPage({
             assistant.programs = next;
           } else if (event.type === "thread" && event.thread_id) {
             threadIdRef.current = event.thread_id;
+            setSessionThreads((prev) =>
+              prev.includes(event.thread_id) ? prev : [...prev, event.thread_id],
+            );
             applyTrace(assistant, event);
           } else if (event.type === "approval") {
             threadIdRef.current = event.thread_id || threadIdRef.current;
@@ -542,6 +610,7 @@ export function AssistantPage({
         },
         (event) => {
           applyRunGoal(event, setGoal);
+          if (event.type === "task" && event.task_id) setTaskId(event.task_id);
           if (event.type === "delta") {
             assistant.content = (assistant.content || "") + (event.content || "");
             const current = assistant.transcript ?? [];
@@ -560,6 +629,9 @@ export function AssistantPage({
             setPendingApprovals([]);
           } else if (event.type === "thread" && event.thread_id) {
             threadIdRef.current = event.thread_id;
+            setSessionThreads((prev) =>
+              prev.includes(event.thread_id) ? prev : [...prev, event.thread_id],
+            );
             applyTrace(assistant, event);
           } else if (event.type === "approval") {
             const incoming = event.pending_approvals || [];
@@ -621,29 +693,33 @@ export function AssistantPage({
   return (
     <VStack height="100%" style={{ minHeight: 0, height: "100%" }}>
       <HStack gap={3} vAlign="center" style={{ padding: "12px 20px" }}>
+        <TabList value={view} onChange={(id) => setView(id as "chat" | "trajectory")}>
+          <Tab value="chat" label="Chat" />
+          <Tab value="trajectory" label="Trajectory" />
+        </TabList>
         {activeProfileName ? (
           <Text type="supporting" color="secondary">
             {activeProfileName}
           </Text>
         ) : null}
-        <Button label="Clear" onClick={() => { setMessages([]); setGoal(null); setGoalCollapsed(false); setPendingApprovals([]); }} />
-        {busy || pendingApprovals.length > 0 ? (
+        <Button label="Clear" onClick={() => { setMessages([]); setGoal(null); setGoalCollapsed(false); setPendingApprovals([]); setPendingSpeech(null); setSessionThreads([]); }} />
+        {busy || pendingApprovals.length > 0 || taskId ? (
           <Button label="Stop" onClick={() => void stopRun()} />
         ) : null}
       </HStack>
       <ChatLayout
-        density="spacious"
+        density={view === "trajectory" ? "balanced" : "spacious"}
         style={{ flex: 1, minHeight: 0 }}
-        emptyState={
+        emptyState={view === "trajectory" ? undefined : (
           <EmptyState
             title="What would you like to do?"
             description={
               isTablet
-                ? "Tap Live voice to talk hands-free, or Transcribe to record a single request."
+                ? "Tap Speak and say what you need. You can check it before it sends."
                 : "Ask about the garden, inspect robot state, analyze a camera image, or prepare a safe action."
             }
           />
-        }
+        )}
         composer={
           <VStack gap={2} style={{ width: "100%" }}>
             {voice.listening && pendingApprovals.length === 0 ? null : (
@@ -668,18 +744,24 @@ export function AssistantPage({
             )}
             {isTablet ? (
               <VoiceDock
-                liveOn={voice.listening}
                 recording={mic.recording}
                 transcribing={mic.busy}
                 busy={busy || pendingApprovals.length > 0}
-                onLive={toggleVoice}
-                onTranscribe={() =>
+                pendingText={pendingSpeech}
+                onSpeak={() =>
                   void mic.toggle(
                     llmOverridesFromProfile(getActiveLlmProfile()),
-                    (text) => void send(text),
+                    (text) => setPendingSpeech(text),
                     (message) => toast({ body: message, type: "error" }),
                   )
                 }
+                onSendPending={() => {
+                  const text = pendingSpeech;
+                  setPendingSpeech(null);
+                  if (text) void send(text);
+                }}
+                onDiscardPending={() => setPendingSpeech(null)}
+                onEditPending={(text) => setPendingSpeech(text)}
                 onStop={() => void stopRun()}
               />
             ) : (
@@ -777,9 +859,25 @@ export function AssistantPage({
             }
           />
             )}
+            {view === "trajectory" && trajStats ? (
+              <HStack gap={3} hAlign="center">
+                <Text type="supporting" color="secondary">
+                  {[
+                    `${trajStats.turns} turns ${trajStats.steps} steps`,
+                    trajStats.tokPerS != null ? `${trajStats.tokPerS} tok/s` : null,
+                    trajStats.tokens ? `${(trajStats.tokens / 1000).toFixed(1)}K tok` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </Text>
+              </HStack>
+            ) : null}
           </VStack>
         }
       >
+        {view === "trajectory" ? (
+          <TrajectoryView threadIds={sessionThreads} live={busy} onStats={setTrajStats} />
+        ) : (
         <ChatMessageList isStreaming={busy}>
           {messages.map((message, index) => (
             <ChatMessage
@@ -804,6 +902,7 @@ export function AssistantPage({
             </ChatMessage>
           ))}
         </ChatMessageList>
+        )}
       </ChatLayout>
       {voice.listening ? (
         <VoiceOverlay

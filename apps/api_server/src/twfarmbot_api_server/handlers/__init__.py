@@ -49,3 +49,10 @@ def register_default_handlers(registry: ActionRegistry) -> None:
     registry.register("run_script", handle_run_script)
     registry.register("scan_ndre", handle_scan_ndre)
     registry.register("set_light", handle_set_light)
+
+    from watering_service import end_effectors
+
+    if end_effectors.devices():  # exposed only once a tool head is configured
+        from .end_effector import handle_end_effector
+
+        registry.register("end_effector", handle_end_effector)

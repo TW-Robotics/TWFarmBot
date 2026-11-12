@@ -26,7 +26,7 @@ from .autonomy import (
     DEFAULT_AUTONOMOUS_PROMPT,
     run_autonomous_cycle,
 )
-from .chat import ChatResult, chat, stream_chat
+from .chat import ChatResult, chat, make_task_runner, stream_chat
 from .config import PlannerConfig, load_config
 from .harness import (
     AgentLoop,
@@ -206,4 +206,5 @@ __all__ = [
     "plan",
     "run_autonomous_cycle",
     "stream_chat",
+    "make_task_runner",
 ]

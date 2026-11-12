@@ -1,0 +1,32 @@
+{
+  "id": "8c13c1e2e155",
+  "objective": "go to the carrot, take a photo of it, then go back home",
+  "status": "cancelled",
+  "steps": [
+    {
+      "text": "Go to Carrot",
+      "status": "pending",
+      "attempts": 0,
+      "evidence": "",
+      "threads": []
+    },
+    {
+      "text": "Take a photo of Carrot",
+      "status": "pending",
+      "attempts": 0,
+      "evidence": "",
+      "threads": []
+    },
+    {
+      "text": "Go back home",
+      "status": "pending",
+      "attempts": 0,
+      "evidence": "",
+      "threads": []
+    }
+  ],
+  "replans": 0,
+  "error": "",
+  "created": 1794226166.733714,
+  "updated": 1794226728.3633025
+}

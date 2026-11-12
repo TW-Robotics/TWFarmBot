@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1",
     "av>=17.1.0",
     "pydantic-ai-slim[google,openai]>=2.31.1",
+    "cachetools>=5",
 ]
 
 [build-system]

@@ -22,22 +22,21 @@ function PlugCard({
 }: {
   title: string;
   hint: string;
-  path: "/watering" | "/lighting";
+  path: "/tool";
 }) {
   const toast = useToast();
   const [state, setState] = useState<PlugState | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
+    // Background poll: never toast. A dead backend just shows "Unknown"
+    // until it answers. Manual toggles below still report errors.
     try {
       setState(await api<PlugState>(path));
-    } catch (error) {
-      toast({
-        body: error instanceof Error ? error.message : `Could not read ${title.toLowerCase()}`,
-        type: "error",
-      });
+    } catch {
+      setState(null);
     }
-  }, [path, title, toast]);
+  }, [path]);
 
   useEffect(() => {
     void load();
@@ -97,14 +96,9 @@ export function IoPage() {
     <VStack gap={4}>
       <PageHeader kicker="TWFarmBot · UAS Technikum Wien" title="I/O" />
       <PlugCard
-        title="Bed pump"
-        hint="Shelly 192.168.1.2 — one plug for every sprayer. Stays on until you turn it off (or ESTOP)."
-        path="/watering"
-      />
-      <PlugCard
-        title="Bed light"
-        hint="Shelly 192.168.1.3 — work/grow light. Stays on until you turn it off. ESTOP does not cut it."
-        path="/lighting"
+        title="Tool head"
+        hint="RevPi Modbus register 0 — simple on/off end effector. Stays on until you turn it off."
+        path="/tool"
       />
     </VStack>
   );

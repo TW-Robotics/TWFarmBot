@@ -26,11 +26,12 @@ import { Lightbox } from "@astryxdesign/core/Lightbox";
 import { Link } from "@astryxdesign/core/Link";
 import { Link } from "@astryxdesign/core/Link";
 import { Spinner } from "@astryxdesign/core/Spinner";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Thumbnail } from "@astryxdesign/core/Thumbnail";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { InformationCircleIcon, SparklesIcon } from "@heroicons/react/24/outline";
+import { SparklesIcon } from "@heroicons/react/24/outline";
 import { apiUrl } from "../api";
 import { ForecastCard, isForecastResult } from "./ForecastCard";
 
@@ -103,6 +104,8 @@ export type RunGoal = {
   objective?: string;
   remaining?: string[];
   done?: string[];
+  /** Background task steps in plan order, with live status. */
+  steps?: { text: string; status: string }[];
 };
 
 export function isActiveGoal(goal: RunGoal | null | undefined): boolean {
@@ -429,9 +432,11 @@ const TOOL_VISUALS: Record<string, (result: unknown) => ReactNode> = {
 
 /** Consecutive tool calls render as one grouped, collapsible ChatToolCalls. */
 function ToolCallsGroup({ items }: { items: ToolTranscriptItem[] }) {
+  const running = items.some((item) => item.result === undefined);
+  const label = running ? "Running tools…" : `Ran ${items.length} tool${items.length === 1 ? "" : "s"}`;
   return (
     <VStack gap={2} style={{ minWidth: 0 }}>
-      <ChatToolCalls calls={items.map(toCallItem)} />
+      <ChatToolCalls calls={items.map(toCallItem)} label={label} />
       {items.map((item, index) => {
         const visual = item.result === undefined ? null : TOOL_VISUALS[item.name]?.(item.result);
         return visual ? (
@@ -619,6 +624,31 @@ function groupTranscript(items: TranscriptItem[]): TranscriptGroup[] {
   return groups;
 }
 
+/** Status glyph for the goal itself, same language as its steps. */
+function GoalStatus({
+  needsApproval,
+  remaining,
+  done,
+}: {
+  needsApproval: boolean;
+  remaining: number;
+  done: number;
+}) {
+  const style = { flexShrink: 0, marginTop: 2 };
+  if (needsApproval) return <StatusDot variant="warning" label="Awaiting approval" style={style} />;
+  if (remaining > 0) return <Spinner size="sm" shade="subtle" />;
+  if (done > 0) return <StatusDot variant="success" label="Complete" style={style} />;
+  return <StatusDot variant="neutral" label="Goal" style={style} />;
+}
+
+/** Status glyph for a plan step: spinner while running, dot once settled. */
+function StepStatus({ status }: { status: string }) {
+  if (status === "running") return <Spinner size="sm" shade="subtle" />;
+  if (status === "done") return <StatusDot variant="success" label="Done" />;
+  if (status === "failed") return <StatusDot variant="error" label="Failed" />;
+  return <StatusDot variant="neutral" label={status || "Pending"} />;
+}
+
 function WorkingIndicator() {
   return (
     <HStack gap={2} vAlign="center">
@@ -751,9 +781,7 @@ export function GoalBubble({
             onClick={needsApproval ? undefined : onToggle}
           >
             <HStack gap={3} vAlign="start">
-            <InformationCircleIcon
-              style={{ width: 18, height: 18, flexShrink: 0, marginTop: 2, opacity: 0.7 }}
-            />
+            <GoalStatus needsApproval={needsApproval} remaining={remaining.length} done={done.length} />
             <VStack gap={1} style={{ minWidth: 0 }}>
               <Text>{title}</Text>
               {countLabel ? (
@@ -772,23 +800,44 @@ export function GoalBubble({
           ) : null}
         </HStack>
         {expanded ? (
-          <HStack gap={1} wrap="wrap">
-            {actionApprovals.map((item) => (
-              <span key={item.id} className="twfb-goal-chip twfb-goal-chip-action">
-                {approvalChip(item)}
-              </span>
-            ))}
-            {remaining.map((step, index) => (
-              <span key={`r-${index}-${step}`} className="twfb-goal-chip">
-                {step}
-              </span>
-            ))}
-            {done.map((step, index) => (
-              <span key={`d-${index}-${step}`} className="twfb-goal-chip twfb-goal-chip-done">
-                {step}
-              </span>
-            ))}
-          </HStack>
+          <VStack gap={2}>
+            {shown?.steps && !pendingGoal ? (
+              <VStack gap={1}>
+                {shown.steps.map((step, index) => (
+                  <HStack key={`s-${index}-${step.text}`} gap={2} vAlign="center">
+                    <StepStatus status={step.status} />
+                    <Text type="supporting">
+                      {index + 1}. {step.text}
+                    </Text>
+                  </HStack>
+                ))}
+              </VStack>
+            ) : (
+              <VStack gap={1}>
+                {remaining.map((step, index) => (
+                  <HStack key={`r-${index}-${step}`} gap={2} vAlign="center">
+                    <StatusDot variant="neutral" label="Queued" />
+                    <Text type="supporting">{step}</Text>
+                  </HStack>
+                ))}
+                {done.map((step, index) => (
+                  <HStack key={`d-${index}-${step}`} gap={2} vAlign="center">
+                    <StatusDot variant="success" label="Done" />
+                    <Text type="supporting">{step}</Text>
+                  </HStack>
+                ))}
+              </VStack>
+            )}
+            {actionApprovals.length ? (
+              <HStack gap={1} wrap="wrap">
+                {actionApprovals.map((item) => (
+                  <span key={item.id} className="twfb-goal-chip twfb-goal-chip-action">
+                    {approvalChip(item)}
+                  </span>
+                ))}
+              </HStack>
+            ) : null}
+          </VStack>
         ) : null}
       </div>
     </div>

@@ -1,0 +1,18 @@
+{
+  "id": "6cac8b96ce92",
+  "objective": "move to y100 then x100 then z10",
+  "status": "cancelled",
+  "steps": [
+    {
+      "text": "Go to (y100, x100, z10)",
+      "status": "pending",
+      "attempts": 0,
+      "evidence": "",
+      "threads": []
+    }
+  ],
+  "replans": 1,
+  "error": "",
+  "created": 1794346678.4126105,
+  "updated": 1794346705.8916063
+}

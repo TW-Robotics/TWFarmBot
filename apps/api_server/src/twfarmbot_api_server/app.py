@@ -144,6 +144,10 @@ class ChatPayload(BaseModel):
     )
 
 
+class TaskPayload(BaseModel):
+    objective: str = Field(..., min_length=1, description="What the robot should get done.")
+
+
 class ChatCancelPayload(BaseModel):
     thread_id: str | None = None
 
@@ -701,6 +705,84 @@ def create_app(registry: ActionRegistry | None = None) -> FastAPI:
             return {"status": "ok", "latest_session": latest}
         except Exception as err:
             return {"status": "error", "error": str(err)}
+
+    def _task_runner():
+        if getattr(app.state, "task_runner", None) is None:
+            from planning_service import make_task_runner
+            from planning_service.introspection import HttpSystemStateProvider
+
+            from planning_service.tasks import set_runner
+
+            app.state.task_runner = make_task_runner(
+                registry=app.state.registry,
+                system_state=HttpSystemStateProvider(os.getenv("TWFB_API_URL", "http://127.0.0.1:8000")),
+                config=_resolve_llm_config(None, None),
+            )
+            set_runner(app.state.task_runner)  # approved chat plans run as tasks
+        return app.state.task_runner
+
+    def _task_call(fn: Any, *args: Any) -> dict[str, Any]:
+        try:
+            return fn(*args)
+        except KeyError as err:
+            raise HTTPException(status_code=404, detail=f"No task {err}") from err
+        except (ValueError, RuntimeError) as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+
+    @app.on_event("startup")
+    def resume_tasks() -> None:
+        try:
+            _task_runner().resume_interrupted()
+        except Exception:  # noqa: BLE001 - tasks must never block startup
+            log.warning("could not resume interrupted tasks", exc_info=True)
+
+    @app.post("/tasks")
+    def post_task(payload: TaskPayload) -> dict[str, Any]:
+        """Plan a long-horizon task; it waits for approval before running."""
+        return _task_runner().create(payload.objective)
+
+    @app.get("/tasks")
+    def get_tasks() -> dict[str, Any]:
+        return {"tasks": _task_runner().list()}
+
+    @app.get("/tasks/{task_id}")
+    def get_task(task_id: str) -> dict[str, Any]:
+        task = _task_runner().get(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail=f"No task {task_id}")
+        return task
+
+    @app.post("/tasks/{task_id}/approve")
+    def approve_task(task_id: str) -> dict[str, Any]:
+        """Approve the whole plan once; steps then run in the background."""
+        return _task_call(_task_runner().approve, task_id)
+
+    @app.post("/tasks/{task_id}/cancel")
+    def cancel_task(task_id: str) -> dict[str, Any]:
+        """Stop the task and halt the gantry, like the chat Stop button."""
+        was_running = (_task_runner().get(task_id) or {}).get("status") == "running"
+        task = _task_call(_task_runner().cancel, task_id)
+        if was_running:
+            post_chat_cancel(ChatCancelPayload(thread_id=None))
+        return task
+
+    @app.get("/trajectories")
+    def get_trajectories(limit: int = 50) -> dict[str, Any]:
+        """List stored agent-run trajectories, newest first."""
+        from planning_service.harness.trajectory import list_trajectories
+
+        items = list_trajectories(limit=max(1, min(limit, 200)))
+        return {"trajectories": items, "count": len(items)}
+
+    @app.get("/trajectories/{thread_id}")
+    def get_trajectory(thread_id: str) -> dict[str, Any]:
+        """Return every record of one trajectory (append-only JSONL ledger)."""
+        from planning_service.harness.trajectory import read_trajectory
+
+        records = read_trajectory(thread_id)
+        if not records:
+            raise HTTPException(status_code=404, detail=f"no trajectory for {thread_id!r}")
+        return {"thread_id": thread_id, "records": records, "count": len(records)}
 
     @app.get("/meteorology")
     def get_meteorology_endpoint() -> dict[str, Any]:

@@ -21,10 +21,28 @@ from ..tools import (
     ReadPinArgs,
     RunScriptArgs,
     SetLightArgs,
+    EndEffectorArgs,
     WaterArgs,
     WritePinArgs,
 )
 from .tool_policy import ToolCategory, ToolDescriptor, ToolPolicy
+
+def _end_effector_description() -> str:
+    try:
+        from watering_service import end_effectors
+
+        listed = "; ".join(
+            f"{name}: commands {', '.join(d['commands'])}" + (f" (reports {', '.join(d['status'])})" if d["status"] else "")
+            for name, d in end_effectors.describe().items()
+        )
+    except Exception:  # noqa: BLE001 - a bad config must not break tool loading
+        listed = ""
+    return (
+        "Run a command on a tool head mounted on the gantry (gripper, vacuum, ...) and get its "
+        "status back, e.g. name='gripper', command='grip'. Check the returned status (e.g. "
+        "holding) before saying it worked." + (f" Available: {listed}." if listed else "")
+    )
+
 
 # Single source of truth for action-tool policies.
 _ACTION_POLICIES: dict[str, ToolPolicy] = {
@@ -39,6 +57,11 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         requires_approval=True,
         safety_rules=("water",),
         description="Start the bed sprayers (one pump for all nozzles). The Shelly plug already stops after 1 minute. Pauses for operator approval in chat.",
+    ),
+    "end_effector": ToolPolicy(
+        ToolCategory.ACT,
+        requires_approval=False,
+        description=_end_effector_description(),
     ),
     "set_light": ToolPolicy(
         ToolCategory.ACT,
@@ -129,7 +152,9 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
             "Move to a named gantry preset from the Motion page "
             "(Home, End, Carrot, Camera top, …). Use this FIRST whenever the user names a place, "
             "Call get_positions if you need the current millimetres. "
-            "Unset presets have no pose yet — do not invent coordinates."
+            "Unset presets have no pose yet — do not invent coordinates. "
+            "Never substitute another place for a name that does not exist; "
+            "coordinates like 'y200' are millimetres for `move`, not names."
         ),
     ),
     "run_script": ToolPolicy(
@@ -146,7 +171,11 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         ToolCategory.ACT,
         requires_approval=False,
         allow_without_user=True,
-        description="Emergency stop — halt the robot immediately.",
+        description=(
+            "Emergency stop: halts AND LOCKS the robot until the operator unlocks it. "
+            "Only when the user explicitly asks to stop or there is immediate danger. "
+            "It never clears or releases a stop."
+        ),
     ),
     "unlock": ToolPolicy(
         ToolCategory.ACT,
@@ -179,6 +208,7 @@ _ACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "move_path": MovePathArgs,
     "water": WaterArgs,
     "set_light": SetLightArgs,
+    "end_effector": EndEffectorArgs,
     "find_home": FindHomeArgs,
     "read_pin": ReadPinArgs,
     "write_pin": WritePinArgs,
@@ -225,7 +255,7 @@ CORE_TOOLS = frozenset(
     {
         "think", "set_goal", "tool_search", "get_help",
         "get_position", "get_status", "get_positions", "goto_named", "move",
-        "capture", "water", "e_stop",
+        "capture", "water", "end_effector",
         "get_meteorology", "get_forecast", "recall_memories", "remember",
     }
 )

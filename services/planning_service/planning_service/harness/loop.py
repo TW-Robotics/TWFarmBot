@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
+from cachetools import TTLCache
 from pydantic import BaseModel, ValidationError
 from pydantic_ai import (
     Agent,
@@ -41,6 +43,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     PartDeltaEvent,
     PartStartEvent,
+    RetryPromptPart,
     TextPart,
     TextPartDelta,
     ToolCallPart,
@@ -73,6 +76,7 @@ from .goal import apply_goal_update, format_goal
 from .metrics import Metrics
 from .tool_policy import ToolCategory, ToolDescriptor
 from .tool_registry import CORE_TOOLS, ToolRegistry
+from .trajectory import TrajectoryLog, trajectory_dir
 from .tracing import (
     call_url,
     finish_agent_call,
@@ -93,8 +97,39 @@ _EMPTY_TEXT = "I could not produce a response. Try again with a more specific re
 _MAX_SUMMARY_LINES = 8
 _MOTION_TOOLS = frozenset({"move", "move_axis", "move_path", "goto_named", "run_script"})
 _LIVE_POSE_TOOLS = _MOTION_TOOLS | {"find_home", "scan_ndre", "capture_ndre", "get_position"}
+# A reply that states live readings or claims an action ran. Without a tool
+# call in the same run it came from memory or chat history, not the robot.
+_LIVE_CLAIM = re.compile(
+    r"\d\s?mm\b|\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+|°C"
+    r"|\bI (?:did |have |just )?(?:ran|run|called|checked|moved|watered|homed|scanned)\b"
+    r"|`?\b[a-z]+_[a-z_]+\b`?\s+(?:tool|returned|shows|says)",
+    re.IGNORECASE,
+)
+# A chat request that chains actions. Its first step must be a `set_goal` plan,
+# which the operator approves and the task runner then executes.
+_MULTI_STEP = re.compile(
+    r"\b(?:then|and then|after that|afterwards|finally|dann|danach|anschlie(?:ß|ss)end)\b",
+    re.IGNORECASE,
+)
 # Tools Pydantic AI provides itself (`search_tools`) or that the loop handles.
 _HIDDEN_TOOLS = frozenset({"tool_search"})
+
+# Full Pydantic AI history (tool calls and results included) of finished runs,
+# keyed by the conversation's user prompts. The UI only sends text, so without
+# this every earlier turn looks like an answer given without a tool.
+_HISTORIES: TTLCache[str, list[Any]] = TTLCache(maxsize=64, ttl=3600)
+
+
+def _history_key(messages: list[dict[str, Any]]) -> str:
+    return "\x1e".join(
+        compact_input_text(str(m.get("content", "") or "")) for m in messages if m.get("role") == "user"
+    )
+
+
+def _remember_history(messages: list[dict[str, Any]], run_result: Any) -> None:
+    if run_result is not None and not isinstance(run_result.output, DeferredToolRequests):
+        _HISTORIES[_history_key(messages)] = run_result.all_messages()
+
 
 # Runs paused for approval, kept so the next request can resume them.
 _PAUSED: dict[str, tuple[list[Any], "RunState"]] = {}
@@ -133,11 +168,16 @@ class RunState:
     followups: list[str] = field(default_factory=list)
     errors: int = 0
     nudges: int = 0
+    grounded: int = 0  # "call a tool first" retries used
+    last_reply: str = ""  # reply that got the last goal nudge
+    multi_step: bool = False  # chat prompt chains actions: plan first
     saw_action: bool = False
     motion_approved: bool = False
     resumed: bool = False
     force_motion: bool = False  # this response batches several moves or a new plan
     approved: set[str] = field(default_factory=set)  # call ids the operator OK'd
+    traj: TrajectoryLog | None = None
+    durations: dict[str, float] = field(default_factory=dict)  # call id -> seconds
 
 
 # ───────────────────────────── tool execution ────────────────────────────────
@@ -224,10 +264,35 @@ def _needs_approval(st: RunState, d: ToolDescriptor, args: dict[str, Any]) -> bo
     return False
 
 
+def _task_runner() -> Any:
+    from ..tasks import current_runner
+
+    return current_runner()
+
+
+def _hand_off(st: RunState) -> dict[str, Any] | None:
+    """An approved multi-step plan in chat runs as a background task."""
+    runner = _task_runner()
+    if runner is None or not st.streaming or len(st.goal.get("remaining") or []) < 2:
+        return None
+    try:
+        task = runner.start(st.goal.get("objective") or "", st.goal["remaining"])
+    except RuntimeError as err:
+        return {"status": "error", "error": str(err)}
+    st.goal = {}  # the runner owns the job now; no in-chat nudges
+    return {
+        "status": "ok",
+        "task_id": task["id"],
+        "steps": [step["text"] for step in task["steps"]],
+        "note": "The job now runs in the background step by step and the operator sees "
+        "its progress. Tell them in one sentence that it started; call no more tools.",
+    }
+
+
 def _dispatch(st: RunState, d: ToolDescriptor, args: dict[str, Any]) -> dict[str, Any]:
     if d.name == "set_goal":
         st.goal = apply_goal_update(st.goal, args)
-        return {"status": "ok", "goal": st.goal}
+        return (_is_new_plan(args) and _hand_off(st)) or {"status": "ok", "goal": st.goal}
     if d.is_introspection:
         if d.execute is None:
             return {"error": f"introspection tool {d.name!r} has no executor"}
@@ -251,17 +316,25 @@ def _execute(ctx: RunContext[RunState], d: ToolDescriptor, kwargs: dict[str, Any
     except ValidationError as err:
         raise ModelRetry(f"Invalid arguments for {name}: {err.errors(include_url=False)}")
     args = _plain(kwargs)
+    if name == "set_goal" and st.multi_step and not st.tool_log and len(args.get("remaining") or []) < 2:
+        raise ModelRetry("List the ordered steps in `remaining`, one robot action each, e.g. ['Go to Carrot', 'Water'].")
+    if name == "goto_named" and re.fullmatch(r"\s*[xyz]\s*=?\s*-?\d+(?:\.\d+)?\s*(?:mm)?\s*", str(args.get("name", "")), re.I):
+        raise ModelRetry("That is a coordinate in millimetres, not a place name: call get_position, then move with that axis changed.")
     if _needs_approval(st, d, args) and not ctx.tool_call_approved:
         raise ApprovalRequired
-    if ctx.tool_call_approved:
-        st.motion_approved = True
+    if ctx.tool_call_approved and name == "set_goal":
+        st.motion_approved = True  # an approved plan covers its moves; any other approval covers only that call
     if d.policy.category == ToolCategory.ACT:
         st.saw_action = True
 
     start = time.perf_counter()
     xyz = _current_xyz()
-    if peek_followup():
-        result: Any = {"status": "skipped", "kind": name, "params": args, "note": "skipped: new user instruction"}
+    runner = _task_runner()
+    busy = runner.active_task_id() if runner is not None else None
+    if busy and d.policy.category == ToolCategory.ACT and not st.thread_id.startswith(busy) and name != "e_stop":
+        result: Any = {"status": "error", "kind": name, "params": args, "error": "A background task is driving the robot; stop it first."}
+    elif peek_followup():
+        result = {"status": "skipped", "kind": name, "params": args, "note": "skipped: new user instruction"}
     elif is_cancelled():
         result = {"status": "error", "kind": name, "params": args, "error": "stopped by operator"}
     else:
@@ -270,14 +343,16 @@ def _execute(ctx: RunContext[RunState], d: ToolDescriptor, kwargs: dict[str, Any
         except Exception as err:  # noqa: BLE001
             result = {"error": f"{type(err).__name__}: {err}"}
         record_tool_fact(name, args, result, xyz=xyz, store=getattr(st.loop.registry, "_system_state", None))
-        if name in _MOTION_TOOLS and _succeeded(result):
-            st.motion_approved = True
     if is_enabled():
         log_tool_call(name, args, compact_tool_result(result), latency_s=time.perf_counter() - start, parent=st.weave_call)
     if isinstance(result, dict) and result.get("_resireg_latency_s"):
         st.loop.resireg_s += float(result["_resireg_latency_s"])
 
-    st.tool_log.append({"name": name, "args": args, "result": result})
+    duration_s = round(time.perf_counter() - start, 3)
+    st.durations[ctx.tool_call_id or ""] = duration_s
+    st.tool_log.append(
+        {"name": name, "args": args, "result": result, "duration_s": duration_s, "xyz": xyz}
+    )
     st.results[ctx.tool_call_id] = result
     if isinstance(result, dict) and result.get("status") == "proposed":
         st.proposed.append({"kind": result.get("kind", name), "params": result.get("params", args)})
@@ -318,18 +393,39 @@ class _FarmRules(AbstractCapability[RunState]):
             return False
         return (ctx.run_step <= 1 and not ctx.deps.resumed) or ctx.deps.errors > 0
 
+    @staticmethod
+    def _force_plan(ctx: RunContext[RunState]) -> bool:
+        st = ctx.deps
+        return st.multi_step and not st.tool_log and not st.resumed and "set_goal" in st.loop.registry.by_name()
+
     def get_model_settings(self) -> Callable[[RunContext[RunState]], dict[str, Any]]:
         # `required` with only `think` on offer: local OpenAI-compatible servers
         # honor that far more reliably than a named choice among many tools.
-        return lambda ctx: {"tool_choice": "required"} if self._force_think(ctx) else {}
+        # The same after an ungrounded live claim: the model must look it up now.
+        return lambda ctx: (
+            {"tool_choice": "required"}
+            if self._force_plan(ctx) or self._force_think(ctx) or (ctx.deps.grounded and not ctx.deps.tool_log)
+            else {}
+        )
 
     async def prepare_tools(self, ctx: RunContext[RunState], tool_defs: list[Any]) -> list[Any]:
-        if not self._force_think(ctx):
-            return tool_defs
-        return [t for t in tool_defs if t.name == "think"] or tool_defs
+        if self._force_plan(ctx):
+            return [t for t in tool_defs if t.name == "set_goal"] or tool_defs
+        if self._force_think(ctx):
+            return [t for t in tool_defs if t.name == "think"] or tool_defs
+        if ctx.deps.grounded and not ctx.deps.tool_log:  # look it up: read tools only
+            by_name = ctx.deps.loop.registry.by_name()
+            reads = [t for t in tool_defs if getattr(by_name.get(t.name), "category", None) == ToolCategory.READ]
+            return reads or tool_defs
+        return tool_defs
 
     async def before_model_request(self, ctx: RunContext[RunState], request_context: Any) -> Any:
         """Operator text sent mid-run reaches the model once the tool batch is done."""
+        last = ctx.messages[-1] if ctx.messages else None
+        if ctx.deps.traj is not None and isinstance(last, ModelRequest):
+            for part in last.parts:  # output retries; tool retries already log as failed calls
+                if isinstance(part, RetryPromptPart) and part.tool_name is None:
+                    ctx.deps.traj.record("retry", content=part.model_response())
         followup = drain_followup(ctx.deps.thread_id)
         if is_cancelled(ctx.deps.thread_id):
             return request_context
@@ -428,6 +524,7 @@ class AgentLoop:
         skip_approval: bool = False,
         core_tools: frozenset[str] = CORE_TOOLS,
         force_think: bool = False,
+        trajectory_dir: Any = None,
     ) -> None:
         self.registry = tool_registry
         self.gate = approval_gate
@@ -442,9 +539,38 @@ class AgentLoop:
         self._model_name = model_name
         self._include_reasoning = include_reasoning
         self._max_turns = max_turns
+        self._trajectory_dir = trajectory_dir
         descriptors = [d for d in tool_registry.descriptors() if d.name not in _HIDDEN_TOOLS]
         self._tools = [_build_tool(d, core_tools) for d in descriptors]
         self._agents: dict[bool, Agent[RunState, Any]] = {}
+
+    def _open_trajectory(
+        self, thread_id: str, prompt: str | None, *, planner: bool = False, resume: bool = False
+    ) -> TrajectoryLog | None:
+        directory = trajectory_dir(self._trajectory_dir)
+        if directory is None:
+            return None
+        try:
+            log = TrajectoryLog(thread_id, directory, model_name=self._model_name)
+        except OSError:
+            _log.warning("could not open trajectory dir %s", directory, exc_info=True)
+            return None
+        log.record("run_start", prompt=prompt or "", planner=planner, resume=resume)
+        return log
+
+    @staticmethod
+    def _record_messages(st: RunState, run_result: Any) -> None:
+        if st.traj is None or run_result is None:
+            return
+        try:
+            from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+            dumped = ModelMessagesTypeAdapter.dump_python(
+                run_result.all_messages(), mode="json"
+            )
+            st.traj.record("messages", messages=dumped)
+        except Exception:  # noqa: BLE001 - a log must never break a run
+            _log.warning("trajectory message dump failed", exc_info=True)
 
     def _agent(self, planner: bool) -> Agent[RunState, Any]:
         if planner not in self._agents:
@@ -470,8 +596,21 @@ class AgentLoop:
             @agent.output_validator
             def keep_working(ctx: RunContext[RunState], output: Any) -> Any:
                 st = ctx.deps
-                if isinstance(output, str) and st.goal.get("remaining") and st.nudges < MAX_GOAL_NUDGES:
+                if isinstance(output, str) and not st.tool_log and st.grounded < MAX_GOAL_NUDGES and _LIVE_CLAIM.search(output):
+                    st.grounded += 1
+                    raise ModelRetry(
+                        "[grounding] You made no tool call this turn, yet your reply states live "
+                        "robot facts or claims a tool ran. Earlier messages are not current state. "
+                        "Call the right tool now (e.g. get_position), then answer only from its result."
+                    )
+                # A question to the operator, or the same reply again, means it is
+                # waiting for the user, not stopping early: do not nudge.
+                waiting = isinstance(output, str) and (
+                    output.rstrip().endswith("?") or output.strip() == st.last_reply
+                )
+                if isinstance(output, str) and st.goal.get("remaining") and st.nudges < MAX_GOAL_NUDGES and not waiting:
                     st.nudges += 1
+                    st.last_reply = output.strip()
                     raise ModelRetry(
                         "[continue] The goal still has unfinished steps: "
                         + "; ".join(st.goal["remaining"])
@@ -513,11 +652,14 @@ class AgentLoop:
                 **call,
                 "result": compact_tool_result(result),
                 "images": _sse_images(call["name"], result),
+                "duration_s": st.durations.get(ev.tool_call_id),
             }
             if call["name"] == "think":
                 yield {"type": "thinking", "content": str(call["args"].get("thought", ""))}
             elif call["name"] == "set_goal":
                 yield {"type": "goal", "goal": st.goal}
+                if isinstance(result, dict) and result.get("task_id"):
+                    yield {"type": "task", "task_id": result["task_id"]}
             if call["name"] in _LIVE_POSE_TOOLS and _succeeded(result):
                 xyz = _current_xyz()
                 if xyz:
@@ -552,9 +694,23 @@ class AgentLoop:
                 if isinstance(ev, AgentRunResultEvent):
                     run_result = ev.result
                     continue
-                yield from self._translate(ev, st, calls)
+                handed_off = False
+                for out in self._translate(ev, st, calls):
+                    if st.traj is not None:
+                        st.traj.record(out["type"], **{k: v for k, v in out.items() if k != "type"})
+                    yield out
+                    handed_off = handed_off or out["type"] == "task"
+                if handed_off:  # the task runner owns the job: end the chat turn here
+                    note = "Started. The steps run in the background; progress shows above."
+                    if st.traj is not None:
+                        st.traj.record("delta", content=note)
+                    yield {"type": "delta", "content": note}
+                    break
                 while st.followups:
-                    yield {"type": "followup", "text": st.followups.pop(0)}
+                    followup = {"type": "followup", "text": st.followups.pop(0)}
+                    if st.traj is not None:
+                        st.traj.record("followup", text=followup["text"])
+                    yield followup
                 if stop_after_propose and st.saw_action and isinstance(ev, PartStartEvent):
                     break  # the batch with the proposals is done; stop before the next reply
         except UsageLimitExceeded:
@@ -583,7 +739,15 @@ class AgentLoop:
             metrics._recalc_tokens_per_s()
         return text, stop, metrics
 
-    def _collect(self, st: RunState, prompt: str | None, history: list[Any], *, stop_after_propose: bool) -> AgentTurnResult:
+    def _collect(
+        self,
+        st: RunState,
+        prompt: str | None,
+        history: list[Any],
+        *,
+        stop_after_propose: bool,
+        messages: list[dict[str, Any]] | None = None,
+    ) -> AgentTurnResult:
         started = time.perf_counter()
         thinking: list[str] = []
         for ev in self._drive(st, prompt=prompt, history=history, stop_after_propose=stop_after_propose):
@@ -591,6 +755,17 @@ class AgentLoop:
                 thinking.append(ev["content"])
             elif ev["type"] == "_end":
                 text, stop, metrics = self._finish(st, ev, started)
+                self._record_messages(st, ev["result"])
+                if messages is not None:
+                    _remember_history(messages, ev["result"])
+        if st.traj is not None:
+            st.traj.record(
+                "run_end",
+                stop_reason=stop,
+                response=text,
+                thinking="".join(thinking).strip(),
+                metrics=metrics.to_dict(),
+            )
         return AgentTurnResult(
             response=text or _closing_summary(st.tool_log, stop),
             thinking="".join(thinking).strip() or None,
@@ -603,18 +778,21 @@ class AgentLoop:
     def _split(self, messages: list[dict[str, Any]]) -> tuple[str | None, list[Any]]:
         history = _history(messages, self._include_reasoning)
         if messages and messages[-1].get("role") == "user":
-            return compact_input_text(str(messages[-1].get("content", "") or "")), history[:-1]
+            full = _HISTORIES.get(_history_key(messages[:-1])) if len(messages) > 1 else None
+            return compact_input_text(str(messages[-1].get("content", "") or "")), full or history[:-1]
         return None, history
 
-    def run(self, messages: list[dict[str, Any]]) -> AgentTurnResult:
+    def run(self, messages: list[dict[str, Any]], *, thread_id: str | None = None) -> AgentTurnResult:
         """Run the loop synchronously and return the final result."""
-        st = RunState(self, uuid.uuid4().hex, streaming=False)
         prompt, history = self._split(messages)
-        return self._collect(st, prompt, history, stop_after_propose=False)
+        st = RunState(self, thread_id or uuid.uuid4().hex, streaming=False)
+        st.traj = self._open_trajectory(st.thread_id, prompt)
+        return self._collect(st, prompt, history, stop_after_propose=False, messages=messages)
 
     def plan_request(self, request: str) -> AgentTurnResult:
         """Planner-mode loop: gather introspection, collect action proposals."""
         st = RunState(self, uuid.uuid4().hex, streaming=False, planner=True)
+        st.traj = self._open_trajectory(st.thread_id, request, planner=True)
         return self._collect(st, request, [], stop_after_propose=True)
 
     def stream(
@@ -640,13 +818,16 @@ class AgentLoop:
                 approved = set(resume.get("approved_ids", []))
                 pending = st.results.pop("_pending", [])
                 results = DeferredToolResults(
-                    approvals={i: (True if i in approved else ToolDenied("rejected by approver")) for i in pending}
+                    approvals={i: (True if i in approved else ToolDenied("The operator declined this action, so it did not run. Tell the user it was declined; do not retry it unless they ask.")) for i in pending}
                 )
                 st.resumed, st.weave_call = True, call
                 st.approved = approved
                 prompt = None
+                st.traj = self._open_trajectory(thread_id, None, resume=True)
             else:
                 st = RunState(self, thread_id, streaming=True, weave_call=call)
+                st.multi_step = _task_runner() is not None and bool(_MULTI_STEP.search(prompt or ""))
+                st.traj = self._open_trajectory(thread_id, prompt)
             thinking: list[str] = []
             response: list[str] = []
             for ev in self._drive(st, prompt=prompt, history=history, results=results):
@@ -665,16 +846,31 @@ class AgentLoop:
                     st.results["_pending"] = ids
                     _PAUSED[thread_id] = (run_result.all_messages(), st)
                     output = {"stop_reason": "approval"}
+                    pending = [
+                        {"name": c.tool_name, "args": c.args_as_dict(), "id": c.tool_call_id}
+                        for c in run_result.output.approvals
+                    ]
+                    if st.traj is not None:
+                        st.traj.record("approval", pending_approvals=pending)
+                    self._record_messages(st, run_result)
                     yield {
                         "type": "approval",
                         "thread_id": thread_id,
-                        "pending_approvals": [
-                            {"name": c.tool_name, "args": c.args_as_dict(), "id": c.tool_call_id}
-                            for c in run_result.output.approvals
-                        ],
+                        "pending_approvals": pending,
                     }
                     return
                 text, stop, metrics = self._finish(st, ev, started)
+                self._record_messages(st, run_result)
+                _remember_history(messages, run_result)
+                if st.traj is not None:
+                    st.traj.record(
+                        "run_end",
+                        stop_reason=stop,
+                        response=text or "".join(response).strip(),
+                        thinking="".join(thinking).strip(),
+                        metrics=metrics.to_dict(),
+                        goal=dict(st.goal),
+                    )
                 if not text and not response:
                     text = _closing_summary(st.tool_log, stop)
                     yield {"type": "delta", "content": text}
@@ -708,6 +904,9 @@ class AgentLoop:
                 }
                 yield meta
         except RunCancelled:
+            cancelled_st = locals().get("st")
+            if cancelled_st is not None and cancelled_st.traj is not None:
+                cancelled_st.traj.record("run_end", stop_reason=STOP_CANCELLED)
             output = {"stop_reason": STOP_CANCELLED}
             yield {"type": "delta", "content": "Stopped by the operator."}
             yield {

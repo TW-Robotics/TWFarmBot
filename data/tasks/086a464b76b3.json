@@ -1,0 +1,38 @@
+{
+  "id": "086a464b76b3",
+  "objective": "Go to Carrot, then go to Home, then move to y200",
+  "status": "done",
+  "steps": [
+    {
+      "text": "Go to Carrot",
+      "status": "done",
+      "attempts": 1,
+      "evidence": "The goto_named tool returned a successful status and the get_position tool confirmed the robot is at (x=861.0, y=590.0, z=-300.0), matching the Carrot preset.",
+      "threads": [
+        "086a464b76b3-s1-a1"
+      ]
+    },
+    {
+      "text": "Go to Home",
+      "status": "done",
+      "attempts": 1,
+      "evidence": "The go_to_named tool returned status ok for 'Home' and get_position confirmed the robot's current position is (0, 0, 0) mm.",
+      "threads": [
+        "086a464b76b3-s2-a1"
+      ]
+    },
+    {
+      "text": "Move to y200",
+      "status": "done",
+      "attempts": 1,
+      "evidence": "The move tool returned status 'ok' with coordinates x=0, y=200, z=0, and a subsequent get_position confirmed the robot's position at y200 (y=200, x=0, z=0).",
+      "threads": [
+        "086a464b76b3-s3-a1"
+      ]
+    }
+  ],
+  "replans": 0,
+  "error": "",
+  "created": 1794232117.8473222,
+  "updated": 1794232194.167515
+}

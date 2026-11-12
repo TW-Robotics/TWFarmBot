@@ -172,3 +172,20 @@ def stream_chat(
     )
     resume = None if approved_ids is None else {"approved_ids": list(approved_ids)}
     yield from loop.stream(messages, thread_id=thread_id, resume=resume)
+
+
+def make_task_runner(
+    *,
+    registry: ActionRegistry,
+    system_state: SystemStateProvider | None = None,
+    config: PlannerConfig | None = None,
+    model_name: str | None = None,
+) -> "TaskRunner":
+    """Long-horizon task runner on the same model and tools as chat."""
+    from .tasks import TaskRunner
+
+    cfg, base_model = build_base_model(config=config, model_name=model_name)
+    return TaskRunner(
+        lambda: _make_loop([], registry=registry, system_state=system_state, model=base_model, config=cfg, model_name=model_name),
+        base_model,
+    )
