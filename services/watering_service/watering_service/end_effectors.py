@@ -26,7 +26,7 @@ import logging
 import os
 from typing import Any
 
-from twfarmbot_core.config import load_yaml_config
+from twfarmbot_core.config import load_yaml_config, yaml_config_path
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,27 @@ def describe() -> dict[str, dict[str, list[str]]]:
         name: {"commands": sorted(dev.get("commands") or {}), "status": sorted(dev.get("status") or {})}
         for name, dev in devices().items()
     }
+
+
+def rename(name: str, label: str) -> None:
+    """Set a device's UI label in the YAML config, keeping comments and layout."""
+    from ruamel.yaml import YAML
+
+    label = label.strip()
+    if not label:
+        raise ValueError("label must not be empty")
+    path = yaml_config_path()
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 4096
+    with path.open(encoding="utf-8") as fh:
+        data = yaml.load(fh)
+    device = ((data.get("end_effectors") or {}).get("devices") or {}).get(name)
+    if device is None:
+        raise ValueError(f"No end effector named {name!r}. Configured: {sorted(devices())}")
+    device["label"] = label
+    with path.open("w", encoding="utf-8") as fh:
+        yaml.dump(data, fh)
 
 
 class SimBackend:

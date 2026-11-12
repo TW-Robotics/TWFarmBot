@@ -463,6 +463,21 @@ def get_tools() -> list[dict[str, Any]]:
     ]
 
 
+class ToolLabelPayload(BaseModel):
+    label: str
+
+
+@router.put("/tool/{name}/label")
+def put_tool_label(name: str, payload: ToolLabelPayload) -> dict[str, str]:
+    from watering_service import end_effectors
+
+    try:
+        end_effectors.rename(name, payload.label)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    return {"name": name, "label": payload.label.strip()}
+
+
 @router.get("/tool")
 @router.get("/tool/{name}")
 def get_tool(name: str = "tool") -> dict[str, Any]:

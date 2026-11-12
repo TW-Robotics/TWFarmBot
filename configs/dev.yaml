@@ -93,7 +93,7 @@ end_effectors:
       label: "Tool head"
       hint: "RevPi Modbus register 0 — simple on/off end effector. Stays on until you turn it off."
       commands:
-        "on":  [{register: 0, value: 1}]
+        "on": [{register: 0, value: 1}]
         "off": [{register: 0, value: 0}]
       status:
         # Echo of the commanded word: the slave's input words are read-only
@@ -120,8 +120,7 @@ end_effectors:
 pins:
 - {label: "Pump", pin: 7, mode: digital, kind: valve, group: "Water"}
 - {label: "Water solenoid", pin: 8, mode: digital, kind: valve, group: "Water"}
-- {label: "Cutting end effector", pin: 4, mode: analog, kind: io, group: "Tools",
-  presets: {0: "Off", 120: "Cut", 255: "Max"}}
+- {label: "Cutting end effector", pin: 4, mode: analog, kind: io, group: "Tools", presets: {0: "Off", 120: "Cut", 255: "Max"}}
 - {label: "Tool servo", pin: 10, mode: digital, kind: servo, group: "Tools"}
 - {label: "Soil sensor", pin: 14, mode: analog, kind: sensor, group: "Sensors"}
 - {label: "Light sensor", pin: 15, mode: analog, kind: sensor, group: "Sensors"}
