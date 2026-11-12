@@ -22,7 +22,7 @@ function PlugCard({
 }: {
   title: string;
   hint: string;
-  path: "/tool";
+  path: string;
 }) {
   const toast = useToast();
   const [state, setState] = useState<PlugState | null>(null);
@@ -91,15 +91,28 @@ function PlugCard({
   );
 }
 
+type ToolInfo = { name: string; label: string; hint?: string | null };
+
 export function IoPage() {
+  const [tools, setTools] = useState<ToolInfo[]>([]);
+
+  useEffect(() => {
+    void api<ToolInfo[]>("/tools")
+      .then(setTools)
+      .catch(() => setTools([]));
+  }, []);
+
   return (
     <VStack gap={4}>
       <PageHeader kicker="TWFarmBot · UAS Technikum Wien" title="I/O" />
-      <PlugCard
-        title="Tool head"
-        hint="RevPi Modbus register 0 — simple on/off end effector. Stays on until you turn it off."
-        path="/tool"
-      />
+      {tools.map((t) => (
+        <PlugCard
+          key={t.name}
+          title={t.label}
+          hint={t.hint || "RevPi on/off output. Stays on until you turn it off."}
+          path={`/tool/${encodeURIComponent(t.name)}`}
+        />
+      ))}
     </VStack>
   );
 }
