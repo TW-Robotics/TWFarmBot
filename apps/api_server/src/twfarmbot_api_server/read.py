@@ -452,22 +452,35 @@ def _tool_state(status: dict[str, Any]) -> dict[str, Any]:
     return {"on": any(bool(v) for v in status.values()), "status": status}
 
 
+@router.get("/tools")
+def get_tools() -> list[dict[str, Any]]:
+    from watering_service import end_effectors
+
+    return [
+        {"name": name, "label": dev.get("label") or name, "hint": dev.get("hint")}
+        for name, dev in end_effectors.devices().items()
+        if {"on", "off"} <= set(dev.get("commands") or {})
+    ]
+
+
 @router.get("/tool")
-def get_tool() -> dict[str, Any]:
+@router.get("/tool/{name}")
+def get_tool(name: str = "tool") -> dict[str, Any]:
     from watering_service import end_effectors
 
     try:
-        return _tool_state(end_effectors.status("tool"))
+        return _tool_state(end_effectors.status(name))
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"tool status failed: {err}") from err
 
 
 @router.post("/tool")
-def post_tool(payload: WateringPayload) -> dict[str, Any]:
+@router.post("/tool/{name}")
+def post_tool(payload: WateringPayload, name: str = "tool") -> dict[str, Any]:
     from watering_service import end_effectors
 
     try:
-        result = end_effectors.run("tool", "on" if payload.on else "off")
+        result = end_effectors.run(name, "on" if payload.on else "off")
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"tool control failed: {err}") from err
     return _tool_state(result["status"])

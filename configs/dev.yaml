@@ -90,6 +90,8 @@ end_effectors:
   modbus: {host: "192.168.1.11", port: 502, timeout_s: 2}
   devices:
     tool:
+      label: "Tool head"
+      hint: "RevPi Modbus register 0 — simple on/off end effector. Stays on until you turn it off."
       commands:
         "on":  [{register: 0, value: 1}]
         "off": [{register: 0, value: 0}]
@@ -99,6 +101,15 @@ end_effectors:
         # reports commanded state. A wired feedback input would need a
         # master-side read of the input word instead.
         active: {register: 0}
+    # Spare RevPi DIO relays: register N -> O_(N+1) via scripts/revpi_modbus_bridge.py.
+    # Rename the key/label once something is wired; the agent sees them too.
+    out_2: {label: "Output 2 (O_2)", commands: {"on": [{register: 1, value: 1}], "off": [{register: 1, value: 0}]}, status: {active: {register: 1}}}
+    out_3: {label: "Output 3 (O_3)", commands: {"on": [{register: 2, value: 1}], "off": [{register: 2, value: 0}]}, status: {active: {register: 2}}}
+    out_4: {label: "Output 4 (O_4)", commands: {"on": [{register: 3, value: 1}], "off": [{register: 3, value: 0}]}, status: {active: {register: 3}}}
+    out_5: {label: "Output 5 (O_5)", commands: {"on": [{register: 4, value: 1}], "off": [{register: 4, value: 0}]}, status: {active: {register: 4}}}
+    out_6: {label: "Output 6 (O_6)", commands: {"on": [{register: 5, value: 1}], "off": [{register: 5, value: 0}]}, status: {active: {register: 5}}}
+    out_7: {label: "Output 7 (O_7)", commands: {"on": [{register: 6, value: 1}], "off": [{register: 6, value: 0}]}, status: {active: {register: 6}}}
+    out_8: {label: "Output 8 (O_8)", commands: {"on": [{register: 7, value: 1}], "off": [{register: 7, value: 0}]}, status: {active: {register: 7}}}
 
 # Named pins for the UI: label → {pin, mode, kind, group, presets}.
 #   kind: "valve" | "servo" | "sensor" | "io"
