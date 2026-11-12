@@ -98,7 +98,7 @@ export function IoPage() {
 
   useEffect(() => {
     void api<ToolInfo[]>("/tools")
-      .then(setTools)
+      .then((r) => setTools(Array.isArray(r) ? r : []))
       .catch(() => setTools([]));
   }, []);
 
