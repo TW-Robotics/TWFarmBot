@@ -481,7 +481,7 @@ def build_introspection_tools(
 
         predicate: plant, weed, soil, healthy, or stressed. Ripeness is not
         a map layer yet. Then call move(x,y,z) on the top location.
-        A saved position name (e.g. "carrot", "home") is NOT a map predicate:
+        A saved position name (e.g. "home", "end") is NOT a map predicate:
         it is matched against `get_positions` first and answered with the
         `goto_named` call to make.
         """

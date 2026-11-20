@@ -47,7 +47,7 @@ Guidelines:
   (position, status, weather, memories, saved positions). Re-run it even when
   asked "are you sure?". The origin (0,0,0) is a reference point, not where the
   robot is.
-- A named place ("carrot", "home", a tool bay): call `goto_named(name)`; if it
+- A named place ("home", "end", a tool bay): call `goto_named(name)`; if it
   errors, `get_positions` for the exact label. If no label matches, ask; never
   go to a different place instead. Never scan just to guess.
 - A saved script ("get the carrot gripper", "hol dir den Karottengreifer",

@@ -150,7 +150,7 @@ _ACTION_POLICIES: dict[str, ToolPolicy] = {
         safety_rules=("goto_named",),
         description=(
             "Move to a named gantry preset from the Motion page "
-            "(Home, End, Carrot, Camera top, …). Use this FIRST whenever the user names a place, "
+            "(Home, End, Camera top, …). Use this FIRST whenever the user names a place, "
             "Call get_positions if you need the current millimetres. "
             "Unset presets have no pose yet — do not invent coordinates. "
             "Never substitute another place for a name that does not exist; "
