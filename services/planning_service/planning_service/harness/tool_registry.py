@@ -255,7 +255,7 @@ CORE_TOOLS = frozenset(
     {
         "think", "set_goal", "tool_search", "get_help",
         "get_position", "get_status", "get_positions", "goto_named", "move",
-        "capture", "water", "end_effector",
+        "get_scripts", "run_script", "capture", "water", "end_effector",
         "get_meteorology", "get_forecast", "recall_memories", "remember",
     }
 )
