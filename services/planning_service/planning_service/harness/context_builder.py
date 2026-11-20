@@ -50,6 +50,10 @@ Guidelines:
 - A named place ("carrot", "home", a tool bay): call `goto_named(name)`; if it
   errors, `get_positions` for the exact label. If no label matches, ask; never
   go to a different place instead. Never scan just to guess.
+- A saved script ("get the carrot gripper", "hol dir den Karottengreifer",
+  "run the seeder script"): call `get_scripts`, match the request to the closest
+  label in any language (Karottengreifer = Carrot_Gripper), then `run_script`
+  with that exact label. If nothing fits, ask; never run a different script.
 - Coordinates ("y200", "x 100", "z -50") are millimetres, not names: call
   `get_position`, then `move` with that axis changed and the others kept.
 - Do what the user asked; do not merely describe it. Stay inside the travel box.
